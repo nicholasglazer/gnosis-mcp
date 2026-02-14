@@ -4,13 +4,32 @@
 
 ## Overview
 
-Ansuz exposes a PostgreSQL documentation table as Model Context Protocol (MCP) tools. It provides 3 tools: search_docs (keyword or hybrid semantic+keyword search), get_doc (full document retrieval), and get_related (bidirectional link graph). Built with only 2 dependencies (mcp + asyncpg).
+Ansuz exposes a PostgreSQL documentation table as Model Context Protocol (MCP) tools. It provides 3 tools for AI agents to search and retrieve documentation stored in PostgreSQL.
 
-## Documentation
+## Tools
 
-- [README](README.md): Install, quickstart, config, tools reference
-- [CLAUDE.md](CLAUDE.md): Architecture, design decisions, testing
-- [Source](src/ansuz/): Python package with config, db, server, schema, cli modules
+### search_docs(query: str, category?: str, limit?: int) -> JSON
+Search documentation using keyword (tsvector) or hybrid semantic+keyword search.
+Returns: `[{"file_path", "title", "content_preview", "score"}]`
+
+### get_doc(path: str) -> JSON
+Retrieve full document by file path. Reassembles chunks in order.
+Returns: `{"title", "content", "category", "audience", "tags"}`
+
+### get_related(path: str) -> JSON
+Find related documents via bidirectional link graph.
+Returns: `[{"related_path", "relation_type", "direction"}]`
+
+## Configuration
+
+Set `ANSUZ_DATABASE_URL` (or `DATABASE_URL`). Optional: `ANSUZ_SCHEMA`, `ANSUZ_CHUNKS_TABLE`, `ANSUZ_LINKS_TABLE`, `ANSUZ_SEARCH_FUNCTION`, `ANSUZ_EMBEDDING_DIM`, `ANSUZ_COL_*` for column names.
+
+## Database Schema
+
+Chunks table: `(file_path, chunk_index, title, content, category, audience, tags, embedding, tsv)`
+Links table: `(source_path, target_path, relation_type)`
+
+Run `ansuz init-db` to create tables, or `ansuz init-db --dry-run` to preview SQL.
 
 ## Quick Start
 
@@ -21,6 +40,7 @@ ansuz init-db
 ansuz serve
 ```
 
-## Configuration
+## Documentation
 
-Set ANSUZ_DATABASE_URL (or DATABASE_URL). Optional: ANSUZ_SCHEMA, ANSUZ_CHUNKS_TABLE, ANSUZ_LINKS_TABLE, ANSUZ_SEARCH_FUNCTION, ANSUZ_COL_* for column names.
+- [README](README.md): Install, quickstart, config, tools reference, examples
+- [CLAUDE.md](CLAUDE.md): Architecture, design decisions, rules

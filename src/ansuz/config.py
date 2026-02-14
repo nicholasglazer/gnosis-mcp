@@ -3,12 +3,30 @@
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
+
+# Valid SQL identifier: letters, digits, underscores. Qualified names allow dots.
+_IDENT_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)*$")
+
+
+def _validate_identifier(value: str, name: str) -> str:
+    """Validate a SQL identifier to prevent injection via config values."""
+    if not _IDENT_RE.match(value):
+        raise ValueError(
+            f"Invalid SQL identifier for {name}: {value!r}. "
+            "Only letters, digits, underscores, and dots (for qualified names) are allowed."
+        )
+    return value
 
 
 @dataclass(frozen=True)
 class AnsuzConfig:
-    """Immutable server configuration loaded from environment variables."""
+    """Immutable server configuration loaded from environment variables.
+
+    All identifier fields (schema, table names, column names) are validated
+    against SQL injection on construction.
+    """
 
     database_url: str
 
@@ -17,7 +35,8 @@ class AnsuzConfig:
     links_table: str = "documentation_links"
     search_function: str | None = None
 
-    # Column names (override if your table uses different names)
+    # Column name overrides for connecting to an existing table.
+    # These do NOT affect `ansuz init-db` (which always creates standard column names).
     col_file_path: str = "file_path"
     col_title: str = "title"
     col_content: str = "content"
@@ -36,6 +55,34 @@ class AnsuzConfig:
     # Pool settings
     pool_min: int = 1
     pool_max: int = 3
+
+    # Schema settings
+    embedding_dim: int = 1536
+
+    def __post_init__(self) -> None:
+        """Validate all SQL identifiers after construction."""
+        identifiers = {
+            "schema": self.schema,
+            "chunks_table": self.chunks_table,
+            "links_table": self.links_table,
+            "col_file_path": self.col_file_path,
+            "col_title": self.col_title,
+            "col_content": self.col_content,
+            "col_chunk_index": self.col_chunk_index,
+            "col_category": self.col_category,
+            "col_audience": self.col_audience,
+            "col_tags": self.col_tags,
+            "col_embedding": self.col_embedding,
+            "col_tsv": self.col_tsv,
+            "col_source_path": self.col_source_path,
+            "col_target_path": self.col_target_path,
+            "col_relation_type": self.col_relation_type,
+        }
+        for name, value in identifiers.items():
+            _validate_identifier(value, name)
+
+        if self.search_function is not None:
+            _validate_identifier(self.search_function, "search_function")
 
     @property
     def qualified_chunks_table(self) -> str:
@@ -62,7 +109,12 @@ class AnsuzConfig:
 
         def env_int(key: str, default: int) -> int:
             val = os.environ.get(f"ANSUZ_{key}")
-            return int(val) if val else default
+            if not val:
+                return default
+            try:
+                return int(val)
+            except ValueError:
+                raise ValueError(f"ANSUZ_{key} must be an integer, got: {val!r}") from None
 
         return cls(
             database_url=database_url,
@@ -84,4 +136,5 @@ class AnsuzConfig:
             col_relation_type=env("COL_RELATION_TYPE", "relation_type"),
             pool_min=env_int("POOL_MIN", 1),
             pool_max=env_int("POOL_MAX", 3),
+            embedding_dim=env_int("EMBEDDING_DIM", 1536),
         )

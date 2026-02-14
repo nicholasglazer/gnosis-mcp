@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import json
+import logging
 
 from mcp.server.fastmcp import FastMCP
 
 from ansuz.db import AppContext, app_lifespan
+
+log = logging.getLogger("ansuz")
 
 mcp = FastMCP("ansuz", lifespan=app_lifespan)
 
@@ -31,7 +34,9 @@ async def search_docs(
     try:
         async with ctx.pool.acquire() as conn:
             if cfg.search_function:
-                # Delegate to custom search function (e.g. hybrid semantic+keyword)
+                # Delegate to custom search function (e.g. hybrid semantic+keyword).
+                # Custom functions must return: file_path, title, content, category, combined_score.
+                # These column names are part of the function contract (not ANSUZ_COL_* overrides).
                 rows = await conn.fetch(
                     f"SELECT * FROM {cfg.search_function}("
                     f"p_query_text := $1, p_categories := $2, p_limit := $3)",
@@ -44,14 +49,16 @@ async def search_docs(
                         "file_path": r["file_path"],
                         "title": r["title"],
                         "content_preview": (
-                            r["content"][:200] + "..." if len(r["content"]) > 200 else r["content"]
+                            r["content"][:200] + "..."
+                            if len(r["content"]) > 200
+                            else r["content"]
                         ),
                         "score": round(float(r.get("combined_score", 0)), 4),
                     }
                     for r in rows
                 ]
             else:
-                # Built-in tsvector keyword search
+                # Built-in tsvector keyword search (respects ANSUZ_COL_* overrides)
                 tbl = cfg.qualified_chunks_table
                 rows = await conn.fetch(
                     f"SELECT {cfg.col_file_path}, {cfg.col_title}, {cfg.col_content}, "
@@ -60,7 +67,7 @@ async def search_docs(
                     f"FROM {tbl} "
                     f"WHERE {cfg.col_tsv} @@ websearch_to_tsquery('english', $1) "
                     + (f"AND {cfg.col_category} = $3 " if category else "")
-                    + f"ORDER BY score DESC LIMIT $2",
+                    + "ORDER BY score DESC LIMIT $2",
                     query,
                     limit,
                     *([category] if category else []),
@@ -79,8 +86,9 @@ async def search_docs(
                     for r in rows
                 ]
         return json.dumps(results, indent=2)
-    except Exception as e:
-        return json.dumps({"error": str(e)})
+    except Exception:
+        log.exception("search_docs failed")
+        return json.dumps({"error": f"Search failed for query: {query!r}"})
 
 
 @mcp.tool()
@@ -104,22 +112,23 @@ async def get_doc(path: str) -> str:
                 path,
             )
 
-        if not rows:
-            return json.dumps({"error": f"No document found at path: {path}"})
+            if not rows:
+                return json.dumps({"error": f"No document found at path: {path}"})
 
-        first = rows[0]
-        return json.dumps(
-            {
-                "title": first[cfg.col_title],
-                "content": "\n\n".join(r[cfg.col_content] for r in rows),
-                "category": first[cfg.col_category],
-                "audience": first[cfg.col_audience],
-                "tags": first[cfg.col_tags],
-            },
-            indent=2,
-        )
-    except Exception as e:
-        return json.dumps({"error": str(e)})
+            first = rows[0]
+            return json.dumps(
+                {
+                    "title": first[cfg.col_title],
+                    "content": "\n\n".join(r[cfg.col_content] for r in rows),
+                    "category": first[cfg.col_category],
+                    "audience": first[cfg.col_audience],
+                    "tags": first[cfg.col_tags],
+                },
+                indent=2,
+            )
+    except Exception:
+        log.exception("get_doc failed for path=%s", path)
+        return json.dumps({"error": f"Failed to retrieve document: {path}"})
 
 
 @mcp.tool()
@@ -167,6 +176,17 @@ async def get_related(path: str) -> str:
                 path,
             )
 
-        return json.dumps([dict(r) for r in rows], indent=2)
-    except Exception as e:
-        return json.dumps({"error": str(e)})
+            return json.dumps(
+                [
+                    {
+                        "related_path": r["related_path"],
+                        "relation_type": r["relation_type"],
+                        "direction": r["direction"],
+                    }
+                    for r in rows
+                ],
+                indent=2,
+            )
+    except Exception:
+        log.exception("get_related failed for path=%s", path)
+        return json.dumps({"error": f"Failed to find related documents for: {path}"})

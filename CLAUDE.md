@@ -6,7 +6,7 @@ Open-source Python MCP server for PostgreSQL documentation with pgvector search.
 
 ```
 src/ansuz/
-├── config.py   # AnsuzConfig frozen dataclass, reads ANSUZ_* env vars
+├── config.py   # AnsuzConfig frozen dataclass, ANSUZ_* env vars, identifier validation
 ├── db.py       # asyncpg pool + FastMCP lifespan context manager
 ├── server.py   # FastMCP server + 3 tools (search_docs, get_doc, get_related)
 ├── schema.py   # SQL template for init-db (chunks + links tables)
@@ -19,16 +19,18 @@ Only 2: `mcp>=1.20`, `asyncpg>=0.29`. No click, no pydantic, no ORM.
 
 ## Tools
 
-1. **search_docs** -- keyword (tsvector) or hybrid search via custom function
-2. **get_doc** -- reassemble document chunks by file_path + chunk_index
-3. **get_related** -- bidirectional link graph query
+1. **search_docs(query, category?, limit?)** -- keyword (tsvector) or hybrid search via custom function
+2. **get_doc(path)** -- reassemble document chunks by file_path + chunk_index
+3. **get_related(path)** -- bidirectional link graph query
 
 ## Key Design Decisions
 
 - **FastMCP lifespan pattern**: Pool created once via `app_lifespan()`, shared across tool calls
-- **Custom search delegation**: Set `ANSUZ_SEARCH_FUNCTION` to use your own hybrid search
-- **All column names configurable**: `ANSUZ_COL_*` env vars for any schema
-- **No embedding generation**: Read-only server. Users bring their own embeddings.
+- **SQL injection prevention**: All identifiers validated via regex in `AnsuzConfig.__post_init__()`
+- **Custom search delegation**: Set `ANSUZ_SEARCH_FUNCTION` to use your own hybrid search. The function must return `file_path, title, content, category, combined_score` (fixed contract, not affected by `ANSUZ_COL_*`)
+- **Column overrides**: `ANSUZ_COL_*` are for connecting to existing tables with non-standard names. They do NOT affect `ansuz init-db`
+- **No embedding generation**: Read-only server. Users bring their own embeddings
+- **Configurable embedding dimension**: `ANSUZ_EMBEDDING_DIM` (default 1536) for init-db
 
 ## Testing
 
@@ -37,10 +39,9 @@ pytest tests/               # Unit tests (no DB required)
 ansuz check                 # Integration check against live DB
 ```
 
-## Git Remotes
+## Rules
 
-| Remote | URL |
-|--------|-----|
-| selify | `git@git.selify.ai:selify/ansuz.git` |
-| codeberg | `ssh://git@codeberg.org/miozu/ansuz.git` |
-| github | `git@github.com:miozu-com/ansuz.git` |
+- Keep dependencies minimal (2 only)
+- No pydantic, no click, no ORM
+- All SQL identifiers must be validated
+- Pure functions should be unit-testable without a database

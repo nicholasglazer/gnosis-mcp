@@ -1,10 +1,8 @@
 """Tests for AnsuzConfig."""
 
-import os
-
 import pytest
 
-from ansuz.config import AnsuzConfig
+from ansuz.config import AnsuzConfig, _validate_identifier
 
 
 class TestFromEnv:
@@ -40,6 +38,7 @@ class TestDefaults:
         assert cfg.chunks_table == "documentation_chunks"
         assert cfg.links_table == "documentation_links"
         assert cfg.search_function is None
+        assert cfg.embedding_dim == 1536
 
     def test_qualified_table_names(self, monkeypatch):
         monkeypatch.setenv("ANSUZ_DATABASE_URL", "postgresql://localhost/db")
@@ -83,6 +82,18 @@ class TestCustomConfig:
         assert cfg.pool_min == 2
         assert cfg.pool_max == 10
 
+    def test_embedding_dim(self, monkeypatch):
+        monkeypatch.setenv("ANSUZ_DATABASE_URL", "postgresql://localhost/db")
+        monkeypatch.setenv("ANSUZ_EMBEDDING_DIM", "768")
+        cfg = AnsuzConfig.from_env()
+        assert cfg.embedding_dim == 768
+
+    def test_invalid_int_env_var(self, monkeypatch):
+        monkeypatch.setenv("ANSUZ_DATABASE_URL", "postgresql://localhost/db")
+        monkeypatch.setenv("ANSUZ_POOL_MAX", "abc")
+        with pytest.raises(ValueError, match="ANSUZ_POOL_MAX must be an integer"):
+            AnsuzConfig.from_env()
+
 
 class TestFrozen:
     def test_config_is_immutable(self, monkeypatch):
@@ -90,3 +101,50 @@ class TestFrozen:
         cfg = AnsuzConfig.from_env()
         with pytest.raises(AttributeError):
             cfg.schema = "changed"
+
+
+class TestIdentifierValidation:
+    def test_valid_simple_identifier(self):
+        assert _validate_identifier("public", "test") == "public"
+
+    def test_valid_qualified_identifier(self):
+        assert _validate_identifier("internal.search_docs", "test") == "internal.search_docs"
+
+    def test_valid_underscore_identifier(self):
+        assert _validate_identifier("_my_table_2", "test") == "_my_table_2"
+
+    def test_rejects_sql_injection(self):
+        with pytest.raises(ValueError, match="Invalid SQL identifier"):
+            _validate_identifier("title; DROP TABLE users--", "test")
+
+    def test_rejects_spaces(self):
+        with pytest.raises(ValueError, match="Invalid SQL identifier"):
+            _validate_identifier("my table", "test")
+
+    def test_rejects_quotes(self):
+        with pytest.raises(ValueError, match="Invalid SQL identifier"):
+            _validate_identifier("table'name", "test")
+
+    def test_rejects_semicolons(self):
+        with pytest.raises(ValueError, match="Invalid SQL identifier"):
+            _validate_identifier("a;b", "test")
+
+    def test_rejects_parens(self):
+        with pytest.raises(ValueError, match="Invalid SQL identifier"):
+            _validate_identifier("func()", "test")
+
+    def test_rejects_leading_digit(self):
+        with pytest.raises(ValueError, match="Invalid SQL identifier"):
+            _validate_identifier("1table", "test")
+
+    def test_config_rejects_bad_schema(self, monkeypatch):
+        monkeypatch.setenv("ANSUZ_DATABASE_URL", "postgresql://localhost/db")
+        monkeypatch.setenv("ANSUZ_SCHEMA", "bad schema!")
+        with pytest.raises(ValueError, match="Invalid SQL identifier"):
+            AnsuzConfig.from_env()
+
+    def test_config_rejects_bad_search_function(self, monkeypatch):
+        monkeypatch.setenv("ANSUZ_DATABASE_URL", "postgresql://localhost/db")
+        monkeypatch.setenv("ANSUZ_SEARCH_FUNCTION", "fn(); DROP TABLE--")
+        with pytest.raises(ValueError, match="Invalid SQL identifier"):
+            AnsuzConfig.from_env()

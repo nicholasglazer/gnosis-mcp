@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS {schema}.{chunks_table} (
     category text,
     audience text DEFAULT 'all',
     tags text[],
-    embedding vector(1536),
+    embedding vector({embedding_dim}),
     tsv tsvector GENERATED ALWAYS AS (
         to_tsvector('english', coalesce(title, '') || ' ' || content)
     ) STORED,
@@ -85,9 +85,15 @@ $$;
 
 
 def get_init_sql(config: AnsuzConfig) -> str:
-    """Interpolate config values into the schema SQL template."""
+    """Interpolate config values into the schema SQL template.
+
+    Note: init-db always creates tables with standard column names (file_path,
+    title, content, etc.). ANSUZ_COL_* overrides are for querying existing
+    tables with non-standard column names -- they do not affect init-db.
+    """
     return SCHEMA_SQL.format(
         schema=config.schema,
         chunks_table=config.chunks_table,
         links_table=config.links_table,
+        embedding_dim=config.embedding_dim,
     )
