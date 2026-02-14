@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "stele"
-version = "0.2.0"
+version = "0.3.0"
 description = "MCP server for PostgreSQL documentation with pgvector search"
 readme = "README.md"
 license = "MIT"

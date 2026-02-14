@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import logging
 import sys
 
 from stele import __version__
+
+log = logging.getLogger("stele")
 
 
 def cmd_serve(args: argparse.Namespace) -> None:
@@ -26,7 +29,7 @@ def cmd_init_db(args: argparse.Namespace) -> None:
     sql = get_init_sql(config)
 
     if args.dry_run:
-        print(sql)
+        sys.stdout.write(sql + "\n")
         return
 
     async def _run() -> None:
@@ -35,10 +38,14 @@ def cmd_init_db(args: argparse.Namespace) -> None:
         conn = await asyncpg.connect(config.database_url)
         try:
             await conn.execute(sql)
-            print(f"Created tables in {config.schema}:")
-            print(f"  {config.qualified_chunks_table}")
-            print(f"  {config.qualified_links_table}")
-            print(f"  {config.schema}.search_{config.chunks_table}()")
+            log.info(
+                "Created tables in %s: %s, %s, %s.search_%s()",
+                config.schema,
+                config.qualified_chunks_table,
+                config.qualified_links_table,
+                config.schema,
+                config.chunks_table,
+            )
         finally:
             await conn.close()
 
@@ -54,18 +61,18 @@ def cmd_check(args: argparse.Namespace) -> None:
     async def _run() -> None:
         import asyncpg
 
-        print(f"Connecting to {_mask_url(config.database_url)} ...")
+        log.info("Connecting to %s ...", _mask_url(config.database_url))
         conn = await asyncpg.connect(config.database_url)
         try:
             # Connection
             version = await conn.fetchval("SELECT version()")
-            print(f"  PostgreSQL: {version.split(',')[0]}")
+            log.info("PostgreSQL: %s", version.split(",")[0])
 
             # pgvector
             has_vector = await conn.fetchval(
                 "SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'vector')"
             )
-            print(f"  pgvector: {'installed' if has_vector else 'not installed'}")
+            log.info("pgvector: %s", "installed" if has_vector else "not installed")
 
             # Chunks table
             chunks_exists = await conn.fetchval(
@@ -80,9 +87,9 @@ def cmd_check(args: argparse.Namespace) -> None:
                 count = await conn.fetchval(
                     f"SELECT count(*) FROM {config.qualified_chunks_table}"
                 )
-                print(f"  {config.qualified_chunks_table}: {count} rows")
+                log.info("%s: %d rows", config.qualified_chunks_table, count)
             else:
-                print(f"  {config.qualified_chunks_table}: does not exist")
+                log.warning("%s: does not exist", config.qualified_chunks_table)
 
             # Links table
             links_exists = await conn.fetchval(
@@ -97,9 +104,9 @@ def cmd_check(args: argparse.Namespace) -> None:
                 count = await conn.fetchval(
                     f"SELECT count(*) FROM {config.qualified_links_table}"
                 )
-                print(f"  {config.qualified_links_table}: {count} rows")
+                log.info("%s: %d rows", config.qualified_links_table, count)
             else:
-                print(f"  {config.qualified_links_table}: does not exist")
+                log.warning("%s: does not exist", config.qualified_links_table)
 
             # Custom search function
             if config.search_function:
@@ -116,12 +123,15 @@ def cmd_check(args: argparse.Namespace) -> None:
                     fn_schema,
                     fn_name,
                 )
-                print(
-                    f"  {config.search_function}(): "
-                    f"{'found' if fn_exists else 'NOT FOUND'}"
-                )
+                if fn_exists:
+                    log.info("%s(): found", config.search_function)
+                else:
+                    log.warning("%s(): NOT FOUND", config.search_function)
 
-            print("\nAll checks passed." if chunks_exists else "\nRun `stele init-db` to create tables.")
+            if chunks_exists:
+                log.info("All checks passed.")
+            else:
+                log.info("Run `stele init-db` to create tables.")
         finally:
             await conn.close()
 
@@ -141,6 +151,12 @@ def _mask_url(url: str) -> str:
 
 
 def main() -> None:
+    logging.basicConfig(
+        format="%(name)s: %(message)s",
+        level=logging.INFO,
+        stream=sys.stderr,
+    )
+
     parser = argparse.ArgumentParser(
         prog="stele",
         description="MCP server for PostgreSQL documentation with pgvector search",

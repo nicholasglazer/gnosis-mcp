@@ -12,6 +12,14 @@ from stele.db import AppContext, app_lifespan
 
 log = logging.getLogger("stele")
 
+
+def _row_count(status: str) -> int:
+    """Extract row count from asyncpg status string (e.g. 'DELETE 5' -> 5, 'UPDATE 0' -> 0)."""
+    try:
+        return int(status.rsplit(" ", 1)[-1])
+    except (ValueError, IndexError):
+        return 0
+
 mcp = FastMCP("stele", lifespan=app_lifespan)
 
 
@@ -244,11 +252,13 @@ async def search_docs(
 
 
 @mcp.tool()
-async def get_doc(path: str) -> str:
+async def get_doc(path: str, max_length: int | None = None) -> str:
     """Get full document content by file path. Reassembles all chunks in order.
 
     Args:
         path: Document file path (e.g. "curated/guides/design-system.md").
+        max_length: Optional max characters to return. Truncates with "..." if exceeded.
+            Useful for large documents when you only need a preview.
     """
     ctx = await _get_ctx()
     cfg = ctx.config
@@ -268,16 +278,22 @@ async def get_doc(path: str) -> str:
                 return json.dumps({"error": f"No document found at path: {path}"})
 
             first = rows[0]
-            return json.dumps(
-                {
-                    "title": first[cfg.col_title],
-                    "content": "\n\n".join(r[cfg.col_content] for r in rows),
-                    "category": first[cfg.col_category],
-                    "audience": first[cfg.col_audience],
-                    "tags": first[cfg.col_tags],
-                },
-                indent=2,
-            )
+            content = "\n\n".join(r[cfg.col_content] for r in rows)
+            truncated = False
+            if max_length and len(content) > max_length:
+                content = content[:max_length] + "..."
+                truncated = True
+
+            result = {
+                "title": first[cfg.col_title],
+                "content": content,
+                "category": first[cfg.col_category],
+                "audience": first[cfg.col_audience],
+                "tags": first[cfg.col_tags],
+            }
+            if truncated:
+                result["truncated"] = True
+            return json.dumps(result, indent=2)
     except Exception:
         log.exception("get_doc failed for path=%s", path)
         return json.dumps({"error": f"Failed to retrieve document: {path}"})
@@ -441,7 +457,7 @@ async def delete_doc(path: str) -> str:
                 f"WHERE {cfg.col_file_path} = $1",
                 path,
             )
-            deleted = int(result.split()[-1])  # "DELETE N"
+            deleted = _row_count(result)
 
             # Also clean up links if table exists
             links_exists = await conn.fetchval(
@@ -459,7 +475,7 @@ async def delete_doc(path: str) -> str:
                     f"WHERE {cfg.col_source_path} = $1 OR {cfg.col_target_path} = $1",
                     path,
                 )
-                links_deleted = int(link_result.split()[-1])
+                links_deleted = _row_count(link_result)
 
         if deleted == 0:
             return json.dumps({"error": f"No document found at path: {path}"})
@@ -523,9 +539,6 @@ async def update_metadata(
     if not updates:
         return json.dumps({"error": "No fields to update. Provide at least one of: title, category, audience, tags."})
 
-    # Add updated_at if the column exists
-    updates.append("updated_at = now()")
-
     try:
         async with ctx.pool.acquire() as conn:
             result = await conn.execute(
@@ -534,7 +547,7 @@ async def update_metadata(
                 f"WHERE {cfg.col_file_path} = $1",
                 *params,
             )
-            affected = int(result.split()[-1])  # "UPDATE N"
+            affected = _row_count(result)
 
         if affected == 0:
             return json.dumps({"error": f"No document found at path: {path}"})

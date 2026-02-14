@@ -21,7 +21,7 @@ Only 2: `mcp>=1.20`, `asyncpg>=0.29`. No click, no pydantic, no ORM.
 
 ### Read (always available)
 1. **search_docs(query, category?, limit?)** -- keyword (tsvector) or hybrid search via custom function
-2. **get_doc(path)** -- reassemble document chunks by file_path + chunk_index
+2. **get_doc(path, max_length?)** -- reassemble document chunks by file_path + chunk_index (optional truncation)
 3. **get_related(path)** -- bidirectional link graph query
 
 ### Write (requires STELE_WRITABLE=true)
@@ -49,7 +49,7 @@ Only 2: `mcp>=1.20`, `asyncpg>=0.29`. No click, no pydantic, no ORM.
 ## Testing
 
 ```bash
-pytest tests/               # Unit tests (49 tests, no DB required)
+pytest tests/               # Unit tests (54 tests, no DB required)
 stele check                 # Integration check against live DB
 ```
 

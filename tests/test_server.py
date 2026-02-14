@@ -1,6 +1,6 @@
 """Tests for server helpers (no DB required)."""
 
-from stele.server import _split_chunks
+from stele.server import _row_count, _split_chunks
 
 
 class TestSplitChunks:
@@ -38,3 +38,20 @@ class TestSplitChunks:
         # No paragraph breaks means it falls through to single chunk
         assert len(result) == 1
         assert result[0] == content
+
+
+class TestRowCount:
+    def test_delete_status(self):
+        assert _row_count("DELETE 5") == 5
+
+    def test_update_status(self):
+        assert _row_count("UPDATE 0") == 0
+
+    def test_insert_status(self):
+        assert _row_count("INSERT 0 3") == 3
+
+    def test_empty_string(self):
+        assert _row_count("") == 0
+
+    def test_unexpected_format(self):
+        assert _row_count("UNEXPECTED") == 0

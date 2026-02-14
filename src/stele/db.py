@@ -35,8 +35,8 @@ async def app_lifespan(server) -> AsyncIterator[AppContext]:
             max_size=config.pool_max,
         )
     except (OSError, asyncpg.PostgresError) as exc:
-        print(f"stele: failed to connect to database: {exc}", file=sys.stderr)
-        print("stele: check STELE_DATABASE_URL and ensure PostgreSQL is running", file=sys.stderr)
+        log.error("Failed to connect to database: %s", exc)
+        log.error("Check STELE_DATABASE_URL and ensure PostgreSQL is running")
         raise SystemExit(1) from exc
 
     log.info(
