@@ -43,4 +43,4 @@ class TestMainNoArgs:
         with pytest.raises(SystemExit, match="0"):
             main()
         out = capsys.readouterr().out
-        assert "stele 0.2.0" in out
+        assert "stele 0.3.0" in out
