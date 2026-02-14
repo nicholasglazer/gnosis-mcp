@@ -1,4 +1,4 @@
-"""Configuration via ANSUZ_* environment variables."""
+"""Configuration via STELE_* environment variables."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ def _validate_identifier(value: str, name: str) -> str:
 
 
 @dataclass(frozen=True)
-class AnsuzConfig:
+class SteleConfig:
     """Immutable server configuration loaded from environment variables.
 
     All identifier fields (schema, table names, column names) are validated
@@ -36,7 +36,7 @@ class AnsuzConfig:
     search_function: str | None = None
 
     # Column name overrides for connecting to an existing table.
-    # These do NOT affect `ansuz init-db` (which always creates standard column names).
+    # These do NOT affect `stele init-db` (which always creates standard column names).
     col_file_path: str = "file_path"
     col_title: str = "title"
     col_content: str = "content"
@@ -59,11 +59,20 @@ class AnsuzConfig:
     # Schema settings
     embedding_dim: int = 1536
 
+    # Write mode (disabled by default -- read-only server)
+    writable: bool = False
+
+    # Webhook URL for doc change notifications (optional)
+    webhook_url: str | None = None
+
     def __post_init__(self) -> None:
         """Validate all SQL identifiers after construction."""
+        # Validate each chunks table name individually (supports comma-separated)
+        for table_name in self.chunks_tables:
+            _validate_identifier(table_name, "chunks_table")
+
         identifiers = {
             "schema": self.schema,
-            "chunks_table": self.chunks_table,
             "links_table": self.links_table,
             "col_file_path": self.col_file_path,
             "col_title": self.col_title,
@@ -85,36 +94,52 @@ class AnsuzConfig:
             _validate_identifier(self.search_function, "search_function")
 
     @property
+    def chunks_tables(self) -> list[str]:
+        """Split comma-separated chunks_table into a list."""
+        return [t.strip() for t in self.chunks_table.split(",") if t.strip()]
+
+    @property
     def qualified_chunks_table(self) -> str:
-        return f"{self.schema}.{self.chunks_table}"
+        """Primary chunks table (first in the list)."""
+        return f"{self.schema}.{self.chunks_tables[0]}"
+
+    @property
+    def qualified_chunks_tables(self) -> list[str]:
+        """All qualified chunks table names."""
+        return [f"{self.schema}.{t}" for t in self.chunks_tables]
+
+    @property
+    def multi_table(self) -> bool:
+        """True if configured with multiple chunks tables."""
+        return len(self.chunks_tables) > 1
 
     @property
     def qualified_links_table(self) -> str:
         return f"{self.schema}.{self.links_table}"
 
     @classmethod
-    def from_env(cls) -> AnsuzConfig:
-        """Build config from ANSUZ_* environment variables.
+    def from_env(cls) -> SteleConfig:
+        """Build config from STELE_* environment variables.
 
-        Falls back to DATABASE_URL if ANSUZ_DATABASE_URL is not set.
+        Falls back to DATABASE_URL if STELE_DATABASE_URL is not set.
         """
-        database_url = os.environ.get("ANSUZ_DATABASE_URL") or os.environ.get("DATABASE_URL")
+        database_url = os.environ.get("STELE_DATABASE_URL") or os.environ.get("DATABASE_URL")
         if not database_url:
             raise ValueError(
-                "Set ANSUZ_DATABASE_URL or DATABASE_URL to a PostgreSQL connection string"
+                "Set STELE_DATABASE_URL or DATABASE_URL to a PostgreSQL connection string"
             )
 
         def env(key: str, default: str | None = None) -> str | None:
-            return os.environ.get(f"ANSUZ_{key}", default)
+            return os.environ.get(f"STELE_{key}", default)
 
         def env_int(key: str, default: int) -> int:
-            val = os.environ.get(f"ANSUZ_{key}")
+            val = os.environ.get(f"STELE_{key}")
             if not val:
                 return default
             try:
                 return int(val)
             except ValueError:
-                raise ValueError(f"ANSUZ_{key} must be an integer, got: {val!r}") from None
+                raise ValueError(f"STELE_{key} must be an integer, got: {val!r}") from None
 
         return cls(
             database_url=database_url,
@@ -137,4 +162,6 @@ class AnsuzConfig:
             pool_min=env_int("POOL_MIN", 1),
             pool_max=env_int("POOL_MAX", 3),
             embedding_dim=env_int("EMBEDDING_DIM", 1536),
+            writable=env("WRITABLE", "").lower() in ("1", "true", "yes"),
+            webhook_url=env("WEBHOOK_URL"),
         )

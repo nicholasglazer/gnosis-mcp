@@ -10,9 +10,9 @@ from typing import AsyncIterator
 
 import asyncpg
 
-from ansuz.config import AnsuzConfig
+from stele.config import SteleConfig
 
-log = logging.getLogger("ansuz")
+log = logging.getLogger("stele")
 
 
 @dataclass
@@ -20,13 +20,13 @@ class AppContext:
     """Shared application state for FastMCP tools."""
 
     pool: asyncpg.Pool
-    config: AnsuzConfig
+    config: SteleConfig
 
 
 @asynccontextmanager
 async def app_lifespan(server) -> AsyncIterator[AppContext]:
     """FastMCP lifespan: create pool on startup, close on shutdown."""
-    config = AnsuzConfig.from_env()
+    config = SteleConfig.from_env()
 
     try:
         pool = await asyncpg.create_pool(
@@ -35,12 +35,12 @@ async def app_lifespan(server) -> AsyncIterator[AppContext]:
             max_size=config.pool_max,
         )
     except (OSError, asyncpg.PostgresError) as exc:
-        print(f"ansuz: failed to connect to database: {exc}", file=sys.stderr)
-        print("ansuz: check ANSUZ_DATABASE_URL and ensure PostgreSQL is running", file=sys.stderr)
+        print(f"stele: failed to connect to database: {exc}", file=sys.stderr)
+        print("stele: check STELE_DATABASE_URL and ensure PostgreSQL is running", file=sys.stderr)
         raise SystemExit(1) from exc
 
     log.info(
-        "ansuz started: schema=%s chunks=%s links=%s search_fn=%s",
+        "stele started: schema=%s chunks=%s links=%s search_fn=%s",
         config.schema,
         config.chunks_table,
         config.links_table,

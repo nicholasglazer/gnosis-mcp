@@ -4,7 +4,7 @@ import sys
 
 import pytest
 
-from ansuz.cli import _mask_url, main
+from stele.cli import _mask_url, main
 
 
 class TestMaskUrl:
@@ -34,13 +34,13 @@ class TestMaskUrl:
 
 class TestMainNoArgs:
     def test_no_command_exits_1(self, monkeypatch):
-        monkeypatch.setattr(sys, "argv", ["ansuz"])
+        monkeypatch.setattr(sys, "argv", ["stele"])
         with pytest.raises(SystemExit, match="1"):
             main()
 
     def test_version_flag(self, monkeypatch, capsys):
-        monkeypatch.setattr(sys, "argv", ["ansuz", "--version"])
+        monkeypatch.setattr(sys, "argv", ["stele", "--version"])
         with pytest.raises(SystemExit, match="0"):
             main()
         out = capsys.readouterr().out
-        assert "ansuz 0.1.0" in out
+        assert "stele 0.2.0" in out

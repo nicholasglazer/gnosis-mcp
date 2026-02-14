@@ -1,43 +1,65 @@
-# Ansuz
+# Stele
 
 > MCP server for PostgreSQL documentation with pgvector search
 
 ## Overview
 
-Ansuz exposes a PostgreSQL documentation table as Model Context Protocol (MCP) tools. It provides 3 tools for AI agents to search and retrieve documentation stored in PostgreSQL.
+Stele exposes a PostgreSQL documentation table as Model Context Protocol (MCP) tools and resources. It provides 6 tools and 3 resources for AI agents to search, retrieve, browse, and manage documentation stored in PostgreSQL.
 
 ## Tools
 
-### search_docs(query: str, category?: str, limit?: int) -> JSON
+### Read Tools (always available)
+
+#### search_docs(query: str, category?: str, limit?: int) -> JSON
 Search documentation using keyword (tsvector) or hybrid semantic+keyword search.
 Returns: `[{"file_path", "title", "content_preview", "score"}]`
 
-### get_doc(path: str) -> JSON
+#### get_doc(path: str) -> JSON
 Retrieve full document by file path. Reassembles chunks in order.
 Returns: `{"title", "content", "category", "audience", "tags"}`
 
-### get_related(path: str) -> JSON
+#### get_related(path: str) -> JSON
 Find related documents via bidirectional link graph.
 Returns: `[{"related_path", "relation_type", "direction"}]`
 
+### Write Tools (requires STELE_WRITABLE=true)
+
+#### upsert_doc(path: str, content: str, title?: str, category?: str, audience?: str, tags?: list) -> JSON
+Insert or replace a document. Auto-splits into chunks at paragraph boundaries (~4000 chars).
+Returns: `{"path", "chunks", "action": "upserted"}`
+
+#### delete_doc(path: str) -> JSON
+Delete a document and all its chunks + related links.
+Returns: `{"path", "chunks_deleted", "links_deleted", "action": "deleted"}`
+
+#### update_metadata(path: str, title?: str, category?: str, audience?: str, tags?: list) -> JSON
+Update metadata on all chunks of a document. Only provided fields change.
+Returns: `{"path", "chunks_updated", "action": "metadata_updated"}`
+
+## Resources
+
+- `stele://docs` -- list all documents (path, title, category, chunk count)
+- `stele://docs/{path}` -- read document content by path
+- `stele://categories` -- list categories with doc counts
+
 ## Configuration
 
-Set `ANSUZ_DATABASE_URL` (or `DATABASE_URL`). Optional: `ANSUZ_SCHEMA`, `ANSUZ_CHUNKS_TABLE`, `ANSUZ_LINKS_TABLE`, `ANSUZ_SEARCH_FUNCTION`, `ANSUZ_EMBEDDING_DIM`, `ANSUZ_COL_*` for column names.
+Set `STELE_DATABASE_URL` (or `DATABASE_URL`). Optional: `STELE_SCHEMA`, `STELE_CHUNKS_TABLE` (comma-separated for multi-table), `STELE_LINKS_TABLE`, `STELE_SEARCH_FUNCTION`, `STELE_EMBEDDING_DIM`, `STELE_WRITABLE`, `STELE_WEBHOOK_URL`, `STELE_COL_*` for column names.
 
 ## Database Schema
 
 Chunks table: `(file_path, chunk_index, title, content, category, audience, tags, embedding, tsv)`
 Links table: `(source_path, target_path, relation_type)`
 
-Run `ansuz init-db` to create tables, or `ansuz init-db --dry-run` to preview SQL.
+Run `stele init-db` to create tables, or `stele init-db --dry-run` to preview SQL.
 
 ## Quick Start
 
 ```bash
-pip install ansuz
-export ANSUZ_DATABASE_URL="postgresql://user:pass@localhost:5432/mydb"
-ansuz init-db
-ansuz serve
+pip install stele
+export STELE_DATABASE_URL="postgresql://user:pass@localhost:5432/mydb"
+stele init-db
+stele serve
 ```
 
 ## Documentation

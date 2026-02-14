@@ -6,12 +6,12 @@ import argparse
 import asyncio
 import sys
 
-from ansuz import __version__
+from stele import __version__
 
 
 def cmd_serve(args: argparse.Namespace) -> None:
     """Start the MCP server."""
-    from ansuz.server import mcp
+    from stele.server import mcp
 
     transport = args.transport or "stdio"
     mcp.run(transport=transport)
@@ -19,10 +19,10 @@ def cmd_serve(args: argparse.Namespace) -> None:
 
 def cmd_init_db(args: argparse.Namespace) -> None:
     """Create documentation tables and indexes."""
-    from ansuz.config import AnsuzConfig
-    from ansuz.schema import get_init_sql
+    from stele.config import SteleConfig
+    from stele.schema import get_init_sql
 
-    config = AnsuzConfig.from_env()
+    config = SteleConfig.from_env()
     sql = get_init_sql(config)
 
     if args.dry_run:
@@ -47,9 +47,9 @@ def cmd_init_db(args: argparse.Namespace) -> None:
 
 def cmd_check(args: argparse.Namespace) -> None:
     """Verify database connection and schema."""
-    from ansuz.config import AnsuzConfig
+    from stele.config import SteleConfig
 
-    config = AnsuzConfig.from_env()
+    config = SteleConfig.from_env()
 
     async def _run() -> None:
         import asyncpg
@@ -121,7 +121,7 @@ def cmd_check(args: argparse.Namespace) -> None:
                     f"{'found' if fn_exists else 'NOT FOUND'}"
                 )
 
-            print("\nAll checks passed." if chunks_exists else "\nRun `ansuz init-db` to create tables.")
+            print("\nAll checks passed." if chunks_exists else "\nRun `stele init-db` to create tables.")
         finally:
             await conn.close()
 
@@ -142,10 +142,10 @@ def _mask_url(url: str) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        prog="ansuz",
+        prog="stele",
         description="MCP server for PostgreSQL documentation with pgvector search",
     )
-    parser.add_argument("-V", "--version", action="version", version=f"ansuz {__version__}")
+    parser.add_argument("-V", "--version", action="version", version=f"stele {__version__}")
     sub = parser.add_subparsers(dest="command")
 
     # serve

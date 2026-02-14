@@ -1,12 +1,12 @@
-"""Shared test fixtures for ansuz tests."""
+"""Shared test fixtures for stele tests."""
 
 import pytest
 
-from ansuz.config import AnsuzConfig
+from stele.config import SteleConfig
 
 
 @pytest.fixture
 def default_config(monkeypatch):
     """Config with defaults and a dummy database URL."""
-    monkeypatch.setenv("ANSUZ_DATABASE_URL", "postgresql://localhost/test")
-    return AnsuzConfig.from_env()
+    monkeypatch.setenv("STELE_DATABASE_URL", "postgresql://localhost/test")
+    return SteleConfig.from_env()

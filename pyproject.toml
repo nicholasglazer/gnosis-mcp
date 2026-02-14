@@ -3,8 +3,8 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "ansuz"
-version = "0.1.0"
+name = "stele"
+version = "0.2.0"
 description = "MCP server for PostgreSQL documentation with pgvector search"
 readme = "README.md"
 license = "MIT"
@@ -34,15 +34,15 @@ dev = [
 ]
 
 [project.scripts]
-ansuz = "ansuz.cli:main"
+stele = "stele.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/miozu-com/ansuz"
-Repository = "https://github.com/miozu-com/ansuz"
-Issues = "https://github.com/miozu-com/ansuz/issues"
+Homepage = "https://github.com/miozu-com/stele"
+Repository = "https://github.com/miozu-com/stele"
+Issues = "https://github.com/miozu-com/stele/issues"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/ansuz"]
+packages = ["src/stele"]
 
 [tool.ruff]
 target-version = "py311"
