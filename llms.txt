@@ -1,0 +1,26 @@
+# Ansuz
+
+> MCP server for PostgreSQL documentation with pgvector search
+
+## Overview
+
+Ansuz exposes a PostgreSQL documentation table as Model Context Protocol (MCP) tools. It provides 3 tools: search_docs (keyword or hybrid semantic+keyword search), get_doc (full document retrieval), and get_related (bidirectional link graph). Built with only 2 dependencies (mcp + asyncpg).
+
+## Documentation
+
+- [README](README.md): Install, quickstart, config, tools reference
+- [CLAUDE.md](CLAUDE.md): Architecture, design decisions, testing
+- [Source](src/ansuz/): Python package with config, db, server, schema, cli modules
+
+## Quick Start
+
+```bash
+pip install ansuz
+export ANSUZ_DATABASE_URL="postgresql://user:pass@localhost:5432/mydb"
+ansuz init-db
+ansuz serve
+```
+
+## Configuration
+
+Set ANSUZ_DATABASE_URL (or DATABASE_URL). Optional: ANSUZ_SCHEMA, ANSUZ_CHUNKS_TABLE, ANSUZ_LINKS_TABLE, ANSUZ_SEARCH_FUNCTION, ANSUZ_COL_* for column names.
