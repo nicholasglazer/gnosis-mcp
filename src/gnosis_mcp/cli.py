@@ -1,4 +1,4 @@
-"""Command-line interface: serve, init-db, ingest, check."""
+"""Command-line interface: serve, init-db, ingest, search, check."""
 
 from __future__ import annotations
 
@@ -181,6 +181,74 @@ def cmd_ingest(args: argparse.Namespace) -> None:
     asyncio.run(_run())
 
 
+def cmd_search(args: argparse.Namespace) -> None:
+    """Search documents from the command line."""
+    from gnosis_mcp.config import GnosisMcpConfig
+
+    config = GnosisMcpConfig.from_env()
+    limit = args.limit
+    category = args.category
+
+    async def _run() -> None:
+        import asyncpg
+
+        conn = await asyncpg.connect(config.database_url)
+        try:
+            cfg = config
+            preview = cfg.content_preview_chars
+
+            if cfg.search_function:
+                rows = await conn.fetch(
+                    f"SELECT * FROM {cfg.search_function}("
+                    f"p_query_text := $1, p_categories := $2, p_limit := $3)",
+                    args.query,
+                    [category] if category else None,
+                    limit,
+                )
+                for r in rows:
+                    score = round(float(r.get("combined_score", 0)), 4)
+                    content = r["content"]
+                    snippet = content[:preview] + "..." if len(content) > preview else content
+                    sys.stdout.write(f"\n  {r['file_path']}  (score: {score})\n")
+                    sys.stdout.write(f"  {r['title']}\n")
+                    sys.stdout.write(f"  {snippet}\n")
+            else:
+                select = (
+                    f"{cfg.col_file_path}, {cfg.col_title}, {cfg.col_content}, "
+                    f"ts_rank({cfg.col_tsv}, websearch_to_tsquery('english', $1)) AS score"
+                )
+                where = f"{cfg.col_tsv} @@ websearch_to_tsquery('english', $1)"
+                if category:
+                    where += f" AND {cfg.col_category} = $3"
+
+                sql = (
+                    f"SELECT {select} FROM {cfg.qualified_chunks_table} "
+                    f"WHERE {where} ORDER BY score DESC LIMIT $2"
+                )
+                params = [args.query, limit]
+                if category:
+                    params.append(category)
+
+                rows = await conn.fetch(sql, *params)
+                for r in rows:
+                    score = round(float(r["score"]), 4)
+                    content = r[cfg.col_content]
+                    snippet = content[:preview] + "..." if len(content) > preview else content
+                    sys.stdout.write(f"\n  {r[cfg.col_file_path]}  (score: {score})\n")
+                    sys.stdout.write(f"  {r[cfg.col_title]}\n")
+                    sys.stdout.write(f"  {snippet}\n")
+
+            if not rows:
+                log.info("No results for: %s", args.query)
+            else:
+                sys.stdout.write(f"\n  {len(rows)} result(s)\n")
+
+        finally:
+            await conn.close()
+
+    asyncio.run(_run())
+
+
 def _mask_url(url: str) -> str:
     """Mask password in connection URL for display."""
     if ":" not in url or "@" not in url:
@@ -228,6 +296,12 @@ def main() -> None:
     p_ingest.add_argument("path", help="File or directory to ingest")
     p_ingest.add_argument("--dry-run", action="store_true", help="Show what would be ingested")
 
+    # search
+    p_search = sub.add_parser("search", help="Search documents from the command line")
+    p_search.add_argument("query", help="Search query text")
+    p_search.add_argument("-n", "--limit", type=int, default=5, help="Max results (default: 5)")
+    p_search.add_argument("-c", "--category", default=None, help="Filter by category")
+
     # check
     sub.add_parser("check", help="Verify database connection and schema")
 
@@ -240,6 +314,7 @@ def main() -> None:
         "serve": cmd_serve,
         "init-db": cmd_init_db,
         "ingest": cmd_ingest,
+        "search": cmd_search,
         "check": cmd_check,
     }
     commands[args.command](args)

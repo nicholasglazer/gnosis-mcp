@@ -120,11 +120,12 @@ And return columns: file_path, title, content, category, combined_score.
 ## CLI
 
 ```
-gnosis-mcp serve [--transport stdio|sse]   # Start MCP server
-gnosis-mcp init-db [--dry-run]             # Create tables (or preview SQL)
-gnosis-mcp ingest <path> [--dry-run]       # Load markdown files into PostgreSQL
-gnosis-mcp check                           # Verify connection + schema
-gnosis-mcp --version                       # Show version
+gnosis-mcp serve [--transport stdio|sse]          # Start MCP server
+gnosis-mcp init-db [--dry-run]                    # Create tables (or preview SQL)
+gnosis-mcp ingest <path> [--dry-run]              # Load markdown files
+gnosis-mcp search <query> [-n LIMIT] [-c CAT]     # Search from the CLI
+gnosis-mcp check                                  # Verify connection + schema
+gnosis-mcp --version                              # Show version
 ```
 
 ## Ingest
@@ -148,7 +149,7 @@ src/gnosis_mcp/
 ├── server.py   # FastMCP server: 6 tools + 3 resources + webhook helper
 ├── ingest.py   # File scanner: markdown chunking, frontmatter, content hashing
 ├── schema.py   # SQL template for init-db (chunks + links tables)
-└── cli.py      # argparse CLI: serve, init-db, ingest, check
+└── cli.py      # argparse CLI: serve, init-db, ingest, search, check
 ```
 
 Dependencies: mcp>=1.20, asyncpg>=0.29 (2 total).

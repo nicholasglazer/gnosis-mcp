@@ -31,9 +31,10 @@ Gnosis MCP exposes your PostgreSQL documentation table as [Model Context Protoco
 ```bash
 pip install gnosis-mcp
 export GNOSIS_MCP_DATABASE_URL="postgresql://user:pass@localhost:5432/mydb"
-gnosis-mcp init-db          # create tables (idempotent)
-gnosis-mcp ingest ./docs/   # load markdown files
-gnosis-mcp serve             # start MCP server
+gnosis-mcp init-db              # create tables
+gnosis-mcp ingest ./docs/       # load markdown files
+gnosis-mcp search "auth flow"   # verify it works
+gnosis-mcp serve                 # start MCP server
 ```
 
 Or run without installing:
@@ -41,8 +42,6 @@ Or run without installing:
 ```bash
 uvx gnosis-mcp serve
 ```
-
-That's it. Your AI agent can now search and read your docs.
 
 ### Add to your MCP client
 
@@ -253,12 +252,13 @@ All tables must share the same column structure. Reads use `UNION ALL` across al
 ## CLI
 
 ```
-gnosis-mcp serve [--transport stdio|sse]   Start MCP server (default: stdio)
-gnosis-mcp init-db [--dry-run]             Create tables or preview SQL
-gnosis-mcp ingest <path> [--dry-run]       Load markdown files into PostgreSQL
-gnosis-mcp check                           Verify connection + schema
-gnosis-mcp --version                       Show version
-python -m gnosis_mcp                       Alternative entry point
+gnosis-mcp serve [--transport stdio|sse]          Start MCP server
+gnosis-mcp init-db [--dry-run]                    Create tables or preview SQL
+gnosis-mcp ingest <path> [--dry-run]              Load markdown files
+gnosis-mcp search <query> [-n LIMIT] [-c CAT]     Search from the command line
+gnosis-mcp check                                  Verify connection + schema
+gnosis-mcp --version                              Show version
+python -m gnosis_mcp                              Alternative entry point
 ```
 
 ## Development
@@ -281,7 +281,7 @@ src/gnosis_mcp/
 ├── server.py    FastMCP server — 6 tools, 3 resources, webhook helper
 ├── ingest.py    File scanner — markdown chunking, frontmatter, content hashing
 ├── schema.py    SQL template for init-db (chunks + links + search function)
-└── cli.py       argparse CLI — serve, init-db, ingest, check
+└── cli.py       argparse CLI — serve, init-db, ingest, search, check
 ```
 
 ## AI-Friendly Docs

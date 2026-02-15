@@ -11,7 +11,7 @@ src/gnosis_mcp/
 ├── server.py   # FastMCP server: 6 tools + 3 resources + webhook helper
 ├── ingest.py   # File ingestion: scan markdown, chunk by H2, frontmatter, content hashing
 ├── schema.py   # SQL template for init-db (chunks + links tables)
-└── cli.py      # argparse CLI: serve, init-db, ingest, check
+└── cli.py      # argparse CLI: serve, init-db, ingest, search, check
 ```
 
 ## Dependencies
