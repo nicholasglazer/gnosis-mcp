@@ -4,7 +4,7 @@ import sys
 
 import pytest
 
-from gnosis_mcp.cli import _mask_url, main
+from gnosis_mcp.cli import _human_size, _mask_url, main
 
 
 class TestMaskUrl:
@@ -30,6 +30,24 @@ class TestMaskUrl:
         result = _mask_url(url)
         assert "***@host:5432/db" in result
         assert "p@ss" not in result
+
+
+class TestHumanSize:
+    def test_bytes(self):
+        assert _human_size(512) == "512 B"
+
+    def test_kilobytes(self):
+        assert _human_size(2048) == "2.0 KB"
+
+    def test_megabytes(self):
+        assert _human_size(5 * 1024 * 1024) == "5.0 MB"
+
+    def test_zero(self):
+        assert _human_size(0) == "0 B"
+
+    def test_large(self):
+        result = _human_size(1_500_000_000)
+        assert "GB" in result
 
 
 class TestMainNoArgs:

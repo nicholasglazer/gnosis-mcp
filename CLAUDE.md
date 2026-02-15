@@ -11,7 +11,7 @@ src/gnosis_mcp/
 ├── server.py   # FastMCP server: 6 tools + 3 resources + webhook helper
 ├── ingest.py   # File ingestion: scan markdown, chunk by H2, frontmatter, content hashing
 ├── schema.py   # SQL template for init-db (chunks + links tables)
-└── cli.py      # argparse CLI: serve, init-db, ingest, search, check
+└── cli.py      # argparse CLI: serve, init-db, ingest, search, stats, export, check
 ```
 
 ## Dependencies
@@ -52,7 +52,7 @@ Only 2: `mcp>=1.20`, `asyncpg>=0.29`. No click, no pydantic, no ORM.
 ## Testing
 
 ```bash
-pytest tests/               # Unit tests (92 tests, no DB required)
+pytest tests/               # Unit tests (97 tests, no DB required)
 gnosis-mcp check            # Integration check against live DB
 ```
 

@@ -61,6 +61,8 @@ export GNOSIS_MCP_DATABASE_URL="postgresql://user:pass@localhost:5432/mydb"
 gnosis-mcp init-db
 gnosis-mcp ingest ./docs/
 gnosis-mcp search "getting started"
+gnosis-mcp stats
+gnosis-mcp export -f json > backup.json
 gnosis-mcp serve
 ```
 

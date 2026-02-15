@@ -1,9 +1,10 @@
-"""Command-line interface: serve, init-db, ingest, search, check."""
+"""Command-line interface: serve, init-db, ingest, search, stats, export, check."""
 
 from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import logging
 import os
 import sys
@@ -19,6 +20,24 @@ def cmd_serve(args: argparse.Namespace) -> None:
     from gnosis_mcp.server import mcp
 
     config = GnosisMcpConfig.from_env()
+
+    if args.ingest:
+        from gnosis_mcp.ingest import ingest_path
+
+        async def _ingest() -> None:
+            results = await ingest_path(
+                database_url=config.database_url,
+                root=args.ingest,
+                schema=config.schema,
+                chunks_table=config.chunks_tables[0],
+            )
+            ingested = sum(1 for r in results if r.action == "ingested")
+            unchanged = sum(1 for r in results if r.action == "unchanged")
+            total = sum(r.chunks for r in results)
+            log.info("Ingest: %d new, %d unchanged (%d total chunks)", ingested, unchanged, total)
+
+        asyncio.run(_ingest())
+
     transport = args.transport or config.transport
     mcp.run(transport=transport)
 
@@ -249,6 +268,148 @@ def cmd_search(args: argparse.Namespace) -> None:
     asyncio.run(_run())
 
 
+def cmd_stats(args: argparse.Namespace) -> None:
+    """Show documentation statistics."""
+    from gnosis_mcp.config import GnosisMcpConfig
+
+    config = GnosisMcpConfig.from_env()
+
+    async def _run() -> None:
+        import asyncpg
+
+        conn = await asyncpg.connect(config.database_url)
+        try:
+            cfg = config
+            qt = cfg.qualified_chunks_table
+
+            # Total chunks
+            total = await conn.fetchval(f"SELECT count(*) FROM {qt}")
+
+            # Unique documents
+            docs = await conn.fetchval(
+                f"SELECT count(DISTINCT {cfg.col_file_path}) FROM {qt}"
+            )
+
+            # Categories breakdown
+            cats = await conn.fetch(
+                f"SELECT {cfg.col_category} AS cat, count(DISTINCT {cfg.col_file_path}) AS docs, "
+                f"count(*) AS chunks "
+                f"FROM {qt} GROUP BY {cfg.col_category} ORDER BY docs DESC"
+            )
+
+            # Total content size
+            size = await conn.fetchval(
+                f"SELECT coalesce(sum(length({cfg.col_content})), 0) FROM {qt}"
+            )
+
+            sys.stdout.write(f"\n  {qt}\n")
+            sys.stdout.write(f"  Documents: {docs}\n")
+            sys.stdout.write(f"  Chunks:    {total}\n")
+            sys.stdout.write(f"  Content:   {_human_size(size)}\n\n")
+
+            if cats:
+                sys.stdout.write("  Category              Docs  Chunks\n")
+                sys.stdout.write("  --------------------  ----  ------\n")
+                for r in cats:
+                    cat = r["cat"] or "(none)"
+                    sys.stdout.write(f"  {cat:<22}{r['docs']:>4}  {r['chunks']:>6}\n")
+                sys.stdout.write("\n")
+
+            # Links
+            links_exists = await conn.fetchval(
+                "SELECT EXISTS ("
+                "  SELECT 1 FROM information_schema.tables"
+                "  WHERE table_schema = $1 AND table_name = $2"
+                ")",
+                cfg.schema,
+                cfg.links_table,
+            )
+            if links_exists:
+                link_count = await conn.fetchval(
+                    f"SELECT count(*) FROM {cfg.qualified_links_table}"
+                )
+                sys.stdout.write(f"  Links: {link_count}\n")
+        finally:
+            await conn.close()
+
+    asyncio.run(_run())
+
+
+def cmd_export(args: argparse.Namespace) -> None:
+    """Export documents as JSON or markdown."""
+    from gnosis_mcp.config import GnosisMcpConfig
+
+    config = GnosisMcpConfig.from_env()
+    fmt = args.format
+    category = args.category
+
+    async def _run() -> None:
+        import asyncpg
+
+        conn = await asyncpg.connect(config.database_url)
+        try:
+            cfg = config
+            qt = cfg.qualified_chunks_table
+
+            where = ""
+            params: list = []
+            if category:
+                where = f" WHERE {cfg.col_category} = $1"
+                params = [category]
+
+            rows = await conn.fetch(
+                f"SELECT {cfg.col_file_path}, {cfg.col_chunk_index}, "
+                f"{cfg.col_title}, {cfg.col_content}, {cfg.col_category} "
+                f"FROM {qt}{where} "
+                f"ORDER BY {cfg.col_file_path}, {cfg.col_chunk_index}",
+                *params,
+            )
+
+            # Reassemble chunks into documents
+            docs: dict[str, dict] = {}
+            for r in rows:
+                fp = r[cfg.col_file_path]
+                if fp not in docs:
+                    docs[fp] = {
+                        "file_path": fp,
+                        "title": r[cfg.col_title],
+                        "category": r[cfg.col_category],
+                        "content": "",
+                    }
+                docs[fp]["content"] += r[cfg.col_content] + "\n\n"
+
+            # Strip trailing whitespace
+            for d in docs.values():
+                d["content"] = d["content"].rstrip()
+
+            if fmt == "json":
+                json.dump(list(docs.values()), sys.stdout, indent=2)
+                sys.stdout.write("\n")
+            else:
+                # markdown: each doc as its own section
+                for d in docs.values():
+                    sys.stdout.write(f"---\nfile_path: {d['file_path']}\n")
+                    sys.stdout.write(f"title: {d['title']}\n")
+                    sys.stdout.write(f"category: {d['category']}\n---\n\n")
+                    sys.stdout.write(d["content"])
+                    sys.stdout.write("\n\n")
+
+            log.info("Exported %d document(s)", len(docs))
+        finally:
+            await conn.close()
+
+    asyncio.run(_run())
+
+
+def _human_size(nbytes: int) -> str:
+    """Format byte count as human-readable string."""
+    for unit in ("B", "KB", "MB", "GB"):
+        if nbytes < 1024:
+            return f"{nbytes:,.0f} {unit}" if unit == "B" else f"{nbytes:,.1f} {unit}"
+        nbytes /= 1024
+    return f"{nbytes:,.1f} TB"
+
+
 def _mask_url(url: str) -> str:
     """Mask password in connection URL for display."""
     if ":" not in url or "@" not in url:
@@ -286,6 +447,12 @@ def main() -> None:
         default=None,
         help="Transport protocol (default: from GNOSIS_MCP_TRANSPORT or stdio)",
     )
+    p_serve.add_argument(
+        "--ingest",
+        metavar="PATH",
+        default=None,
+        help="Ingest markdown files from PATH before starting the server",
+    )
 
     # init-db
     p_init = sub.add_parser("init-db", help="Create documentation tables")
@@ -302,6 +469,16 @@ def main() -> None:
     p_search.add_argument("-n", "--limit", type=int, default=5, help="Max results (default: 5)")
     p_search.add_argument("-c", "--category", default=None, help="Filter by category")
 
+    # stats
+    sub.add_parser("stats", help="Show documentation statistics")
+
+    # export
+    p_export = sub.add_parser("export", help="Export documents as JSON or markdown")
+    p_export.add_argument(
+        "-f", "--format", choices=["json", "markdown"], default="json", help="Output format (default: json)"
+    )
+    p_export.add_argument("-c", "--category", default=None, help="Filter by category")
+
     # check
     sub.add_parser("check", help="Verify database connection and schema")
 
@@ -315,6 +492,8 @@ def main() -> None:
         "init-db": cmd_init_db,
         "ingest": cmd_ingest,
         "search": cmd_search,
+        "stats": cmd_stats,
+        "export": cmd_export,
         "check": cmd_check,
     }
     commands[args.command](args)

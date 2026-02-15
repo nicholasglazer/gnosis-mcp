@@ -155,6 +155,8 @@ Add to Cline MCP settings:
 
 - **File ingestion** — `gnosis-mcp ingest ./docs/` scans markdown, chunks by H2 headings, loads into PostgreSQL
 - **Hybrid search** — built-in tsvector keyword search, or bring your own semantic+keyword function
+- **CLI search & stats** — `gnosis-mcp search`, `gnosis-mcp stats`, `gnosis-mcp export` for quick access without MCP
+- **Docker ready** — Dockerfile + docker-compose.yml included
 - **Multi-table** — query across multiple doc tables with `GNOSIS_MCP_CHUNKS_TABLE=docs_v1,docs_v2`
 - **Write mode** — insert, update, delete docs via MCP tools (opt-in)
 - **Webhooks** — get notified on doc changes via `GNOSIS_MCP_WEBHOOK_URL`
@@ -252,13 +254,28 @@ All tables must share the same column structure. Reads use `UNION ALL` across al
 ## CLI
 
 ```
-gnosis-mcp serve [--transport stdio|sse]          Start MCP server
-gnosis-mcp init-db [--dry-run]                    Create tables or preview SQL
-gnosis-mcp ingest <path> [--dry-run]              Load markdown files
-gnosis-mcp search <query> [-n LIMIT] [-c CAT]     Search from the command line
-gnosis-mcp check                                  Verify connection + schema
-gnosis-mcp --version                              Show version
-python -m gnosis_mcp                              Alternative entry point
+gnosis-mcp serve [--transport stdio|sse] [--ingest PATH]   Start MCP server (optionally ingest first)
+gnosis-mcp init-db [--dry-run]                             Create tables or preview SQL
+gnosis-mcp ingest <path> [--dry-run]                       Load markdown files
+gnosis-mcp search <query> [-n LIMIT] [-c CAT]              Search from the command line
+gnosis-mcp stats                                           Show document/chunk/category counts
+gnosis-mcp export [-f json|markdown] [-c CAT]              Export documents as JSON or markdown
+gnosis-mcp check                                           Verify connection + schema
+gnosis-mcp --version                                       Show version
+python -m gnosis_mcp                                       Alternative entry point
+```
+
+## Docker
+
+```bash
+docker compose up        # Starts gnosis-mcp + pgvector database
+```
+
+Or build standalone:
+
+```bash
+docker build -t gnosis-mcp .
+docker run -e GNOSIS_MCP_DATABASE_URL=postgresql://... gnosis-mcp serve
 ```
 
 ## Development
@@ -268,7 +285,7 @@ git clone https://github.com/nicholasglazer/gnosis-mcp.git
 cd gnosis-mcp
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
-pytest                    # 92 tests, no database required
+pytest                    # 97 tests, no database required
 ruff check src/ tests/    # lint
 ```
 
@@ -281,7 +298,7 @@ src/gnosis_mcp/
 ├── server.py    FastMCP server — 6 tools, 3 resources, webhook helper
 ├── ingest.py    File scanner — markdown chunking, frontmatter, content hashing
 ├── schema.py    SQL template for init-db (chunks + links + search function)
-└── cli.py       argparse CLI — serve, init-db, ingest, search, check
+└── cli.py       argparse CLI — serve, init-db, ingest, search, stats, export, check
 ```
 
 ## AI-Friendly Docs

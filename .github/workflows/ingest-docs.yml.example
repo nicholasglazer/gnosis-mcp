@@ -1,0 +1,24 @@
+# Example: Auto-ingest docs on push to main
+# Copy this file to .github/workflows/ingest-docs.yml and configure secrets.
+name: Ingest Documentation
+
+on:
+  push:
+    branches: [main]
+    paths: ["docs/**"]
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - run: pip install gnosis-mcp
+
+      - run: gnosis-mcp ingest ./docs/
+        env:
+          GNOSIS_MCP_DATABASE_URL: ${{ secrets.DATABASE_URL }}
