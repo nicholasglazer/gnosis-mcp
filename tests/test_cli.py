@@ -4,7 +4,7 @@ import sys
 
 import pytest
 
-from stele.cli import _mask_url, main
+from gnosis_mcp.cli import _mask_url, main
 
 
 class TestMaskUrl:
@@ -34,13 +34,13 @@ class TestMaskUrl:
 
 class TestMainNoArgs:
     def test_no_command_exits_1(self, monkeypatch):
-        monkeypatch.setattr(sys, "argv", ["stele"])
+        monkeypatch.setattr(sys, "argv", ["gnosis-mcp"])
         with pytest.raises(SystemExit, match="1"):
             main()
 
     def test_version_flag(self, monkeypatch, capsys):
-        monkeypatch.setattr(sys, "argv", ["stele", "--version"])
+        monkeypatch.setattr(sys, "argv", ["gnosis-mcp", "--version"])
         with pytest.raises(SystemExit, match="0"):
             main()
         out = capsys.readouterr().out
-        assert "stele 0.3.0" in out
+        assert "gnosis-mcp 0.4.0" in out

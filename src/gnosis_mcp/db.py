@@ -10,9 +10,9 @@ from typing import AsyncIterator
 
 import asyncpg
 
-from stele.config import SteleConfig
+from gnosis_mcp.config import GnosisMcpConfig
 
-log = logging.getLogger("stele")
+log = logging.getLogger("gnosis_mcp")
 
 
 @dataclass
@@ -20,13 +20,13 @@ class AppContext:
     """Shared application state for FastMCP tools."""
 
     pool: asyncpg.Pool
-    config: SteleConfig
+    config: GnosisMcpConfig
 
 
 @asynccontextmanager
 async def app_lifespan(server) -> AsyncIterator[AppContext]:
     """FastMCP lifespan: create pool on startup, close on shutdown."""
-    config = SteleConfig.from_env()
+    config = GnosisMcpConfig.from_env()
 
     try:
         pool = await asyncpg.create_pool(
@@ -36,11 +36,11 @@ async def app_lifespan(server) -> AsyncIterator[AppContext]:
         )
     except (OSError, asyncpg.PostgresError) as exc:
         log.error("Failed to connect to database: %s", exc)
-        log.error("Check STELE_DATABASE_URL and ensure PostgreSQL is running")
+        log.error("Check GNOSIS_MCP_DATABASE_URL and ensure PostgreSQL is running")
         raise SystemExit(1) from exc
 
     log.info(
-        "stele started: schema=%s chunks=%s links=%s search_fn=%s",
+        "gnosis-mcp started: schema=%s chunks=%s links=%s search_fn=%s",
         config.schema,
         config.chunks_table,
         config.links_table,

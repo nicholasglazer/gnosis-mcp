@@ -1,6 +1,6 @@
 """Tests for server helpers (no DB required)."""
 
-from stele.server import _row_count, _split_chunks
+from gnosis_mcp.server import _row_count, _split_chunks
 
 
 class TestSplitChunks:

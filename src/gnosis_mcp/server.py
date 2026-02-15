@@ -8,9 +8,9 @@ from datetime import datetime, timezone
 
 from mcp.server.fastmcp import FastMCP
 
-from stele.db import AppContext, app_lifespan
+from gnosis_mcp.db import AppContext, app_lifespan
 
-log = logging.getLogger("stele")
+log = logging.getLogger("gnosis_mcp")
 
 
 def _row_count(status: str) -> int:
@@ -20,7 +20,7 @@ def _row_count(status: str) -> int:
     except (ValueError, IndexError):
         return 0
 
-mcp = FastMCP("stele", lifespan=app_lifespan)
+mcp = FastMCP("gnosis-mcp", lifespan=app_lifespan)
 
 
 # ---------------------------------------------------------------------------
@@ -69,7 +69,7 @@ async def _notify_webhook(ctx: AppContext, action: str, path: str) -> None:
         req = urllib.request.Request(
             url, data=payload, headers={"Content-Type": "application/json"}, method="POST"
         )
-        urllib.request.urlopen(req, timeout=5)
+        urllib.request.urlopen(req, timeout=ctx.config.webhook_timeout)
         log.info("webhook notified: action=%s path=%s", action, path)
     except Exception:
         log.warning("webhook failed for %s (url=%s)", path, url, exc_info=True)
@@ -80,7 +80,7 @@ async def _notify_webhook(ctx: AppContext, action: str, path: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-@mcp.resource("stele://docs")
+@mcp.resource("gnosis://docs")
 async def list_docs() -> str:
     """List all documents with title, category, and chunk count."""
     ctx = await _get_ctx()
@@ -117,7 +117,7 @@ async def list_docs() -> str:
         return json.dumps({"error": "Failed to list documents"})
 
 
-@mcp.resource("stele://docs/{path}")
+@mcp.resource("gnosis://docs/{path}")
 async def read_doc_resource(path: str) -> str:
     """Read a document by path as an MCP resource. Reassembles chunks."""
     ctx = await _get_ctx()
@@ -139,7 +139,7 @@ async def read_doc_resource(path: str) -> str:
         return json.dumps({"error": f"Failed to read document: {path}"})
 
 
-@mcp.resource("stele://categories")
+@mcp.resource("gnosis://categories")
 async def list_categories() -> str:
     """List all document categories with counts."""
     ctx = await _get_ctx()
@@ -187,14 +187,15 @@ async def search_docs(
     """
     ctx = await _get_ctx()
     cfg = ctx.config
-    limit = max(1, min(20, limit))
+    limit = max(1, min(cfg.search_limit_max, limit))
+    preview = cfg.content_preview_chars
 
     try:
         async with ctx.pool.acquire() as conn:
             if cfg.search_function:
                 # Delegate to custom search function (e.g. hybrid semantic+keyword).
                 # Custom functions must return: file_path, title, content, category, combined_score.
-                # These column names are part of the function contract (not STELE_COL_* overrides).
+                # These column names are part of the function contract (not GNOSIS_MCP_COL_* overrides).
                 rows = await conn.fetch(
                     f"SELECT * FROM {cfg.search_function}("
                     f"p_query_text := $1, p_categories := $2, p_limit := $3)",
@@ -207,8 +208,8 @@ async def search_docs(
                         "file_path": r["file_path"],
                         "title": r["title"],
                         "content_preview": (
-                            r["content"][:200] + "..."
-                            if len(r["content"]) > 200
+                            r["content"][:preview] + "..."
+                            if len(r["content"]) > preview
                             else r["content"]
                         ),
                         "score": round(float(r.get("combined_score", 0)), 4),
@@ -216,7 +217,7 @@ async def search_docs(
                     for r in rows
                 ]
             else:
-                # Built-in tsvector keyword search (respects STELE_COL_* overrides)
+                # Built-in tsvector keyword search (respects GNOSIS_MCP_COL_* overrides)
                 select = (
                     f"{cfg.col_file_path}, {cfg.col_title}, {cfg.col_content}, "
                     f"{cfg.col_category}, "
@@ -237,8 +238,8 @@ async def search_docs(
                         "file_path": r[cfg.col_file_path],
                         "title": r[cfg.col_title],
                         "content_preview": (
-                            r[cfg.col_content][:200] + "..."
-                            if len(r[cfg.col_content]) > 200
+                            r[cfg.col_content][:preview] + "..."
+                            if len(r[cfg.col_content]) > preview
                             else r[cfg.col_content]
                         ),
                         "score": round(float(r["score"]), 4),
@@ -361,7 +362,7 @@ async def get_related(path: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Write Tools — gated behind STELE_WRITABLE=true
+# Write Tools — gated behind GNOSIS_MCP_WRITABLE=true
 # ---------------------------------------------------------------------------
 
 
@@ -374,9 +375,9 @@ async def upsert_doc(
     audience: str = "all",
     tags: list[str] | None = None,
 ) -> str:
-    """Insert or replace a document. Requires STELE_WRITABLE=true.
+    """Insert or replace a document. Requires GNOSIS_MCP_WRITABLE=true.
 
-    Splits content into chunks if it exceeds 4000 characters (at paragraph boundaries).
+    Splits content into chunks if it exceeds the configured chunk size (at paragraph boundaries).
     Existing chunks for this path are deleted and replaced.
 
     Args:
@@ -391,7 +392,9 @@ async def upsert_doc(
     cfg = ctx.config
 
     if not cfg.writable:
-        return json.dumps({"error": "Write operations disabled. Set STELE_WRITABLE=true to enable."})
+        return json.dumps(
+            {"error": "Write operations disabled. Set GNOSIS_MCP_WRITABLE=true to enable."}
+        )
 
     # Auto-extract title from first heading if not provided
     if title is None:
@@ -401,8 +404,8 @@ async def upsert_doc(
                 title = stripped[2:].strip()
                 break
 
-    # Split into chunks at paragraph boundaries (~4000 chars each)
-    chunks = _split_chunks(content, max_size=4000)
+    # Split into chunks at paragraph boundaries
+    chunks = _split_chunks(content, max_size=cfg.chunk_size)
 
     try:
         async with ctx.pool.acquire() as conn:
@@ -439,7 +442,7 @@ async def upsert_doc(
 
 @mcp.tool()
 async def delete_doc(path: str) -> str:
-    """Delete a document and all its chunks. Requires STELE_WRITABLE=true.
+    """Delete a document and all its chunks. Requires GNOSIS_MCP_WRITABLE=true.
 
     Args:
         path: Document file path to delete.
@@ -448,7 +451,9 @@ async def delete_doc(path: str) -> str:
     cfg = ctx.config
 
     if not cfg.writable:
-        return json.dumps({"error": "Write operations disabled. Set STELE_WRITABLE=true to enable."})
+        return json.dumps(
+            {"error": "Write operations disabled. Set GNOSIS_MCP_WRITABLE=true to enable."}
+        )
 
     try:
         async with ctx.pool.acquire() as conn:
@@ -483,7 +488,12 @@ async def delete_doc(path: str) -> str:
         await _notify_webhook(ctx, "delete", path)
         log.info("delete_doc: path=%s chunks=%d links=%d", path, deleted, links_deleted)
         return json.dumps(
-            {"path": path, "chunks_deleted": deleted, "links_deleted": links_deleted, "action": "deleted"}
+            {
+                "path": path,
+                "chunks_deleted": deleted,
+                "links_deleted": links_deleted,
+                "action": "deleted",
+            }
         )
     except Exception:
         log.exception("delete_doc failed for path=%s", path)
@@ -498,7 +508,7 @@ async def update_metadata(
     audience: str | None = None,
     tags: list[str] | None = None,
 ) -> str:
-    """Update metadata fields on all chunks of a document. Requires STELE_WRITABLE=true.
+    """Update metadata fields on all chunks of a document. Requires GNOSIS_MCP_WRITABLE=true.
 
     Only provided fields are updated; omitted fields remain unchanged.
 
@@ -513,7 +523,9 @@ async def update_metadata(
     cfg = ctx.config
 
     if not cfg.writable:
-        return json.dumps({"error": "Write operations disabled. Set STELE_WRITABLE=true to enable."})
+        return json.dumps(
+            {"error": "Write operations disabled. Set GNOSIS_MCP_WRITABLE=true to enable."}
+        )
 
     # Build SET clause dynamically for provided fields only
     updates = []
@@ -537,7 +549,11 @@ async def update_metadata(
         idx += 1
 
     if not updates:
-        return json.dumps({"error": "No fields to update. Provide at least one of: title, category, audience, tags."})
+        return json.dumps(
+            {
+                "error": "No fields to update. Provide at least one of: title, category, audience, tags."
+            }
+        )
 
     try:
         async with ctx.pool.acquire() as conn:
@@ -554,7 +570,9 @@ async def update_metadata(
 
         await _notify_webhook(ctx, "update_metadata", path)
         log.info("update_metadata: path=%s chunks_updated=%d", path, affected)
-        return json.dumps({"path": path, "chunks_updated": affected, "action": "metadata_updated"})
+        return json.dumps(
+            {"path": path, "chunks_updated": affected, "action": "metadata_updated"}
+        )
     except Exception:
         log.exception("update_metadata failed for path=%s", path)
         return json.dumps({"error": f"Failed to update metadata for: {path}"})

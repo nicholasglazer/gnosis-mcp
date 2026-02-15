@@ -1,30 +1,41 @@
-# Stele
+<!-- gnosis-mcp -->
+
+# Gnosis MCP
+
+[![PyPI](https://img.shields.io/pypi/v/gnosis-mcp)](https://pypi.org/project/gnosis-mcp/)
+[![Downloads](https://img.shields.io/pypi/dm/gnosis-mcp)](https://pypi.org/project/gnosis-mcp/)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
+[![MCP Compatible](https://img.shields.io/badge/MCP-compatible-purple.svg)](https://modelcontextprotocol.io/)
 
 MCP server for PostgreSQL documentation with pgvector search.
 
-Stele exposes your PostgreSQL documentation table as [Model Context Protocol](https://modelcontextprotocol.io/) tools and resources. Works with any MCP client (Claude Code, Cursor, Windsurf, etc.).
+Gnosis MCP exposes your PostgreSQL documentation table as [Model Context Protocol](https://modelcontextprotocol.io/) tools and resources. Works with any MCP client (Claude Code, Cursor, Windsurf, Cline, etc.).
+
+> **PyPI:** `gnosis-mcp` | **CLI:** `gnosis-mcp` | **Import:** `gnosis_mcp`
 
 ## Features
 
 - **6 tools**: `search_docs`, `get_doc`, `get_related`, `upsert_doc`, `delete_doc`, `update_metadata`
-- **3 resources**: `stele://docs`, `stele://docs/{path}`, `stele://categories`
+- **3 resources**: `gnosis://docs`, `gnosis://docs/{path}`, `gnosis://categories`
 - **2 dependencies**: `mcp` + `asyncpg`
 - **Zero config**: Just set `DATABASE_URL`
-- **Multi-table**: Query across multiple doc tables with `STELE_CHUNKS_TABLE=docs_v1,docs_v2`
-- **Write mode**: Insert/update/delete docs via MCP tools (opt-in via `STELE_WRITABLE=true`)
-- **Webhooks**: Get notified when docs change via `STELE_WEBHOOK_URL`
+- **Multi-table**: Query across multiple doc tables with `GNOSIS_MCP_CHUNKS_TABLE=docs_v1,docs_v2`
+- **Write mode**: Insert/update/delete docs via MCP tools (opt-in via `GNOSIS_MCP_WRITABLE=true`)
+- **Webhooks**: Get notified when docs change via `GNOSIS_MCP_WEBHOOK_URL`
 - **Keyword search built-in**: Uses PostgreSQL `tsvector` (no embeddings required)
 - **Custom search function**: Delegate to your own hybrid semantic+keyword function
-- **Schema bootstrapping**: `stele init-db` creates tables, indexes, and a search function
+- **Schema bootstrapping**: `gnosis-mcp init-db` creates tables, indexes, and a search function
 - **SQL injection safe**: All identifier config values validated on startup
+- **Fully configurable**: 25+ env vars for tuning search, chunking, logging, and transport
 
 ## Quickstart
 
 ```bash
-pip install stele
-export STELE_DATABASE_URL="postgresql://user:pass@localhost:5432/mydb"
-stele init-db    # Create tables (idempotent)
-stele check      # Verify connection + schema
+pip install gnosis-mcp
+export GNOSIS_MCP_DATABASE_URL="postgresql://user:pass@localhost:5432/mydb"
+gnosis-mcp init-db    # Create tables (idempotent)
+gnosis-mcp check      # Verify connection + schema
 ```
 
 Add to your MCP client config and start using the tools.
@@ -37,10 +48,10 @@ Add to `.claude/mcp.json`:
 {
   "mcpServers": {
     "docs": {
-      "command": "stele",
+      "command": "gnosis-mcp",
       "args": ["serve"],
       "env": {
-        "STELE_DATABASE_URL": "postgresql://user:pass@localhost:5432/mydb"
+        "GNOSIS_MCP_DATABASE_URL": "postgresql://user:pass@localhost:5432/mydb"
       }
     }
   }
@@ -55,10 +66,46 @@ Add to `.cursor/mcp.json`:
 {
   "mcpServers": {
     "docs": {
-      "command": "stele",
+      "command": "gnosis-mcp",
       "args": ["serve"],
       "env": {
-        "STELE_DATABASE_URL": "postgresql://user:pass@localhost:5432/mydb"
+        "GNOSIS_MCP_DATABASE_URL": "postgresql://user:pass@localhost:5432/mydb"
+      }
+    }
+  }
+}
+```
+
+### Windsurf
+
+Add to `~/.codeium/windsurf/mcp_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "docs": {
+      "command": "gnosis-mcp",
+      "args": ["serve"],
+      "env": {
+        "GNOSIS_MCP_DATABASE_URL": "postgresql://user:pass@localhost:5432/mydb"
+      }
+    }
+  }
+}
+```
+
+### Cline
+
+Add to Cline MCP settings:
+
+```json
+{
+  "mcpServers": {
+    "docs": {
+      "command": "gnosis-mcp",
+      "args": ["serve"],
+      "env": {
+        "GNOSIS_MCP_DATABASE_URL": "postgresql://user:pass@localhost:5432/mydb"
       }
     }
   }
@@ -73,12 +120,12 @@ If you have a PostgreSQL function that does hybrid search (e.g. combining embedd
 {
   "mcpServers": {
     "docs": {
-      "command": "stele",
+      "command": "gnosis-mcp",
       "args": ["serve"],
       "env": {
-        "STELE_DATABASE_URL": "postgresql://user:pass@localhost:5432/mydb",
-        "STELE_SCHEMA": "internal",
-        "STELE_SEARCH_FUNCTION": "internal.search_docs"
+        "GNOSIS_MCP_DATABASE_URL": "postgresql://user:pass@localhost:5432/mydb",
+        "GNOSIS_MCP_SCHEMA": "internal",
+        "GNOSIS_MCP_SEARCH_FUNCTION": "internal.search_docs"
       }
     }
   }
@@ -94,7 +141,7 @@ Serve documentation from multiple tables simultaneously:
 ```json
 {
   "env": {
-    "STELE_CHUNKS_TABLE": "documentation_chunks,api_docs,tutorial_chunks"
+    "GNOSIS_MCP_CHUNKS_TABLE": "documentation_chunks,api_docs,tutorial_chunks"
   }
 }
 ```
@@ -108,8 +155,8 @@ Enable AI agents to insert/update/delete documentation:
 ```json
 {
   "env": {
-    "STELE_WRITABLE": "true",
-    "STELE_WEBHOOK_URL": "https://your-server.com/docs-changed"
+    "GNOSIS_MCP_WRITABLE": "true",
+    "GNOSIS_MCP_WEBHOOK_URL": "https://your-server.com/docs-changed"
   }
 }
 ```
@@ -124,9 +171,9 @@ Search documentation using keyword (tsvector) or hybrid semantic+keyword search.
 |-----------|------|---------|-------------|
 | `query` | string | required | Search query text |
 | `category` | string | null | Filter by category |
-| `limit` | int | 5 | Max results (1-20) |
+| `limit` | int | 5 | Max results (1-N, default 5) |
 
-### `get_doc(path)`
+### `get_doc(path, max_length?)`
 
 Retrieve full document content by file path. Reassembles chunks in order.
 
@@ -136,27 +183,27 @@ Find related documents via bidirectional link graph.
 
 ### `upsert_doc(path, content, title?, category?, audience?, tags?)`
 
-Insert or replace a document. Auto-splits into chunks at paragraph boundaries. Requires `STELE_WRITABLE=true`.
+Insert or replace a document. Auto-splits into chunks at paragraph boundaries. Requires `GNOSIS_MCP_WRITABLE=true`.
 
 ### `delete_doc(path)`
 
-Delete a document and all its chunks + links. Requires `STELE_WRITABLE=true`.
+Delete a document and all its chunks + links. Requires `GNOSIS_MCP_WRITABLE=true`.
 
 ### `update_metadata(path, title?, category?, audience?, tags?)`
 
-Update metadata fields on a document. Only provided fields are changed. Requires `STELE_WRITABLE=true`.
+Update metadata fields on a document. Only provided fields are changed. Requires `GNOSIS_MCP_WRITABLE=true`.
 
 ## Resources
 
-### `stele://docs`
+### `gnosis://docs`
 
 List all documents with title, category, and chunk count.
 
-### `stele://docs/{path}`
+### `gnosis://docs/{path}`
 
 Read a document by path as an MCP resource.
 
-### `stele://categories`
+### `gnosis://categories`
 
 List all categories with document counts.
 
@@ -166,36 +213,42 @@ All settings via environment variables. Only `DATABASE_URL` is required.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `STELE_DATABASE_URL` | - | PostgreSQL connection string (falls back to `DATABASE_URL`) |
-| `STELE_SCHEMA` | `public` | Database schema |
-| `STELE_CHUNKS_TABLE` | `documentation_chunks` | Chunks table name (comma-separated for multi-table) |
-| `STELE_LINKS_TABLE` | `documentation_links` | Links table name |
-| `STELE_SEARCH_FUNCTION` | (none) | Custom search function (e.g. `internal.search_docs`) |
-| `STELE_EMBEDDING_DIM` | `1536` | Embedding vector dimension (for `init-db`) |
-| `STELE_POOL_MIN` | `1` | Minimum pool connections |
-| `STELE_POOL_MAX` | `3` | Maximum pool connections |
-| `STELE_WRITABLE` | `false` | Enable write tools (`true`, `1`, or `yes`) |
-| `STELE_WEBHOOK_URL` | (none) | URL to POST when docs change |
+| `GNOSIS_MCP_DATABASE_URL` | - | PostgreSQL connection string (falls back to `DATABASE_URL`) |
+| `GNOSIS_MCP_SCHEMA` | `public` | Database schema |
+| `GNOSIS_MCP_CHUNKS_TABLE` | `documentation_chunks` | Chunks table name (comma-separated for multi-table) |
+| `GNOSIS_MCP_LINKS_TABLE` | `documentation_links` | Links table name |
+| `GNOSIS_MCP_SEARCH_FUNCTION` | (none) | Custom search function (e.g. `internal.search_docs`) |
+| `GNOSIS_MCP_EMBEDDING_DIM` | `1536` | Embedding vector dimension (for `init-db`) |
+| `GNOSIS_MCP_POOL_MIN` | `1` | Minimum pool connections |
+| `GNOSIS_MCP_POOL_MAX` | `3` | Maximum pool connections |
+| `GNOSIS_MCP_WRITABLE` | `false` | Enable write tools (`true`, `1`, or `yes`) |
+| `GNOSIS_MCP_WEBHOOK_URL` | (none) | URL to POST when docs change |
+| `GNOSIS_MCP_CONTENT_PREVIEW_CHARS` | `200` | Characters shown in search result previews (min 50) |
+| `GNOSIS_MCP_CHUNK_SIZE` | `4000` | Max characters per chunk when splitting documents (min 500) |
+| `GNOSIS_MCP_SEARCH_LIMIT_MAX` | `20` | Maximum allowed search result limit (min 1) |
+| `GNOSIS_MCP_WEBHOOK_TIMEOUT` | `5` | Webhook HTTP timeout in seconds (min 1) |
+| `GNOSIS_MCP_TRANSPORT` | `stdio` | Server transport protocol (`stdio` or `sse`) |
+| `GNOSIS_MCP_LOG_LEVEL` | `INFO` | Logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`) |
 
 ### Column name overrides
 
-Use these when connecting to an existing table with non-standard column names. These do **not** affect `stele init-db` (which always creates standard columns).
+Use these when connecting to an existing table with non-standard column names. These do **not** affect `gnosis-mcp init-db` (which always creates standard columns).
 
 | Variable | Default |
 |----------|---------|
-| `STELE_COL_FILE_PATH` | `file_path` |
-| `STELE_COL_TITLE` | `title` |
-| `STELE_COL_CONTENT` | `content` |
-| `STELE_COL_CHUNK_INDEX` | `chunk_index` |
-| `STELE_COL_CATEGORY` | `category` |
-| `STELE_COL_AUDIENCE` | `audience` |
-| `STELE_COL_TAGS` | `tags` |
-| `STELE_COL_EMBEDDING` | `embedding` |
-| `STELE_COL_TSV` | `tsv` |
+| `GNOSIS_MCP_COL_FILE_PATH` | `file_path` |
+| `GNOSIS_MCP_COL_TITLE` | `title` |
+| `GNOSIS_MCP_COL_CONTENT` | `content` |
+| `GNOSIS_MCP_COL_CHUNK_INDEX` | `chunk_index` |
+| `GNOSIS_MCP_COL_CATEGORY` | `category` |
+| `GNOSIS_MCP_COL_AUDIENCE` | `audience` |
+| `GNOSIS_MCP_COL_TAGS` | `tags` |
+| `GNOSIS_MCP_COL_EMBEDDING` | `embedding` |
+| `GNOSIS_MCP_COL_TSV` | `tsv` |
 
 ## Database Schema
 
-`stele init-db` creates:
+`gnosis-mcp init-db` creates:
 
 - **`{schema}.{chunks_table}`** -- document chunks with tsvector + optional vector column
 - **`{schema}.{links_table}`** -- bidirectional document relationships
@@ -205,26 +258,26 @@ Use these when connecting to an existing table with non-standard column names. T
 Preview the SQL without executing:
 
 ```bash
-stele init-db --dry-run
+gnosis-mcp init-db --dry-run
 ```
 
 ## CLI
 
 ```
-stele serve [--transport stdio|sse]   # Start MCP server (default: stdio)
-stele init-db [--dry-run]             # Create tables (or preview SQL)
-stele check                           # Verify connection + schema
-stele --version                       # Show version
+gnosis-mcp serve [--transport stdio|sse]   # Start MCP server (default: stdio)
+gnosis-mcp init-db [--dry-run]             # Create tables (or preview SQL)
+gnosis-mcp check                           # Verify connection + schema
+gnosis-mcp --version                       # Show version
 ```
 
 ## Development
 
 ```bash
-git clone https://github.com/miozu-com/stele.git
-cd stele
+git clone https://github.com/miozu-com/gnosis-mcp.git
+cd gnosis-mcp
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
-pytest                    # Run tests
+pytest                    # Run tests (69 tests, no DB required)
 ruff check src/ tests/    # Lint
 ```
 

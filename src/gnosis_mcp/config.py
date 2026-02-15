@@ -1,4 +1,4 @@
-"""Configuration via STELE_* environment variables."""
+"""Configuration via GNOSIS_MCP_* environment variables."""
 
 from __future__ import annotations
 
@@ -8,6 +8,9 @@ from dataclasses import dataclass
 
 # Valid SQL identifier: letters, digits, underscores. Qualified names allow dots.
 _IDENT_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)*$")
+
+_VALID_LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
+_VALID_TRANSPORTS = ("stdio", "sse")
 
 
 def _validate_identifier(value: str, name: str) -> str:
@@ -21,7 +24,7 @@ def _validate_identifier(value: str, name: str) -> str:
 
 
 @dataclass(frozen=True)
-class SteleConfig:
+class GnosisMcpConfig:
     """Immutable server configuration loaded from environment variables.
 
     All identifier fields (schema, table names, column names) are validated
@@ -36,7 +39,7 @@ class SteleConfig:
     search_function: str | None = None
 
     # Column name overrides for connecting to an existing table.
-    # These do NOT affect `stele init-db` (which always creates standard column names).
+    # These do NOT affect `gnosis-mcp init-db` (which always creates standard column names).
     col_file_path: str = "file_path"
     col_title: str = "title"
     col_content: str = "content"
@@ -65,8 +68,18 @@ class SteleConfig:
     # Webhook URL for doc change notifications (optional)
     webhook_url: str | None = None
 
+    # Tuning knobs
+    content_preview_chars: int = 200
+    chunk_size: int = 4000
+    search_limit_max: int = 20
+    webhook_timeout: int = 5
+
+    # Server defaults
+    transport: str = "stdio"
+    log_level: str = "INFO"
+
     def __post_init__(self) -> None:
-        """Validate all SQL identifiers after construction."""
+        """Validate all SQL identifiers and tuning parameters after construction."""
         # Validate each chunks table name individually (supports comma-separated)
         for table_name in self.chunks_tables:
             _validate_identifier(table_name, "chunks_table")
@@ -93,6 +106,30 @@ class SteleConfig:
         if self.search_function is not None:
             _validate_identifier(self.search_function, "search_function")
 
+        # Validate tuning knobs
+        if self.content_preview_chars < 50:
+            raise ValueError(
+                f"GNOSIS_MCP_CONTENT_PREVIEW_CHARS must be >= 50, got {self.content_preview_chars}"
+            )
+        if self.chunk_size < 500:
+            raise ValueError(f"GNOSIS_MCP_CHUNK_SIZE must be >= 500, got {self.chunk_size}")
+        if self.search_limit_max < 1:
+            raise ValueError(
+                f"GNOSIS_MCP_SEARCH_LIMIT_MAX must be >= 1, got {self.search_limit_max}"
+            )
+        if self.webhook_timeout < 1:
+            raise ValueError(
+                f"GNOSIS_MCP_WEBHOOK_TIMEOUT must be >= 1, got {self.webhook_timeout}"
+            )
+        if self.transport not in _VALID_TRANSPORTS:
+            raise ValueError(
+                f"GNOSIS_MCP_TRANSPORT must be one of {_VALID_TRANSPORTS}, got {self.transport!r}"
+            )
+        if self.log_level not in _VALID_LOG_LEVELS:
+            raise ValueError(
+                f"GNOSIS_MCP_LOG_LEVEL must be one of {_VALID_LOG_LEVELS}, got {self.log_level!r}"
+            )
+
     @property
     def chunks_tables(self) -> list[str]:
         """Split comma-separated chunks_table into a list."""
@@ -118,28 +155,32 @@ class SteleConfig:
         return f"{self.schema}.{self.links_table}"
 
     @classmethod
-    def from_env(cls) -> SteleConfig:
-        """Build config from STELE_* environment variables.
+    def from_env(cls) -> GnosisMcpConfig:
+        """Build config from GNOSIS_MCP_* environment variables.
 
-        Falls back to DATABASE_URL if STELE_DATABASE_URL is not set.
+        Falls back to DATABASE_URL if GNOSIS_MCP_DATABASE_URL is not set.
         """
-        database_url = os.environ.get("STELE_DATABASE_URL") or os.environ.get("DATABASE_URL")
+        database_url = os.environ.get("GNOSIS_MCP_DATABASE_URL") or os.environ.get(
+            "DATABASE_URL"
+        )
         if not database_url:
             raise ValueError(
-                "Set STELE_DATABASE_URL or DATABASE_URL to a PostgreSQL connection string"
+                "Set GNOSIS_MCP_DATABASE_URL or DATABASE_URL to a PostgreSQL connection string"
             )
 
         def env(key: str, default: str | None = None) -> str | None:
-            return os.environ.get(f"STELE_{key}", default)
+            return os.environ.get(f"GNOSIS_MCP_{key}", default)
 
         def env_int(key: str, default: int) -> int:
-            val = os.environ.get(f"STELE_{key}")
+            val = os.environ.get(f"GNOSIS_MCP_{key}")
             if not val:
                 return default
             try:
                 return int(val)
             except ValueError:
-                raise ValueError(f"STELE_{key} must be an integer, got: {val!r}") from None
+                raise ValueError(
+                    f"GNOSIS_MCP_{key} must be an integer, got: {val!r}"
+                ) from None
 
         return cls(
             database_url=database_url,
@@ -164,4 +205,10 @@ class SteleConfig:
             embedding_dim=env_int("EMBEDDING_DIM", 1536),
             writable=env("WRITABLE", "").lower() in ("1", "true", "yes"),
             webhook_url=env("WEBHOOK_URL"),
+            content_preview_chars=env_int("CONTENT_PREVIEW_CHARS", 200),
+            chunk_size=env_int("CHUNK_SIZE", 4000),
+            search_limit_max=env_int("SEARCH_LIMIT_MAX", 20),
+            webhook_timeout=env_int("WEBHOOK_TIMEOUT", 5),
+            transport=env("TRANSPORT", "stdio"),
+            log_level=env("LOG_LEVEL", "INFO").upper(),
         )

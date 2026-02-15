@@ -1,12 +1,12 @@
-"""Shared test fixtures for stele tests."""
+"""Shared test fixtures for gnosis_mcp tests."""
 
 import pytest
 
-from stele.config import SteleConfig
+from gnosis_mcp.config import GnosisMcpConfig
 
 
 @pytest.fixture
 def default_config(monkeypatch):
     """Config with defaults and a dummy database URL."""
-    monkeypatch.setenv("STELE_DATABASE_URL", "postgresql://localhost/test")
-    return SteleConfig.from_env()
+    monkeypatch.setenv("GNOSIS_MCP_DATABASE_URL", "postgresql://localhost/test")
+    return GnosisMcpConfig.from_env()

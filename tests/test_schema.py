@@ -1,12 +1,12 @@
 """Tests for schema SQL generation."""
 
-from stele.config import SteleConfig
-from stele.schema import get_init_sql
+from gnosis_mcp.config import GnosisMcpConfig
+from gnosis_mcp.schema import get_init_sql
 
 
 class TestGetInitSql:
     def test_default_schema(self):
-        cfg = SteleConfig(database_url="postgresql://localhost/db")
+        cfg = GnosisMcpConfig(database_url="postgresql://localhost/db")
         sql = get_init_sql(cfg)
         assert "CREATE SCHEMA IF NOT EXISTS public;" in sql
         assert "public.documentation_chunks" in sql
@@ -14,7 +14,7 @@ class TestGetInitSql:
         assert "vector(1536)" in sql
 
     def test_custom_schema_and_tables(self):
-        cfg = SteleConfig(
+        cfg = GnosisMcpConfig(
             database_url="postgresql://localhost/db",
             schema="docs",
             chunks_table="pages",
@@ -27,7 +27,7 @@ class TestGetInitSql:
         assert "search_pages(" in sql
 
     def test_custom_embedding_dim(self):
-        cfg = SteleConfig(
+        cfg = GnosisMcpConfig(
             database_url="postgresql://localhost/db",
             embedding_dim=768,
         )
@@ -36,13 +36,13 @@ class TestGetInitSql:
         assert "vector(1536)" not in sql
 
     def test_idempotent_statements(self):
-        cfg = SteleConfig(database_url="postgresql://localhost/db")
+        cfg = GnosisMcpConfig(database_url="postgresql://localhost/db")
         sql = get_init_sql(cfg)
         assert "IF NOT EXISTS" in sql
         assert "CREATE OR REPLACE FUNCTION" in sql
 
     def test_creates_indexes(self):
-        cfg = SteleConfig(database_url="postgresql://localhost/db")
+        cfg = GnosisMcpConfig(database_url="postgresql://localhost/db")
         sql = get_init_sql(cfg)
         assert "idx_documentation_chunks_file_path" in sql
         assert "idx_documentation_chunks_category" in sql

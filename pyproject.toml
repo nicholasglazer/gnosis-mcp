@@ -3,16 +3,32 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "stele"
-version = "0.3.0"
+name = "gnosis-mcp"
+version = "0.4.0"
 description = "MCP server for PostgreSQL documentation with pgvector search"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.11"
 authors = [{ name = "Nicholas Glazer", email = "info@nicgl.com" }]
-keywords = ["mcp", "documentation", "pgvector", "postgresql", "ai"]
+keywords = [
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
+    "documentation",
+    "pgvector",
+    "postgresql",
+    "ai",
+    "llm",
+    "claude",
+    "cursor",
+    "windsurf",
+    "knowledge-base",
+    "rag",
+    "vector-search",
+    "search",
+]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3.11",
@@ -20,6 +36,8 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
     "Topic :: Documentation",
     "Topic :: Database",
+    "Typing :: Typed",
+    "Framework :: AsyncIO",
 ]
 dependencies = [
     "mcp>=1.20",
@@ -34,15 +52,15 @@ dev = [
 ]
 
 [project.scripts]
-stele = "stele.cli:main"
+gnosis-mcp = "gnosis_mcp.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/miozu-com/stele"
-Repository = "https://github.com/miozu-com/stele"
-Issues = "https://github.com/miozu-com/stele/issues"
+Homepage = "https://github.com/miozu-com/gnosis-mcp"
+Repository = "https://github.com/miozu-com/gnosis-mcp"
+Issues = "https://github.com/miozu-com/gnosis-mcp/issues"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/stele"]
+packages = ["src/gnosis_mcp"]
 
 [tool.ruff]
 target-version = "py311"

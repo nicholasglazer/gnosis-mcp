@@ -1,12 +1,12 @@
-# Stele -- MCP Documentation Server
+# Gnosis MCP -- MCP Documentation Server
 
 Open-source Python MCP server for PostgreSQL documentation with pgvector search. Part of the miozu ecosystem.
 
 ## Architecture
 
 ```
-src/stele/
-├── config.py   # SteleConfig frozen dataclass, STELE_* env vars, identifier validation
+src/gnosis_mcp/
+├── config.py   # GnosisMcpConfig frozen dataclass, GNOSIS_MCP_* env vars, identifier validation
 ├── db.py       # asyncpg pool + FastMCP lifespan context manager
 ├── server.py   # FastMCP server: 6 tools + 3 resources + webhook helper
 ├── schema.py   # SQL template for init-db (chunks + links tables)
@@ -24,33 +24,33 @@ Only 2: `mcp>=1.20`, `asyncpg>=0.29`. No click, no pydantic, no ORM.
 2. **get_doc(path, max_length?)** -- reassemble document chunks by file_path + chunk_index (optional truncation)
 3. **get_related(path)** -- bidirectional link graph query
 
-### Write (requires STELE_WRITABLE=true)
+### Write (requires GNOSIS_MCP_WRITABLE=true)
 4. **upsert_doc(path, content, title?, category?, audience?, tags?)** -- insert/replace document with auto-chunking
 5. **delete_doc(path)** -- delete document chunks + links
 6. **update_metadata(path, title?, category?, audience?, tags?)** -- update metadata on all chunks
 
 ## Resources
 
-- **stele://docs** -- list all documents (path, title, category, chunk count)
-- **stele://docs/{path}** -- read document content by path
-- **stele://categories** -- list categories with doc counts
+- **gnosis://docs** -- list all documents (path, title, category, chunk count)
+- **gnosis://docs/{path}** -- read document content by path
+- **gnosis://categories** -- list categories with doc counts
 
 ## Key Design Decisions
 
 - **FastMCP lifespan pattern**: Pool created once via `app_lifespan()`, shared across tool calls
-- **SQL injection prevention**: All identifiers validated via regex in `SteleConfig.__post_init__()`
-- **Multi-table support**: `STELE_CHUNKS_TABLE` accepts comma-separated tables, queries use `UNION ALL`
+- **SQL injection prevention**: All identifiers validated via regex in `GnosisMcpConfig.__post_init__()`
+- **Multi-table support**: `GNOSIS_MCP_CHUNKS_TABLE` accepts comma-separated tables, queries use `UNION ALL`
 - **Write gating**: Write tools check `cfg.writable` and return error if disabled
-- **Webhook notifications**: Fire-and-forget POST to `STELE_WEBHOOK_URL` on write operations
-- **Custom search delegation**: Set `STELE_SEARCH_FUNCTION` to use your own hybrid search
-- **Column overrides**: `STELE_COL_*` are for connecting to existing tables with non-standard names
+- **Webhook notifications**: Fire-and-forget POST to `GNOSIS_MCP_WEBHOOK_URL` on write operations
+- **Custom search delegation**: Set `GNOSIS_MCP_SEARCH_FUNCTION` to use your own hybrid search
+- **Column overrides**: `GNOSIS_MCP_COL_*` are for connecting to existing tables with non-standard names
 - **No embedding generation**: Users bring their own embeddings
 
 ## Testing
 
 ```bash
-pytest tests/               # Unit tests (54 tests, no DB required)
-stele check                 # Integration check against live DB
+pytest tests/               # Unit tests (69 tests, no DB required)
+gnosis-mcp check            # Integration check against live DB
 ```
 
 ## Rules

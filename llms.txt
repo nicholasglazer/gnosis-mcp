@@ -1,10 +1,10 @@
-# Stele
+# Gnosis MCP
 
 > MCP server for PostgreSQL documentation with pgvector search
 
 ## Overview
 
-Stele exposes a PostgreSQL documentation table as Model Context Protocol (MCP) tools and resources. It provides 6 tools and 3 resources for AI agents to search, retrieve, browse, and manage documentation stored in PostgreSQL.
+Gnosis MCP exposes a PostgreSQL documentation table as Model Context Protocol (MCP) tools and resources. It provides 6 tools and 3 resources for AI agents to search, retrieve, browse, and manage documentation stored in PostgreSQL.
 
 ## Tools
 
@@ -14,7 +14,7 @@ Stele exposes a PostgreSQL documentation table as Model Context Protocol (MCP) t
 Search documentation using keyword (tsvector) or hybrid semantic+keyword search.
 Returns: `[{"file_path", "title", "content_preview", "score"}]`
 
-#### get_doc(path: str) -> JSON
+#### get_doc(path: str, max_length?: int) -> JSON
 Retrieve full document by file path. Reassembles chunks in order.
 Returns: `{"title", "content", "category", "audience", "tags"}`
 
@@ -22,10 +22,10 @@ Returns: `{"title", "content", "category", "audience", "tags"}`
 Find related documents via bidirectional link graph.
 Returns: `[{"related_path", "relation_type", "direction"}]`
 
-### Write Tools (requires STELE_WRITABLE=true)
+### Write Tools (requires GNOSIS_MCP_WRITABLE=true)
 
 #### upsert_doc(path: str, content: str, title?: str, category?: str, audience?: str, tags?: list) -> JSON
-Insert or replace a document. Auto-splits into chunks at paragraph boundaries (~4000 chars).
+Insert or replace a document. Auto-splits into chunks at paragraph boundaries.
 Returns: `{"path", "chunks", "action": "upserted"}`
 
 #### delete_doc(path: str) -> JSON
@@ -38,31 +38,33 @@ Returns: `{"path", "chunks_updated", "action": "metadata_updated"}`
 
 ## Resources
 
-- `stele://docs` -- list all documents (path, title, category, chunk count)
-- `stele://docs/{path}` -- read document content by path
-- `stele://categories` -- list categories with doc counts
+- `gnosis://docs` -- list all documents (path, title, category, chunk count)
+- `gnosis://docs/{path}` -- read document content by path
+- `gnosis://categories` -- list categories with doc counts
 
 ## Configuration
 
-Set `STELE_DATABASE_URL` (or `DATABASE_URL`). Optional: `STELE_SCHEMA`, `STELE_CHUNKS_TABLE` (comma-separated for multi-table), `STELE_LINKS_TABLE`, `STELE_SEARCH_FUNCTION`, `STELE_EMBEDDING_DIM`, `STELE_WRITABLE`, `STELE_WEBHOOK_URL`, `STELE_COL_*` for column names.
+Set `GNOSIS_MCP_DATABASE_URL` (or `DATABASE_URL`). Optional: `GNOSIS_MCP_SCHEMA`, `GNOSIS_MCP_CHUNKS_TABLE` (comma-separated for multi-table), `GNOSIS_MCP_LINKS_TABLE`, `GNOSIS_MCP_SEARCH_FUNCTION`, `GNOSIS_MCP_EMBEDDING_DIM`, `GNOSIS_MCP_WRITABLE`, `GNOSIS_MCP_WEBHOOK_URL`, `GNOSIS_MCP_COL_*` for column names. Tuning: `GNOSIS_MCP_CONTENT_PREVIEW_CHARS`, `GNOSIS_MCP_CHUNK_SIZE`, `GNOSIS_MCP_SEARCH_LIMIT_MAX`, `GNOSIS_MCP_WEBHOOK_TIMEOUT`, `GNOSIS_MCP_TRANSPORT`, `GNOSIS_MCP_LOG_LEVEL`.
 
 ## Database Schema
 
 Chunks table: `(file_path, chunk_index, title, content, category, audience, tags, embedding, tsv)`
 Links table: `(source_path, target_path, relation_type)`
 
-Run `stele init-db` to create tables, or `stele init-db --dry-run` to preview SQL.
+Run `gnosis-mcp init-db` to create tables, or `gnosis-mcp init-db --dry-run` to preview SQL.
 
 ## Quick Start
 
 ```bash
-pip install stele
-export STELE_DATABASE_URL="postgresql://user:pass@localhost:5432/mydb"
-stele init-db
-stele serve
+pip install gnosis-mcp
+export GNOSIS_MCP_DATABASE_URL="postgresql://user:pass@localhost:5432/mydb"
+gnosis-mcp init-db
+gnosis-mcp serve
 ```
 
 ## Documentation
 
 - [README](README.md): Install, quickstart, config, tools reference, examples
 - [CLAUDE.md](CLAUDE.md): Architecture, design decisions, rules
+- [llms-full.txt](llms-full.txt): Complete reference in one file
+- [llms-install.md](llms-install.md): Step-by-step install guide

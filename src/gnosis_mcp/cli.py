@@ -5,27 +5,30 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import os
 import sys
 
-from stele import __version__
+from gnosis_mcp import __version__
 
-log = logging.getLogger("stele")
+log = logging.getLogger("gnosis_mcp")
 
 
 def cmd_serve(args: argparse.Namespace) -> None:
     """Start the MCP server."""
-    from stele.server import mcp
+    from gnosis_mcp.config import GnosisMcpConfig
+    from gnosis_mcp.server import mcp
 
-    transport = args.transport or "stdio"
+    config = GnosisMcpConfig.from_env()
+    transport = args.transport or config.transport
     mcp.run(transport=transport)
 
 
 def cmd_init_db(args: argparse.Namespace) -> None:
     """Create documentation tables and indexes."""
-    from stele.config import SteleConfig
-    from stele.schema import get_init_sql
+    from gnosis_mcp.config import GnosisMcpConfig
+    from gnosis_mcp.schema import get_init_sql
 
-    config = SteleConfig.from_env()
+    config = GnosisMcpConfig.from_env()
     sql = get_init_sql(config)
 
     if args.dry_run:
@@ -54,9 +57,9 @@ def cmd_init_db(args: argparse.Namespace) -> None:
 
 def cmd_check(args: argparse.Namespace) -> None:
     """Verify database connection and schema."""
-    from stele.config import SteleConfig
+    from gnosis_mcp.config import GnosisMcpConfig
 
-    config = SteleConfig.from_env()
+    config = GnosisMcpConfig.from_env()
 
     async def _run() -> None:
         import asyncpg
@@ -131,7 +134,7 @@ def cmd_check(args: argparse.Namespace) -> None:
             if chunks_exists:
                 log.info("All checks passed.")
             else:
-                log.info("Run `stele init-db` to create tables.")
+                log.info("Run `gnosis-mcp init-db` to create tables.")
         finally:
             await conn.close()
 
@@ -151,17 +154,20 @@ def _mask_url(url: str) -> str:
 
 
 def main() -> None:
+    log_level = os.environ.get("GNOSIS_MCP_LOG_LEVEL", "INFO").upper()
     logging.basicConfig(
         format="%(name)s: %(message)s",
-        level=logging.INFO,
+        level=getattr(logging, log_level, logging.INFO),
         stream=sys.stderr,
     )
 
     parser = argparse.ArgumentParser(
-        prog="stele",
+        prog="gnosis-mcp",
         description="MCP server for PostgreSQL documentation with pgvector search",
     )
-    parser.add_argument("-V", "--version", action="version", version=f"stele {__version__}")
+    parser.add_argument(
+        "-V", "--version", action="version", version=f"gnosis-mcp {__version__}"
+    )
     sub = parser.add_subparsers(dest="command")
 
     # serve
@@ -169,8 +175,8 @@ def main() -> None:
     p_serve.add_argument(
         "--transport",
         choices=["stdio", "sse"],
-        default="stdio",
-        help="Transport protocol (default: stdio)",
+        default=None,
+        help="Transport protocol (default: from GNOSIS_MCP_TRANSPORT or stdio)",
     )
 
     # init-db
