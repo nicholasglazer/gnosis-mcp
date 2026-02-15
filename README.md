@@ -273,7 +273,7 @@ gnosis-mcp --version                       # Show version
 ## Development
 
 ```bash
-git clone https://github.com/miozu-com/gnosis-mcp.git
+git clone https://github.com/nicholasglazer/gnosis-mcp.git
 cd gnosis-mcp
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"

@@ -55,9 +55,9 @@ dev = [
 gnosis-mcp = "gnosis_mcp.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/miozu-com/gnosis-mcp"
-Repository = "https://github.com/miozu-com/gnosis-mcp"
-Issues = "https://github.com/miozu-com/gnosis-mcp/issues"
+Homepage = "https://github.com/nicholasglazer/gnosis-mcp"
+Repository = "https://github.com/nicholasglazer/gnosis-mcp"
+Issues = "https://github.com/nicholasglazer/gnosis-mcp/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/gnosis_mcp"]
