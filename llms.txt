@@ -10,8 +10,9 @@ Gnosis MCP exposes a PostgreSQL documentation table as Model Context Protocol (M
 
 ### Read Tools (always available)
 
-#### search_docs(query: str, category?: str, limit?: int) -> JSON
+#### search_docs(query: str, category?: str, limit?: int, query_embedding?: list[float]) -> JSON
 Search documentation using keyword (tsvector) or hybrid semantic+keyword search.
+When `query_embedding` is provided, combines keyword and cosine similarity scoring.
 Returns: `[{"file_path", "title", "content_preview", "score"}]`
 
 #### get_doc(path: str, max_length?: int) -> JSON
@@ -24,8 +25,9 @@ Returns: `[{"related_path", "relation_type", "direction"}]`
 
 ### Write Tools (requires GNOSIS_MCP_WRITABLE=true)
 
-#### upsert_doc(path: str, content: str, title?: str, category?: str, audience?: str, tags?: list) -> JSON
+#### upsert_doc(path: str, content: str, title?: str, category?: str, audience?: str, tags?: list, embeddings?: list[list[float]]) -> JSON
 Insert or replace a document. Auto-splits into chunks at paragraph boundaries.
+Optional `embeddings` parameter accepts pre-computed vectors (one per chunk).
 Returns: `{"path", "chunks", "action": "upserted"}`
 
 #### delete_doc(path: str) -> JSON
@@ -44,7 +46,7 @@ Returns: `{"path", "chunks_updated", "action": "metadata_updated"}`
 
 ## Configuration
 
-Set `GNOSIS_MCP_DATABASE_URL` (or `DATABASE_URL`). Optional: `GNOSIS_MCP_SCHEMA`, `GNOSIS_MCP_CHUNKS_TABLE` (comma-separated for multi-table), `GNOSIS_MCP_LINKS_TABLE`, `GNOSIS_MCP_SEARCH_FUNCTION`, `GNOSIS_MCP_EMBEDDING_DIM`, `GNOSIS_MCP_WRITABLE`, `GNOSIS_MCP_WEBHOOK_URL`, `GNOSIS_MCP_COL_*` for column names. Tuning: `GNOSIS_MCP_CONTENT_PREVIEW_CHARS`, `GNOSIS_MCP_CHUNK_SIZE`, `GNOSIS_MCP_SEARCH_LIMIT_MAX`, `GNOSIS_MCP_WEBHOOK_TIMEOUT`, `GNOSIS_MCP_TRANSPORT`, `GNOSIS_MCP_LOG_LEVEL`.
+Set `GNOSIS_MCP_DATABASE_URL` (or `DATABASE_URL`). Optional: `GNOSIS_MCP_SCHEMA`, `GNOSIS_MCP_CHUNKS_TABLE` (comma-separated for multi-table), `GNOSIS_MCP_LINKS_TABLE`, `GNOSIS_MCP_SEARCH_FUNCTION`, `GNOSIS_MCP_EMBEDDING_DIM`, `GNOSIS_MCP_WRITABLE`, `GNOSIS_MCP_WEBHOOK_URL`, `GNOSIS_MCP_COL_*` for column names. Embedding: `GNOSIS_MCP_EMBED_PROVIDER` (openai/ollama/custom), `GNOSIS_MCP_EMBED_MODEL`, `GNOSIS_MCP_EMBED_API_KEY`, `GNOSIS_MCP_EMBED_URL`, `GNOSIS_MCP_EMBED_BATCH_SIZE`. Tuning: `GNOSIS_MCP_CONTENT_PREVIEW_CHARS`, `GNOSIS_MCP_CHUNK_SIZE`, `GNOSIS_MCP_SEARCH_LIMIT_MAX`, `GNOSIS_MCP_WEBHOOK_TIMEOUT`, `GNOSIS_MCP_TRANSPORT`, `GNOSIS_MCP_LOG_LEVEL`.
 
 ## Database Schema
 

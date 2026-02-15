@@ -44,10 +44,11 @@ Config file locations:
 
 ### Read Tools (always available)
 
-1. **search_docs(query, category?, limit?)** — Search docs using keyword (tsvector) or hybrid semantic+keyword search.
+1. **search_docs(query, category?, limit?, query_embedding?)** — Search docs using keyword (tsvector) or hybrid semantic+keyword search.
    - query: string (required) — search text
    - category: string (optional) — filter by category
    - limit: int (default 5, max configurable) — result count
+   - query_embedding: list[float] (optional) — pre-computed embedding for hybrid search
 
 2. **get_doc(path, max_length?)** — Get full document by file path. Reassembles chunks in order.
    - path: string (required) — e.g. "guides/quickstart.md"
@@ -58,7 +59,7 @@ Config file locations:
 
 ### Write Tools (require GNOSIS_MCP_WRITABLE=true)
 
-4. **upsert_doc(path, content, title?, category?, audience?, tags?)** — Insert or replace document. Auto-chunks at paragraph boundaries.
+4. **upsert_doc(path, content, title?, category?, audience?, tags?, embeddings?)** — Insert or replace document. Auto-chunks at paragraph boundaries. Optional `embeddings` accepts pre-computed vectors (one per chunk).
 
 5. **delete_doc(path)** — Delete document, its chunks, and links.
 
@@ -85,6 +86,13 @@ All settings via GNOSIS_MCP_* environment variables. Only DATABASE_URL is requir
 - GNOSIS_MCP_POOL_MAX — Max pool connections (default: 3)
 - GNOSIS_MCP_WRITABLE — Enable write tools: true/1/yes (default: false)
 - GNOSIS_MCP_WEBHOOK_URL — URL to POST on doc changes (default: none)
+
+### Embedding
+- GNOSIS_MCP_EMBED_PROVIDER — Embedding provider: openai, ollama, or custom (default: none)
+- GNOSIS_MCP_EMBED_MODEL — Embedding model name (default: text-embedding-3-small)
+- GNOSIS_MCP_EMBED_API_KEY — API key for embedding provider (default: none)
+- GNOSIS_MCP_EMBED_URL — Custom embedding endpoint URL (default: none)
+- GNOSIS_MCP_EMBED_BATCH_SIZE — Chunks per embedding batch, min 1 (default: 50)
 
 ### Tuning
 - GNOSIS_MCP_CONTENT_PREVIEW_CHARS — Characters in search previews, min 50 (default: 200)
@@ -117,13 +125,16 @@ Your function must accept:
 
 And return columns: file_path, title, content, category, combined_score.
 
+Optionally, your function can also accept `p_embedding vector(N)` for hybrid search. Gnosis will try passing it automatically when `query_embedding` is provided.
+
 ## CLI
 
 ```
 gnosis-mcp serve [--transport stdio|sse] [--ingest PATH]   # Start MCP server (optionally ingest first)
 gnosis-mcp init-db [--dry-run]                             # Create tables (or preview SQL)
 gnosis-mcp ingest <path> [--dry-run]                       # Load markdown files
-gnosis-mcp search <query> [-n LIMIT] [-c CAT]              # Search from the CLI
+gnosis-mcp search <query> [-n LIMIT] [-c CAT] [--embed]    # Search (--embed for hybrid)
+gnosis-mcp embed [--provider P] [--model M] [--dry-run]    # Backfill NULL embeddings via API
 gnosis-mcp stats                                           # Show document/chunk/category counts
 gnosis-mcp export [-f json|markdown] [-c CAT]              # Export documents as JSON or markdown
 gnosis-mcp check                                           # Verify connection + schema
@@ -150,8 +161,9 @@ src/gnosis_mcp/
 ├── db.py       # asyncpg pool + FastMCP lifespan context manager
 ├── server.py   # FastMCP server: 6 tools + 3 resources + webhook helper
 ├── ingest.py   # File scanner: markdown chunking, frontmatter, content hashing
-├── schema.py   # SQL template for init-db (chunks + links tables)
-└── cli.py      # argparse CLI: serve, init-db, ingest, search, stats, export, check
+├── schema.py   # SQL template for init-db (chunks + links + HNSW index + hybrid search)
+├── embed.py    # Embedding sidecar: provider abstraction (openai/ollama/custom), batch backfill
+└── cli.py      # argparse CLI: serve, init-db, ingest, search, embed, stats, export, check
 ```
 
 Dependencies: mcp>=1.20, asyncpg>=0.29 (2 total).

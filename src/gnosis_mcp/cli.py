@@ -209,6 +209,7 @@ def cmd_search(args: argparse.Namespace) -> None:
     config = GnosisMcpConfig.from_env()
     limit = args.limit
     category = args.category
+    use_embed = getattr(args, "embed", False)
 
     async def _run() -> None:
         import asyncpg
@@ -218,20 +219,95 @@ def cmd_search(args: argparse.Namespace) -> None:
             cfg = config
             preview = cfg.content_preview_chars
 
-            if cfg.search_function:
-                rows = await conn.fetch(
-                    f"SELECT * FROM {cfg.search_function}("
-                    f"p_query_text := $1, p_categories := $2, p_limit := $3)",
-                    args.query,
-                    [category] if category else None,
-                    limit,
+            # Auto-embed the query if --embed flag is set and provider is configured
+            query_embedding = None
+            if use_embed:
+                provider = cfg.embed_provider
+                if not provider:
+                    log.error("--embed requires GNOSIS_MCP_EMBED_PROVIDER to be set")
+                    return
+                from gnosis_mcp.embed import embed_texts
+
+                vectors = embed_texts(
+                    [args.query],
+                    provider=provider,
+                    model=cfg.embed_model,
+                    api_key=cfg.embed_api_key,
+                    url=cfg.embed_url,
                 )
+                query_embedding = vectors[0] if vectors else None
+
+            if cfg.search_function:
+                if query_embedding:
+                    embedding_str = "[" + ",".join(str(f) for f in query_embedding) + "]"
+                    try:
+                        rows = await conn.fetch(
+                            f"SELECT * FROM {cfg.search_function}("
+                            f"p_query_text := $1, p_embedding := $2::vector, "
+                            f"p_categories := $3, p_limit := $4)",
+                            args.query,
+                            embedding_str,
+                            [category] if category else None,
+                            limit,
+                        )
+                    except Exception:
+                        log.debug("Custom search function doesn't accept p_embedding, falling back")
+                        rows = await conn.fetch(
+                            f"SELECT * FROM {cfg.search_function}("
+                            f"p_query_text := $1, p_categories := $2, p_limit := $3)",
+                            args.query,
+                            [category] if category else None,
+                            limit,
+                        )
+                else:
+                    rows = await conn.fetch(
+                        f"SELECT * FROM {cfg.search_function}("
+                        f"p_query_text := $1, p_categories := $2, p_limit := $3)",
+                        args.query,
+                        [category] if category else None,
+                        limit,
+                    )
                 for r in rows:
                     score = round(float(r.get("combined_score", 0)), 4)
                     content = r["content"]
                     snippet = content[:preview] + "..." if len(content) > preview else content
                     sys.stdout.write(f"\n  {r['file_path']}  (score: {score})\n")
                     sys.stdout.write(f"  {r['title']}\n")
+                    sys.stdout.write(f"  {snippet}\n")
+            elif query_embedding:
+                # Built-in hybrid search
+                embedding_str = "[" + ",".join(str(f) for f in query_embedding) + "]"
+                select = (
+                    f"{cfg.col_file_path}, {cfg.col_title}, {cfg.col_content}, "
+                    f"CASE WHEN {cfg.col_embedding} IS NOT NULL THEN "
+                    f"  (ts_rank({cfg.col_tsv}, websearch_to_tsquery('english', $1))::float * 0.4 "
+                    f"  + (1.0 - ({cfg.col_embedding} <=> $4::vector))::float * 0.6) "
+                    f"ELSE ts_rank({cfg.col_tsv}, websearch_to_tsquery('english', $1))::float "
+                    f"END AS score"
+                )
+                where = (
+                    f"({cfg.col_tsv} @@ websearch_to_tsquery('english', $1) "
+                    f"OR ({cfg.col_embedding} IS NOT NULL "
+                    f"AND ({cfg.col_embedding} <=> $4::vector) < 0.8))"
+                )
+                if category:
+                    where += f" AND {cfg.col_category} = $3"
+                sql = (
+                    f"SELECT {select} FROM {cfg.qualified_chunks_table} "
+                    f"WHERE {where} ORDER BY score DESC LIMIT $2"
+                )
+                params: list = [args.query, limit]
+                if category:
+                    params.append(category)
+                params.append(embedding_str)
+
+                rows = await conn.fetch(sql, *params)
+                for r in rows:
+                    score = round(float(r["score"]), 4)
+                    content = r[cfg.col_content]
+                    snippet = content[:preview] + "..." if len(content) > preview else content
+                    sys.stdout.write(f"\n  {r[cfg.col_file_path]}  (score: {score})\n")
+                    sys.stdout.write(f"  {r[cfg.col_title]}\n")
                     sys.stdout.write(f"  {snippet}\n")
             else:
                 select = (
@@ -266,6 +342,52 @@ def cmd_search(args: argparse.Namespace) -> None:
 
         finally:
             await conn.close()
+
+    asyncio.run(_run())
+
+
+def cmd_embed(args: argparse.Namespace) -> None:
+    """Embed chunks with NULL embeddings using a configured provider."""
+    from gnosis_mcp.config import GnosisMcpConfig
+    from gnosis_mcp.embed import embed_pending
+
+    config = GnosisMcpConfig.from_env()
+    provider = args.provider or config.embed_provider
+    if not provider:
+        log.error(
+            "No embedding provider configured. "
+            "Set GNOSIS_MCP_EMBED_PROVIDER or use --provider."
+        )
+        sys.exit(1)
+
+    model = args.model or config.embed_model
+    batch_size = args.batch_size or config.embed_batch_size
+    api_key = config.embed_api_key
+    url = config.embed_url
+
+    async def _run() -> None:
+        result = await embed_pending(
+            database_url=config.database_url,
+            schema=config.schema,
+            chunks_table=config.chunks_tables[0],
+            col_embedding=config.col_embedding,
+            col_content=config.col_content,
+            provider=provider,
+            model=model,
+            api_key=api_key,
+            url=url,
+            batch_size=batch_size,
+            dry_run=args.dry_run,
+        )
+
+        if args.dry_run:
+            sys.stdout.write(f"\n  Chunks with NULL embeddings: {result.total_null}\n")
+            sys.stdout.write("  (dry run — no embeddings created)\n\n")
+        else:
+            sys.stdout.write(f"\n  Embedded: {result.embedded}/{result.total_null} chunks\n")
+            if result.errors:
+                sys.stdout.write(f"  Errors: {result.errors}\n")
+            sys.stdout.write("\n")
 
     asyncio.run(_run())
 
@@ -470,6 +592,10 @@ def main() -> None:
     p_search.add_argument("query", help="Search query text")
     p_search.add_argument("-n", "--limit", type=int, default=5, help="Max results (default: 5)")
     p_search.add_argument("-c", "--category", default=None, help="Filter by category")
+    p_search.add_argument(
+        "--embed", action="store_true",
+        help="Auto-embed query for hybrid search (requires GNOSIS_MCP_EMBED_PROVIDER)",
+    )
 
     # stats
     sub.add_parser("stats", help="Show documentation statistics")
@@ -480,6 +606,18 @@ def main() -> None:
         "-f", "--format", choices=["json", "markdown"], default="json", help="Output format (default: json)"
     )
     p_export.add_argument("-c", "--category", default=None, help="Filter by category")
+
+    # embed
+    p_embed = sub.add_parser("embed", help="Embed chunks with NULL embeddings")
+    p_embed.add_argument(
+        "--provider", choices=["openai", "ollama", "custom"], default=None,
+        help="Embedding provider (overrides GNOSIS_MCP_EMBED_PROVIDER)",
+    )
+    p_embed.add_argument("--model", default=None, help="Embedding model name")
+    p_embed.add_argument(
+        "--batch-size", type=int, default=None, help="Chunks per batch (default: 50)"
+    )
+    p_embed.add_argument("--dry-run", action="store_true", help="Count NULL embeddings only")
 
     # check
     sub.add_parser("check", help="Verify database connection and schema")
@@ -494,6 +632,7 @@ def main() -> None:
         "init-db": cmd_init_db,
         "ingest": cmd_ingest,
         "search": cmd_search,
+        "embed": cmd_embed,
         "stats": cmd_stats,
         "export": cmd_export,
         "check": cmd_check,

@@ -40,6 +40,9 @@ CREATE INDEX IF NOT EXISTS idx_{chunks_table}_category
     ON {schema}.{chunks_table} (category);
 CREATE INDEX IF NOT EXISTS idx_{chunks_table}_tsv
     ON {schema}.{chunks_table} USING gin (tsv);
+CREATE INDEX IF NOT EXISTS idx_{chunks_table}_embedding
+    ON {schema}.{chunks_table} USING hnsw (embedding vector_cosine_ops)
+    WITH (m = 16, ef_construction = 64);
 
 -- Documentation links table
 CREATE TABLE IF NOT EXISTS {schema}.{links_table} (
@@ -79,6 +82,43 @@ AS $$
         ts_rank(c.tsv, websearch_to_tsquery('english', p_query_text))::double precision AS combined_score
     FROM {schema}.{chunks_table} c
     WHERE c.tsv @@ websearch_to_tsquery('english', p_query_text)
+      AND (p_categories IS NULL OR c.category = ANY(p_categories))
+    ORDER BY combined_score DESC
+    LIMIT p_limit;
+$$;
+
+-- Hybrid keyword + semantic search function (uses embeddings when available)
+CREATE OR REPLACE FUNCTION {schema}.search_{chunks_table}_hybrid(
+    p_query_text text,
+    p_embedding vector({embedding_dim}) DEFAULT NULL,
+    p_categories text[] DEFAULT NULL,
+    p_limit integer DEFAULT 5
+)
+RETURNS TABLE (
+    file_path text,
+    title text,
+    content text,
+    category text,
+    combined_score double precision
+)
+LANGUAGE sql STABLE
+AS $$
+    SELECT
+        c.file_path,
+        c.title,
+        c.content,
+        c.category,
+        CASE
+            WHEN p_embedding IS NOT NULL AND c.embedding IS NOT NULL THEN
+                (ts_rank(c.tsv, websearch_to_tsquery('english', p_query_text))::double precision * 0.4
+                 + (1.0 - (c.embedding <=> p_embedding))::double precision * 0.6)
+            ELSE
+                ts_rank(c.tsv, websearch_to_tsquery('english', p_query_text))::double precision
+        END AS combined_score
+    FROM {schema}.{chunks_table} c
+    WHERE (c.tsv @@ websearch_to_tsquery('english', p_query_text)
+           OR (p_embedding IS NOT NULL AND c.embedding IS NOT NULL
+               AND (c.embedding <=> p_embedding) < 0.8))
       AND (p_categories IS NULL OR c.category = ANY(p_categories))
     ORDER BY combined_score DESC
     LIMIT p_limit;

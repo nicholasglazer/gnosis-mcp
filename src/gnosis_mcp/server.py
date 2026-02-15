@@ -179,6 +179,7 @@ async def search_docs(
     query: str,
     category: str | None = None,
     limit: int = 5,
+    query_embedding: list[float] | None = None,
 ) -> str:
     """Search documentation using keyword or hybrid semantic+keyword search.
 
@@ -186,6 +187,8 @@ async def search_docs(
         query: Search query text.
         category: Optional category filter (e.g. "guides", "architecture", "ops").
         limit: Maximum results (default 5, server-configurable upper bound).
+        query_embedding: Optional pre-computed embedding vector for hybrid search.
+            When provided, combines keyword (tsvector) and semantic (cosine) scoring.
     """
     ctx = await _get_ctx()
     cfg = ctx.config
@@ -195,16 +198,38 @@ async def search_docs(
     try:
         async with ctx.pool.acquire() as conn:
             if cfg.search_function:
-                # Delegate to custom search function (e.g. hybrid semantic+keyword).
-                # Custom functions must return: file_path, title, content, category, combined_score.
-                # These column names are part of the function contract (not GNOSIS_MCP_COL_* overrides).
-                rows = await conn.fetch(
-                    f"SELECT * FROM {cfg.search_function}("
-                    f"p_query_text := $1, p_categories := $2, p_limit := $3)",
-                    query,
-                    [category] if category else None,
-                    limit,
-                )
+                # Delegate to custom search function.
+                # Try passing p_embedding if query_embedding is provided.
+                if query_embedding:
+                    embedding_str = "[" + ",".join(str(f) for f in query_embedding) + "]"
+                    try:
+                        rows = await conn.fetch(
+                            f"SELECT * FROM {cfg.search_function}("
+                            f"p_query_text := $1, p_embedding := $2::vector, "
+                            f"p_categories := $3, p_limit := $4)",
+                            query,
+                            embedding_str,
+                            [category] if category else None,
+                            limit,
+                        )
+                    except Exception:
+                        # Function doesn't accept p_embedding — fall back to text-only
+                        log.debug("Custom search function doesn't accept p_embedding, falling back")
+                        rows = await conn.fetch(
+                            f"SELECT * FROM {cfg.search_function}("
+                            f"p_query_text := $1, p_categories := $2, p_limit := $3)",
+                            query,
+                            [category] if category else None,
+                            limit,
+                        )
+                else:
+                    rows = await conn.fetch(
+                        f"SELECT * FROM {cfg.search_function}("
+                        f"p_query_text := $1, p_categories := $2, p_limit := $3)",
+                        query,
+                        [category] if category else None,
+                        limit,
+                    )
                 results = [
                     {
                         "file_path": r["file_path"],
@@ -215,6 +240,46 @@ async def search_docs(
                             else r["content"]
                         ),
                         "score": round(float(r.get("combined_score", 0)), 4),
+                    }
+                    for r in rows
+                ]
+            elif query_embedding:
+                # Built-in hybrid search: keyword + cosine similarity (RRF scoring)
+                embedding_str = "[" + ",".join(str(f) for f in query_embedding) + "]"
+                select = (
+                    f"{cfg.col_file_path}, {cfg.col_title}, {cfg.col_content}, "
+                    f"{cfg.col_category}, "
+                    f"CASE WHEN {cfg.col_embedding} IS NOT NULL THEN "
+                    f"  (ts_rank({cfg.col_tsv}, websearch_to_tsquery('english', $1))::float * 0.4 "
+                    f"  + (1.0 - ({cfg.col_embedding} <=> $4::vector))::float * 0.6) "
+                    f"ELSE ts_rank({cfg.col_tsv}, websearch_to_tsquery('english', $1))::float "
+                    f"END AS score"
+                )
+                where = (
+                    f"({cfg.col_tsv} @@ websearch_to_tsquery('english', $1) "
+                    f"OR ({cfg.col_embedding} IS NOT NULL "
+                    f"AND ({cfg.col_embedding} <=> $4::vector) < 0.8))"
+                )
+                if category:
+                    where += f" AND {cfg.col_category} = $3"
+                sql = _union_select(cfg, select, where, "ORDER BY score DESC LIMIT $2")
+                rows = await conn.fetch(
+                    sql,
+                    query,
+                    limit,
+                    *([category] if category else []),
+                    embedding_str,
+                )
+                results = [
+                    {
+                        "file_path": r[cfg.col_file_path],
+                        "title": r[cfg.col_title],
+                        "content_preview": (
+                            r[cfg.col_content][:preview] + "..."
+                            if len(r[cfg.col_content]) > preview
+                            else r[cfg.col_content]
+                        ),
+                        "score": round(float(r["score"]), 4),
                     }
                     for r in rows
                 ]
@@ -376,6 +441,7 @@ async def upsert_doc(
     category: str | None = None,
     audience: str = "all",
     tags: list[str] | None = None,
+    embeddings: list[list[float]] | None = None,
 ) -> str:
     """Insert or replace a document. Requires GNOSIS_MCP_WRITABLE=true.
 
@@ -389,6 +455,8 @@ async def upsert_doc(
         category: Document category (e.g. "guides", "architecture").
         audience: Target audience (default "all").
         tags: Optional list of tags.
+        embeddings: Optional pre-computed embedding vectors, one per chunk.
+            Length must match the number of chunks after splitting.
     """
     ctx = await _get_ctx()
     cfg = ctx.config
@@ -409,6 +477,15 @@ async def upsert_doc(
     # Split into chunks at paragraph boundaries
     chunks = _split_chunks(content, max_size=cfg.chunk_size)
 
+    # Validate embeddings count matches chunks
+    if embeddings is not None and len(embeddings) != len(chunks):
+        return json.dumps(
+            {
+                "error": f"Embeddings count ({len(embeddings)}) does not match "
+                f"chunk count ({len(chunks)}). Provide one embedding per chunk."
+            }
+        )
+
     try:
         async with ctx.pool.acquire() as conn:
             async with conn.transaction():
@@ -420,19 +497,39 @@ async def upsert_doc(
                 )
                 # Insert new chunks
                 for i, chunk in enumerate(chunks):
-                    await conn.execute(
-                        f"INSERT INTO {cfg.qualified_chunks_table} "
-                        f"({cfg.col_file_path}, {cfg.col_chunk_index}, {cfg.col_title}, "
-                        f"{cfg.col_content}, {cfg.col_category}, {cfg.col_audience}, {cfg.col_tags}) "
-                        f"VALUES ($1, $2, $3, $4, $5, $6, $7)",
-                        path,
-                        i,
-                        title,
-                        chunk,
-                        category,
-                        audience,
-                        tags,
-                    )
+                    if embeddings is not None:
+                        embedding_str = (
+                            "[" + ",".join(str(f) for f in embeddings[i]) + "]"
+                        )
+                        await conn.execute(
+                            f"INSERT INTO {cfg.qualified_chunks_table} "
+                            f"({cfg.col_file_path}, {cfg.col_chunk_index}, {cfg.col_title}, "
+                            f"{cfg.col_content}, {cfg.col_category}, {cfg.col_audience}, "
+                            f"{cfg.col_tags}, {cfg.col_embedding}) "
+                            f"VALUES ($1, $2, $3, $4, $5, $6, $7, $8::vector)",
+                            path,
+                            i,
+                            title,
+                            chunk,
+                            category,
+                            audience,
+                            tags,
+                            embedding_str,
+                        )
+                    else:
+                        await conn.execute(
+                            f"INSERT INTO {cfg.qualified_chunks_table} "
+                            f"({cfg.col_file_path}, {cfg.col_chunk_index}, {cfg.col_title}, "
+                            f"{cfg.col_content}, {cfg.col_category}, {cfg.col_audience}, {cfg.col_tags}) "
+                            f"VALUES ($1, $2, $3, $4, $5, $6, $7)",
+                            path,
+                            i,
+                            title,
+                            chunk,
+                            category,
+                            audience,
+                            tags,
+                        )
 
         await _notify_webhook(ctx, "upsert", path)
         log.info("upsert_doc: path=%s chunks=%d", path, len(chunks))

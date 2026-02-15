@@ -49,3 +49,50 @@ class TestGetInitSql:
         assert "idx_documentation_chunks_tsv" in sql
         assert "idx_documentation_links_source" in sql
         assert "idx_documentation_links_target" in sql
+
+    def test_creates_hnsw_index(self):
+        cfg = GnosisMcpConfig(database_url="postgresql://localhost/db")
+        sql = get_init_sql(cfg)
+        assert "idx_documentation_chunks_embedding" in sql
+        assert "USING hnsw" in sql
+        assert "vector_cosine_ops" in sql
+        assert "m = 16" in sql
+        assert "ef_construction = 64" in sql
+
+    def test_creates_hybrid_search_function(self):
+        cfg = GnosisMcpConfig(database_url="postgresql://localhost/db")
+        sql = get_init_sql(cfg)
+        assert "search_documentation_chunks_hybrid(" in sql
+        assert "p_embedding vector(1536)" in sql
+        assert "p_query_text text" in sql
+        assert "p_categories text[]" in sql
+        assert "p_limit integer" in sql
+        assert "<=>" in sql  # cosine distance operator
+
+    def test_hybrid_function_scoring_weights(self):
+        cfg = GnosisMcpConfig(database_url="postgresql://localhost/db")
+        sql = get_init_sql(cfg)
+        # RRF scoring: 0.4 keyword + 0.6 semantic
+        assert "* 0.4" in sql
+        assert "* 0.6" in sql
+        # Cosine similarity threshold for semantic-only matches
+        assert "< 0.8" in sql
+
+    def test_hybrid_function_custom_dim(self):
+        cfg = GnosisMcpConfig(
+            database_url="postgresql://localhost/db",
+            embedding_dim=384,
+        )
+        sql = get_init_sql(cfg)
+        assert "p_embedding vector(384)" in sql
+        assert "vector(384)" in sql
+
+    def test_hybrid_function_custom_table(self):
+        cfg = GnosisMcpConfig(
+            database_url="postgresql://localhost/db",
+            schema="internal",
+            chunks_table="docs",
+        )
+        sql = get_init_sql(cfg)
+        assert "internal.search_docs_hybrid(" in sql
+        assert "FROM internal.docs c" in sql

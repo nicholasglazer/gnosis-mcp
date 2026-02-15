@@ -284,3 +284,82 @@ class TestIdentifierValidation:
         monkeypatch.setenv("GNOSIS_MCP_SEARCH_FUNCTION", "fn(); DROP TABLE--")
         with pytest.raises(ValueError, match="Invalid SQL identifier"):
             GnosisMcpConfig.from_env()
+
+
+class TestEmbedConfig:
+    def test_embed_defaults(self, monkeypatch):
+        monkeypatch.setenv("GNOSIS_MCP_DATABASE_URL", "postgresql://localhost/db")
+        cfg = GnosisMcpConfig.from_env()
+        assert cfg.embed_provider is None
+        assert cfg.embed_model == "text-embedding-3-small"
+        assert cfg.embed_api_key is None
+        assert cfg.embed_url is None
+        assert cfg.embed_batch_size == 50
+
+    def test_embed_provider_openai(self, monkeypatch):
+        monkeypatch.setenv("GNOSIS_MCP_DATABASE_URL", "postgresql://localhost/db")
+        monkeypatch.setenv("GNOSIS_MCP_EMBED_PROVIDER", "openai")
+        cfg = GnosisMcpConfig.from_env()
+        assert cfg.embed_provider == "openai"
+
+    def test_embed_provider_ollama(self, monkeypatch):
+        monkeypatch.setenv("GNOSIS_MCP_DATABASE_URL", "postgresql://localhost/db")
+        monkeypatch.setenv("GNOSIS_MCP_EMBED_PROVIDER", "ollama")
+        cfg = GnosisMcpConfig.from_env()
+        assert cfg.embed_provider == "ollama"
+
+    def test_embed_provider_custom(self, monkeypatch):
+        monkeypatch.setenv("GNOSIS_MCP_DATABASE_URL", "postgresql://localhost/db")
+        monkeypatch.setenv("GNOSIS_MCP_EMBED_PROVIDER", "custom")
+        cfg = GnosisMcpConfig.from_env()
+        assert cfg.embed_provider == "custom"
+
+    def test_rejects_invalid_embed_provider(self, monkeypatch):
+        monkeypatch.setenv("GNOSIS_MCP_DATABASE_URL", "postgresql://localhost/db")
+        monkeypatch.setenv("GNOSIS_MCP_EMBED_PROVIDER", "gemini")
+        with pytest.raises(ValueError, match="GNOSIS_MCP_EMBED_PROVIDER must be one of"):
+            GnosisMcpConfig.from_env()
+
+    def test_custom_embed_model(self, monkeypatch):
+        monkeypatch.setenv("GNOSIS_MCP_DATABASE_URL", "postgresql://localhost/db")
+        monkeypatch.setenv("GNOSIS_MCP_EMBED_MODEL", "nomic-embed-text")
+        cfg = GnosisMcpConfig.from_env()
+        assert cfg.embed_model == "nomic-embed-text"
+
+    def test_embed_api_key(self, monkeypatch):
+        monkeypatch.setenv("GNOSIS_MCP_DATABASE_URL", "postgresql://localhost/db")
+        monkeypatch.setenv("GNOSIS_MCP_EMBED_API_KEY", "sk-test-key")
+        cfg = GnosisMcpConfig.from_env()
+        assert cfg.embed_api_key == "sk-test-key"
+
+    def test_custom_embed_url(self, monkeypatch):
+        monkeypatch.setenv("GNOSIS_MCP_DATABASE_URL", "postgresql://localhost/db")
+        monkeypatch.setenv("GNOSIS_MCP_EMBED_URL", "https://my-embed.com/v1/embed")
+        cfg = GnosisMcpConfig.from_env()
+        assert cfg.embed_url == "https://my-embed.com/v1/embed"
+
+    def test_custom_embed_batch_size(self, monkeypatch):
+        monkeypatch.setenv("GNOSIS_MCP_DATABASE_URL", "postgresql://localhost/db")
+        monkeypatch.setenv("GNOSIS_MCP_EMBED_BATCH_SIZE", "25")
+        cfg = GnosisMcpConfig.from_env()
+        assert cfg.embed_batch_size == 25
+
+    def test_rejects_zero_embed_batch_size(self, monkeypatch):
+        monkeypatch.setenv("GNOSIS_MCP_DATABASE_URL", "postgresql://localhost/db")
+        monkeypatch.setenv("GNOSIS_MCP_EMBED_BATCH_SIZE", "0")
+        with pytest.raises(ValueError, match="GNOSIS_MCP_EMBED_BATCH_SIZE must be >= 1"):
+            GnosisMcpConfig.from_env()
+
+    def test_full_embed_config(self, monkeypatch):
+        monkeypatch.setenv("GNOSIS_MCP_DATABASE_URL", "postgresql://localhost/db")
+        monkeypatch.setenv("GNOSIS_MCP_EMBED_PROVIDER", "openai")
+        monkeypatch.setenv("GNOSIS_MCP_EMBED_MODEL", "text-embedding-3-large")
+        monkeypatch.setenv("GNOSIS_MCP_EMBED_API_KEY", "sk-xyz")
+        monkeypatch.setenv("GNOSIS_MCP_EMBED_URL", "https://custom.openai.com/v1/embeddings")
+        monkeypatch.setenv("GNOSIS_MCP_EMBED_BATCH_SIZE", "100")
+        cfg = GnosisMcpConfig.from_env()
+        assert cfg.embed_provider == "openai"
+        assert cfg.embed_model == "text-embedding-3-large"
+        assert cfg.embed_api_key == "sk-xyz"
+        assert cfg.embed_url == "https://custom.openai.com/v1/embeddings"
+        assert cfg.embed_batch_size == 100

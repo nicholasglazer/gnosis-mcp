@@ -13,6 +13,7 @@ _IDENT_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)*$")
 
 _VALID_LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
 _VALID_TRANSPORTS = ("stdio", "sse")
+_VALID_EMBED_PROVIDERS = ("openai", "ollama", "custom")
 
 
 def _validate_identifier(value: str, name: str) -> str:
@@ -76,6 +77,13 @@ class GnosisMcpConfig:
     search_limit_max: int = 20
     webhook_timeout: int = 5
 
+    # Embedding provider (Tier 2 sidecar)
+    embed_provider: str | None = None  # "openai", "ollama", "custom"
+    embed_model: str = "text-embedding-3-small"
+    embed_api_key: str | None = None
+    embed_url: str | None = None  # custom endpoint or ollama override
+    embed_batch_size: int = 50
+
     # Server defaults
     transport: str = "stdio"
     log_level: str = "INFO"
@@ -130,6 +138,15 @@ class GnosisMcpConfig:
         if self.log_level not in _VALID_LOG_LEVELS:
             raise ValueError(
                 f"GNOSIS_MCP_LOG_LEVEL must be one of {_VALID_LOG_LEVELS}, got {self.log_level!r}"
+            )
+        if self.embed_provider is not None and self.embed_provider not in _VALID_EMBED_PROVIDERS:
+            raise ValueError(
+                f"GNOSIS_MCP_EMBED_PROVIDER must be one of {_VALID_EMBED_PROVIDERS}, "
+                f"got {self.embed_provider!r}"
+            )
+        if self.embed_batch_size < 1:
+            raise ValueError(
+                f"GNOSIS_MCP_EMBED_BATCH_SIZE must be >= 1, got {self.embed_batch_size}"
             )
 
     @property
@@ -211,6 +228,11 @@ class GnosisMcpConfig:
             chunk_size=env_int("CHUNK_SIZE", 4000),
             search_limit_max=env_int("SEARCH_LIMIT_MAX", 20),
             webhook_timeout=env_int("WEBHOOK_TIMEOUT", 5),
+            embed_provider=env("EMBED_PROVIDER"),
+            embed_model=env("EMBED_MODEL", "text-embedding-3-small"),
+            embed_api_key=env("EMBED_API_KEY"),
+            embed_url=env("EMBED_URL"),
+            embed_batch_size=env_int("EMBED_BATCH_SIZE", 50),
             transport=env("TRANSPORT", "stdio"),
             log_level=env("LOG_LEVEL", "INFO").upper(),
         )

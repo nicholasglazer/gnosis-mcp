@@ -61,4 +61,4 @@ class TestMainNoArgs:
         with pytest.raises(SystemExit, match="0"):
             main()
         out = capsys.readouterr().out
-        assert "gnosis-mcp 0.4.0" in out
+        assert "gnosis-mcp 0.5.0" in out
