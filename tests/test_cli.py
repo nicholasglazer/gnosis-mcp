@@ -4,7 +4,7 @@ import sys
 
 import pytest
 
-from gnosis_mcp.cli import _human_size, _mask_url, main
+from gnosis_mcp.cli import _format_bytes, _mask_url, main
 
 
 class TestMaskUrl:
@@ -34,19 +34,19 @@ class TestMaskUrl:
 
 class TestHumanSize:
     def test_bytes(self):
-        assert _human_size(512) == "512 B"
+        assert _format_bytes(512) == "512 B"
 
     def test_kilobytes(self):
-        assert _human_size(2048) == "2.0 KB"
+        assert _format_bytes(2048) == "2.0 KB"
 
     def test_megabytes(self):
-        assert _human_size(5 * 1024 * 1024) == "5.0 MB"
+        assert _format_bytes(5 * 1024 * 1024) == "5.0 MB"
 
     def test_zero(self):
-        assert _human_size(0) == "0 B"
+        assert _format_bytes(0) == "0 B"
 
     def test_large(self):
-        result = _human_size(1_500_000_000)
+        result = _format_bytes(1_500_000_000)
         assert "GB" in result
 
 

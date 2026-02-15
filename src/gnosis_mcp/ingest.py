@@ -9,6 +9,16 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+__all__ = [
+    "IngestResult",
+    "content_hash",
+    "parse_frontmatter",
+    "extract_title",
+    "chunk_by_headings",
+    "scan_files",
+    "ingest_path",
+]
+
 log = logging.getLogger("gnosis_mcp")
 
 # Frontmatter key: value parser (no yaml dependency)
@@ -49,8 +59,8 @@ def parse_frontmatter(markdown: str) -> tuple[dict[str, str], str]:
     body = markdown[end + 4 :].lstrip("\n")
 
     meta: dict[str, str] = {}
-    for m in _FM_KV_RE.finditer(fm_block):
-        key, val = m.group(1).strip(), m.group(2).strip().strip("\"'")
+    for match in _FM_KV_RE.finditer(fm_block):
+        key, val = match.group(1).strip(), match.group(2).strip().strip("\"'")
         meta[key] = val
 
     return meta, body
@@ -58,8 +68,8 @@ def parse_frontmatter(markdown: str) -> tuple[dict[str, str], str]:
 
 def extract_title(markdown: str) -> str | None:
     """Extract the first H1 heading from markdown."""
-    m = _H1_RE.search(markdown)
-    return m.group(1).strip() if m else None
+    hit = _H1_RE.search(markdown)
+    return hit.group(1).strip() if hit else None
 
 
 def chunk_by_headings(markdown: str, file_path: str) -> list[dict]:
@@ -142,7 +152,7 @@ async def ingest_path(
             if len(text.strip()) < 50:
                 results.append(IngestResult(path=str(f.relative_to(base)), chunks=0, action="skipped", detail="Too small (<50 chars)"))
                 continue
-            fm, body = parse_frontmatter(text)
+            _, body = parse_frontmatter(text)
             chunks = chunk_by_headings(body, str(f.relative_to(base)))
             results.append(IngestResult(path=str(f.relative_to(base)), chunks=len(chunks), action="dry-run"))
         return results
@@ -174,8 +184,8 @@ async def ingest_path(
                 continue
 
             # Parse frontmatter
-            fm, body = parse_frontmatter(text)
-            h = content_hash(text)
+            frontmatter, body = parse_frontmatter(text)
+            digest = content_hash(text)
 
             # Skip unchanged files
             if has_hash:
@@ -183,7 +193,7 @@ async def ingest_path(
                     f"SELECT content_hash FROM {qualified_table} WHERE file_path = $1 LIMIT 1",
                     rel,
                 )
-                if existing == h:
+                if existing == digest:
                     # Count existing chunks for reporting
                     count = await conn.fetchval(
                         f"SELECT COUNT(*) FROM {qualified_table} WHERE file_path = $1", rel
@@ -192,10 +202,10 @@ async def ingest_path(
                     continue
 
             # Extract metadata
-            title = extract_title(body) or fm.get("title") or f.stem
-            category = fm.get("category") or (f.parent.name if f.parent != base else "general")
-            audience = fm.get("audience", "all")
-            tags_str = fm.get("tags", "")
+            title = extract_title(body) or frontmatter.get("title") or f.stem
+            category = frontmatter.get("category") or (f.parent.name if f.parent != base else "general")
+            audience = frontmatter.get("audience", "all")
+            tags_str = frontmatter.get("tags", "")
             tags = [t.strip() for t in tags_str.split(",") if t.strip()] if tags_str else None
 
             # Chunk
@@ -228,7 +238,7 @@ async def ingest_path(
                     if has_hash:
                         cols += ", content_hash"
                         vals += f", ${idx}"
-                        params.append(h)
+                        params.append(digest)
                         idx += 1
 
                     await conn.execute(

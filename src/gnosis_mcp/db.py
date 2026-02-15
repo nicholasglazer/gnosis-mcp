@@ -12,6 +12,8 @@ import asyncpg
 
 from gnosis_mcp.config import GnosisMcpConfig
 
+__all__ = ["AppContext", "app_lifespan"]
+
 log = logging.getLogger("gnosis_mcp")
 
 

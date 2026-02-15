@@ -10,6 +10,8 @@ from mcp.server.fastmcp import FastMCP
 
 from gnosis_mcp.db import AppContext, app_lifespan
 
+__all__ = ["mcp"]
+
 log = logging.getLogger("gnosis_mcp")
 
 
@@ -588,18 +590,23 @@ def _split_chunks(content: str, max_size: int = 4000) -> list[str]:
     if len(content) <= max_size:
         return [content]
 
-    chunks = []
-    paragraphs = content.split("\n\n")
-    current = ""
+    chunks: list[str] = []
+    parts: list[str] = []
+    current_len = 0
 
-    for para in paragraphs:
-        if current and len(current) + len(para) + 2 > max_size:
-            chunks.append(current.strip())
-            current = para
+    for para in content.split("\n\n"):
+        added_len = len(para) + (2 if parts else 0)
+        if parts and current_len + added_len > max_size:
+            chunks.append("\n\n".join(parts).strip())
+            parts = [para]
+            current_len = len(para)
         else:
-            current = current + "\n\n" + para if current else para
+            parts.append(para)
+            current_len += added_len
 
-    if current.strip():
-        chunks.append(current.strip())
+    if parts:
+        tail = "\n\n".join(parts).strip()
+        if tail:
+            chunks.append(tail)
 
     return chunks if chunks else [content]

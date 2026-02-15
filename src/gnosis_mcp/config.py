@@ -7,6 +7,8 @@ import re
 from dataclasses import dataclass
 
 # Valid SQL identifier: letters, digits, underscores. Qualified names allow dots.
+__all__ = ["GnosisMcpConfig"]
+
 _IDENT_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)*$")
 
 _VALID_LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")

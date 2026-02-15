@@ -11,6 +11,8 @@ import sys
 
 from gnosis_mcp import __version__
 
+__all__ = ["main"]
+
 log = logging.getLogger("gnosis_mcp")
 
 
@@ -305,7 +307,7 @@ def cmd_stats(args: argparse.Namespace) -> None:
             sys.stdout.write(f"\n  {qt}\n")
             sys.stdout.write(f"  Documents: {docs}\n")
             sys.stdout.write(f"  Chunks:    {total}\n")
-            sys.stdout.write(f"  Content:   {_human_size(size)}\n\n")
+            sys.stdout.write(f"  Content:   {_format_bytes(size)}\n\n")
 
             if cats:
                 sys.stdout.write("  Category              Docs  Chunks\n")
@@ -401,7 +403,7 @@ def cmd_export(args: argparse.Namespace) -> None:
     asyncio.run(_run())
 
 
-def _human_size(nbytes: int) -> str:
+def _format_bytes(nbytes: int) -> str:
     """Format byte count as human-readable string."""
     for unit in ("B", "KB", "MB", "GB"):
         if nbytes < 1024:
