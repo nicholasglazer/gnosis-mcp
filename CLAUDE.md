@@ -1,6 +1,6 @@
 # Gnosis MCP -- MCP Documentation Server
 
-Open-source Python MCP server for PostgreSQL documentation with pgvector search. Part of the miozu ecosystem.
+Open-source Python MCP server for PostgreSQL documentation with pgvector search.
 
 ## Architecture
 
@@ -9,8 +9,9 @@ src/gnosis_mcp/
 ├── config.py   # GnosisMcpConfig frozen dataclass, GNOSIS_MCP_* env vars, identifier validation
 ├── db.py       # asyncpg pool + FastMCP lifespan context manager
 ├── server.py   # FastMCP server: 6 tools + 3 resources + webhook helper
+├── ingest.py   # File ingestion: scan markdown, chunk by H2, frontmatter, content hashing
 ├── schema.py   # SQL template for init-db (chunks + links tables)
-└── cli.py      # argparse CLI: serve, init-db, check
+└── cli.py      # argparse CLI: serve, init-db, ingest, check
 ```
 
 ## Dependencies
@@ -44,12 +45,14 @@ Only 2: `mcp>=1.20`, `asyncpg>=0.29`. No click, no pydantic, no ORM.
 - **Webhook notifications**: Fire-and-forget POST to `GNOSIS_MCP_WEBHOOK_URL` on write operations
 - **Custom search delegation**: Set `GNOSIS_MCP_SEARCH_FUNCTION` to use your own hybrid search
 - **Column overrides**: `GNOSIS_MCP_COL_*` are for connecting to existing tables with non-standard names
-- **No embedding generation**: Users bring their own embeddings
+- **H2-based chunking**: `ingest` splits markdown by H2 headers (smarter than paragraph boundaries)
+- **Content hashing**: `ingest` skips unchanged files using SHA-256 hash comparison
+- **No embedding generation**: Users bring their own embeddings (tsvector search works out of the box)
 
 ## Testing
 
 ```bash
-pytest tests/               # Unit tests (67 tests, no DB required)
+pytest tests/               # Unit tests (92 tests, no DB required)
 gnosis-mcp check            # Integration check against live DB
 ```
 

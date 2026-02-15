@@ -1,4 +1,4 @@
-"""Command-line interface: serve, init-db, check."""
+"""Command-line interface: serve, init-db, ingest, check."""
 
 from __future__ import annotations
 
@@ -141,6 +141,46 @@ def cmd_check(args: argparse.Namespace) -> None:
     asyncio.run(_run())
 
 
+def cmd_ingest(args: argparse.Namespace) -> None:
+    """Ingest markdown files into PostgreSQL."""
+    from gnosis_mcp.config import GnosisMcpConfig
+    from gnosis_mcp.ingest import ingest_path
+
+    config = GnosisMcpConfig.from_env()
+
+    async def _run() -> None:
+        results = await ingest_path(
+            database_url=config.database_url,
+            root=args.path,
+            schema=config.schema,
+            chunks_table=config.chunks_tables[0],
+            dry_run=args.dry_run,
+        )
+
+        # Print results
+        total_chunks = 0
+        counts = {"ingested": 0, "unchanged": 0, "skipped": 0, "error": 0, "dry-run": 0}
+        for r in results:
+            counts[r.action] = counts.get(r.action, 0) + 1
+            total_chunks += r.chunks
+            marker = {"ingested": "+", "unchanged": "=", "skipped": "-", "error": "!", "dry-run": "?"}
+            sym = marker.get(r.action, " ")
+            detail = f"  ({r.detail})" if r.detail else ""
+            log.info("[%s] %s  (%d chunks)%s", sym, r.path, r.chunks, detail)
+
+        log.info("")
+        log.info(
+            "Done: %d ingested, %d unchanged, %d skipped, %d errors (%d total chunks)",
+            counts["ingested"],
+            counts["unchanged"],
+            counts["skipped"],
+            counts["error"],
+            total_chunks,
+        )
+
+    asyncio.run(_run())
+
+
 def _mask_url(url: str) -> str:
     """Mask password in connection URL for display."""
     if ":" not in url or "@" not in url:
@@ -183,6 +223,11 @@ def main() -> None:
     p_init = sub.add_parser("init-db", help="Create documentation tables")
     p_init.add_argument("--dry-run", action="store_true", help="Print SQL without executing")
 
+    # ingest
+    p_ingest = sub.add_parser("ingest", help="Ingest markdown files into PostgreSQL")
+    p_ingest.add_argument("path", help="File or directory to ingest")
+    p_ingest.add_argument("--dry-run", action="store_true", help="Show what would be ingested")
+
     # check
     sub.add_parser("check", help="Verify database connection and schema")
 
@@ -194,6 +239,7 @@ def main() -> None:
     commands = {
         "serve": cmd_serve,
         "init-db": cmd_init_db,
+        "ingest": cmd_ingest,
         "check": cmd_check,
     }
     commands[args.command](args)

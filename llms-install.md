@@ -4,7 +4,7 @@
 
 - Python 3.11 or later
 - PostgreSQL with pgvector extension
-- A documentation table (or use `gnosis-mcp init-db` to create one)
+- A documentation table (or use `gnosis-mcp init-db` to create one), or just a folder of markdown files
 
 ## Step 1: Install
 
@@ -34,13 +34,29 @@ gnosis-mcp init-db
 
 This creates the chunks table, links table, indexes, and a basic search function. Safe to run multiple times (idempotent).
 
-## Step 4: Verify
+## Step 4: Load Your Docs
+
+Point at a folder of markdown files:
+
+```bash
+gnosis-mcp ingest ./docs/
+```
+
+This scans all `.md` files, chunks by H2 headings, extracts metadata from frontmatter, and inserts into PostgreSQL. Re-running skips unchanged files.
+
+Preview without writing:
+
+```bash
+gnosis-mcp ingest ./docs/ --dry-run
+```
+
+## Step 5: Verify
 
 ```bash
 gnosis-mcp check
 ```
 
-## Step 5: Add to MCP Client
+## Step 6: Add to MCP Client
 
 Add this to your MCP client configuration:
 

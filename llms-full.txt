@@ -13,8 +13,9 @@ pip install gnosis-mcp
 
 ```bash
 export GNOSIS_MCP_DATABASE_URL="postgresql://user:pass@localhost:5432/mydb"
-gnosis-mcp init-db    # Create tables (idempotent)
-gnosis-mcp check      # Verify connection + schema
+gnosis-mcp init-db          # Create tables (idempotent)
+gnosis-mcp ingest ./docs/   # Load markdown files
+gnosis-mcp check             # Verify connection + schema
 ```
 
 ## MCP Client Config
@@ -121,9 +122,22 @@ And return columns: file_path, title, content, category, combined_score.
 ```
 gnosis-mcp serve [--transport stdio|sse]   # Start MCP server
 gnosis-mcp init-db [--dry-run]             # Create tables (or preview SQL)
+gnosis-mcp ingest <path> [--dry-run]       # Load markdown files into PostgreSQL
 gnosis-mcp check                           # Verify connection + schema
 gnosis-mcp --version                       # Show version
 ```
+
+## Ingest
+
+`gnosis-mcp ingest <path>` scans a file or directory for markdown files and loads them into PostgreSQL.
+
+- Chunks by H2 headers (smarter than paragraph boundaries)
+- Parses YAML-like frontmatter for title, category, audience, tags
+- Content hashing: skips unchanged files on re-run
+- Category inferred from parent directory name
+- Title extracted from first H1 heading
+- Skips tiny files (<50 chars)
+- Use `--dry-run` to preview without writing
 
 ## Architecture
 
@@ -132,8 +146,9 @@ src/gnosis_mcp/
 ├── config.py   # GnosisMcpConfig frozen dataclass, env var loading, validation
 ├── db.py       # asyncpg pool + FastMCP lifespan context manager
 ├── server.py   # FastMCP server: 6 tools + 3 resources + webhook helper
+├── ingest.py   # File scanner: markdown chunking, frontmatter, content hashing
 ├── schema.py   # SQL template for init-db (chunks + links tables)
-└── cli.py      # argparse CLI: serve, init-db, check
+└── cli.py      # argparse CLI: serve, init-db, ingest, check
 ```
 
 Dependencies: mcp>=1.20, asyncpg>=0.29 (2 total).

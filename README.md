@@ -31,8 +31,9 @@ Gnosis MCP exposes your PostgreSQL documentation table as [Model Context Protoco
 ```bash
 pip install gnosis-mcp
 export GNOSIS_MCP_DATABASE_URL="postgresql://user:pass@localhost:5432/mydb"
-gnosis-mcp init-db    # create tables (idempotent)
-gnosis-mcp serve      # start MCP server
+gnosis-mcp init-db          # create tables (idempotent)
+gnosis-mcp ingest ./docs/   # load markdown files
+gnosis-mcp serve             # start MCP server
 ```
 
 Or run without installing:
@@ -40,6 +41,8 @@ Or run without installing:
 ```bash
 uvx gnosis-mcp serve
 ```
+
+That's it. Your AI agent can now search and read your docs.
 
 ### Add to your MCP client
 
@@ -151,6 +154,7 @@ Add to Cline MCP settings:
 
 ## Features
 
+- **File ingestion** — `gnosis-mcp ingest ./docs/` scans markdown, chunks by H2 headings, loads into PostgreSQL
 - **Hybrid search** — built-in tsvector keyword search, or bring your own semantic+keyword function
 - **Multi-table** — query across multiple doc tables with `GNOSIS_MCP_CHUNKS_TABLE=docs_v1,docs_v2`
 - **Write mode** — insert, update, delete docs via MCP tools (opt-in)
@@ -251,6 +255,7 @@ All tables must share the same column structure. Reads use `UNION ALL` across al
 ```
 gnosis-mcp serve [--transport stdio|sse]   Start MCP server (default: stdio)
 gnosis-mcp init-db [--dry-run]             Create tables or preview SQL
+gnosis-mcp ingest <path> [--dry-run]       Load markdown files into PostgreSQL
 gnosis-mcp check                           Verify connection + schema
 gnosis-mcp --version                       Show version
 python -m gnosis_mcp                       Alternative entry point
@@ -263,7 +268,7 @@ git clone https://github.com/nicholasglazer/gnosis-mcp.git
 cd gnosis-mcp
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
-pytest                    # 67 tests, no database required
+pytest                    # 92 tests, no database required
 ruff check src/ tests/    # lint
 ```
 
@@ -274,8 +279,9 @@ src/gnosis_mcp/
 ├── config.py    GnosisMcpConfig — frozen dataclass, 28 env vars, SQL injection validation
 ├── db.py        asyncpg pool + FastMCP lifespan context manager
 ├── server.py    FastMCP server — 6 tools, 3 resources, webhook helper
+├── ingest.py    File scanner — markdown chunking, frontmatter, content hashing
 ├── schema.py    SQL template for init-db (chunks + links + search function)
-└── cli.py       argparse CLI — serve, init-db, check
+└── cli.py       argparse CLI — serve, init-db, ingest, check
 ```
 
 ## AI-Friendly Docs
