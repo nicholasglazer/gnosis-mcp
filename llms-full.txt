@@ -103,6 +103,9 @@ All settings via GNOSIS_MCP_* environment variables. Only DATABASE_URL is requir
 - GNOSIS_MCP_COL_TAGS (default: tags)
 - GNOSIS_MCP_COL_EMBEDDING (default: embedding)
 - GNOSIS_MCP_COL_TSV (default: tsv)
+- GNOSIS_MCP_COL_SOURCE_PATH (default: source_path)
+- GNOSIS_MCP_COL_TARGET_PATH (default: target_path)
+- GNOSIS_MCP_COL_RELATION_TYPE (default: relation_type)
 
 ## Custom Search Function
 
@@ -137,4 +140,4 @@ Dependencies: mcp>=1.20, asyncpg>=0.29 (2 total).
 
 ## License
 
-MIT — https://github.com/miozu-com/gnosis-mcp
+MIT — https://github.com/nicholasglazer/gnosis-mcp

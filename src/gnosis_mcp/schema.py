@@ -93,7 +93,7 @@ def get_init_sql(config: GnosisMcpConfig) -> str:
     """
     return SCHEMA_SQL.format(
         schema=config.schema,
-        chunks_table=config.chunks_table,
+        chunks_table=config.chunks_tables[0],
         links_table=config.links_table,
         embedding_dim=config.embedding_dim,
     )

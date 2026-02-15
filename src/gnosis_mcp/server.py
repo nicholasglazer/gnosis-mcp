@@ -183,7 +183,7 @@ async def search_docs(
     Args:
         query: Search query text.
         category: Optional category filter (e.g. "guides", "architecture", "ops").
-        limit: Maximum results (1-20, default 5).
+        limit: Maximum results (default 5, server-configurable upper bound).
     """
     ctx = await _get_ctx()
     cfg = ctx.config

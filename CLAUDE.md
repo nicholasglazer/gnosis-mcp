@@ -49,7 +49,7 @@ Only 2: `mcp>=1.20`, `asyncpg>=0.29`. No click, no pydantic, no ORM.
 ## Testing
 
 ```bash
-pytest tests/               # Unit tests (69 tests, no DB required)
+pytest tests/               # Unit tests (67 tests, no DB required)
 gnosis-mcp check            # Integration check against live DB
 ```
 
