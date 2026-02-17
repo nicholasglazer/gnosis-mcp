@@ -1,0 +1,21 @@
+{
+  "name": "gnosis",
+  "version": "0.5.0",
+  "description": "Knowledge base MCP server — search, manage, and embed documentation with PostgreSQL + pgvector",
+  "author": {
+    "name": "Nicholas Glazer",
+    "url": "https://github.com/nicholasglazer"
+  },
+  "homepage": "https://github.com/nicholasglazer/gnosis-mcp",
+  "repository": "https://github.com/nicholasglazer/gnosis-mcp",
+  "license": "MIT",
+  "keywords": [
+    "knowledge-base",
+    "documentation",
+    "mcp",
+    "search",
+    "pgvector",
+    "semantic-search",
+    "postgresql"
+  ]
+}

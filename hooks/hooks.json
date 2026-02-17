@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "gnosis-mcp check 2>/dev/null || echo 'Gnosis MCP: database unreachable — check GNOSIS_MCP_DATABASE_URL' >&2",
+            "timeout": 5000,
+            "async": true
+          }
+        ]
+      }
+    ]
+  }
+}

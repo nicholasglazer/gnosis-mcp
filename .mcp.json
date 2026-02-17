@@ -1,0 +1,7 @@
+{
+  "gnosis": {
+    "command": "gnosis-mcp",
+    "args": ["serve"],
+    "serverInstructions": "Knowledge base: search documentation (keyword + semantic), get/upsert docs, find related docs, manage doc metadata. Set GNOSIS_MCP_DATABASE_URL to connect to your PostgreSQL database."
+  }
+}
