@@ -2,7 +2,7 @@
 
 <h1>Gnosis MCP</h1>
 
-<p><strong>Give your AI agent a searchable knowledge base. Backed by PostgreSQL.</strong></p>
+<p><strong>Give your AI agent a searchable knowledge base. Zero config.</strong></p>
 
 <p>
   <a href="https://pypi.org/project/gnosis-mcp/"><img src="https://img.shields.io/pypi/v/gnosis-mcp?color=blue" alt="PyPI"></a>
@@ -13,6 +13,7 @@
 
 <p>
   <a href="#quick-start">Quick Start</a> &middot;
+  <a href="#choose-your-backend">Choose Your Backend</a> &middot;
   <a href="#claude-code-plugin">Claude Code Plugin</a> &middot;
   <a href="#what-it-does">What It Does</a> &middot;
   <a href="#configuration">Configuration</a> &middot;
@@ -28,9 +29,9 @@
 
 AI coding agents can read your source code but not your documentation. They guess at architecture, miss established patterns, and hallucinate details they could have looked up.
 
-Gnosis MCP fixes this. It loads your markdown docs into PostgreSQL and exposes them as [MCP](https://modelcontextprotocol.io/) tools — search, read, and manage — that any compatible agent can call. Claude Code, Cursor, Windsurf, Cline, VS Code.
+Gnosis MCP fixes this. It loads your markdown docs into a database and exposes them as [MCP](https://modelcontextprotocol.io/) tools — search, read, and manage — that any compatible agent can call. Claude Code, Cursor, Windsurf, Cline, VS Code.
 
-Two runtime dependencies. Four commands to set up. Uses the PostgreSQL you already have.
+Zero config. Install, point at a folder, search. Works with SQLite out of the box — no database server needed. Scale up to PostgreSQL + pgvector when you're ready.
 
 ## What you get
 
@@ -40,17 +41,17 @@ Two runtime dependencies. Four commands to set up. Uses the PostgreSQL you alrea
 
 **Docs that stay useful.** New docs are searchable the moment you ingest them. No manual routing tables to maintain, no hardcoded file paths to update. Agents discover docs dynamically through search, not through stale indexes.
 
-**One search, full coverage.** Hybrid search combines keyword matching (tsvector) with semantic similarity (pgvector cosine). A query for "how does billing work" finds docs titled "Pricing Strategy" even when the word "billing" doesn't appear.
+**One search, full coverage.** FTS5 keyword search works out of the box. Add PostgreSQL + pgvector for hybrid keyword+semantic search when you need it.
 
 ## Quick Start
 
 ```bash
 pip install gnosis-mcp
-export GNOSIS_MCP_DATABASE_URL="postgresql://user:pass@localhost:5432/mydb"
-gnosis-mcp init-db              # create tables + indexes
-gnosis-mcp ingest ./docs/       # load your markdown
+gnosis-mcp ingest ./docs/       # load your markdown (auto-creates SQLite database)
 gnosis-mcp serve                # start MCP server
 ```
+
+That's it. Two commands. No database server, no connection strings, no config files.
 
 Or without installing:
 
@@ -67,10 +68,7 @@ uvx gnosis-mcp serve
   "mcpServers": {
     "docs": {
       "command": "gnosis-mcp",
-      "args": ["serve"],
-      "env": {
-        "GNOSIS_MCP_DATABASE_URL": "postgresql://user:pass@localhost:5432/mydb"
-      }
+      "args": ["serve"]
     }
   }
 }
@@ -83,6 +81,37 @@ Same JSON structure. Place it in:
 - **Cursor**: `.cursor/mcp.json`
 - **Windsurf**: `~/.codeium/windsurf/mcp_config.json`
 - **Cline**: Cline MCP settings panel
+
+</details>
+
+## Choose Your Backend
+
+| | SQLite (default) | PostgreSQL |
+|---|---|---|
+| **Install** | `pip install gnosis-mcp` | `pip install gnosis-mcp[postgres]` |
+| **Config** | Nothing — works immediately | Set `DATABASE_URL` |
+| **Search** | FTS5 keyword (BM25) | tsvector + pgvector hybrid |
+| **Embeddings** | Stored as binary blobs | Native `vector` type + HNSW index |
+| **Multi-table** | No | Yes (`UNION ALL` across tables) |
+| **Best for** | Personal projects, demos, single-user | Teams, production, semantic search |
+
+**Auto-detection:** Set `DATABASE_URL` to `postgresql://...` and it uses PostgreSQL. Don't set it and it uses SQLite. Override with `GNOSIS_MCP_BACKEND=sqlite|postgres`.
+
+<details>
+<summary>PostgreSQL setup</summary>
+
+```bash
+pip install gnosis-mcp[postgres]
+export GNOSIS_MCP_DATABASE_URL="postgresql://user:pass@localhost:5432/mydb"
+gnosis-mcp init-db
+gnosis-mcp ingest ./docs/
+gnosis-mcp serve
+```
+
+For hybrid search with pgvector:
+```bash
+CREATE EXTENSION IF NOT EXISTS vector;
+```
 
 </details>
 
@@ -103,9 +132,7 @@ This gives you:
 | **`/gnosis:search`** | Search docs with keyword or `--semantic` hybrid mode |
 | **`/gnosis:status`** | Health check — connectivity, doc stats, troubleshooting |
 | **`/gnosis:manage`** | CRUD — add, delete, update metadata, bulk embed |
-| **SessionStart hook** | Verifies DB connectivity at session start |
-
-You still need PostgreSQL and `pip install gnosis-mcp` for the server binary. The plugin wires everything into Claude Code automatically.
+The plugin works with both SQLite and PostgreSQL backends.
 
 <details>
 <summary>Manual setup (without plugin)</summary>
@@ -117,14 +144,13 @@ Add to `.claude/mcp.json`:
   "mcpServers": {
     "gnosis": {
       "command": "gnosis-mcp",
-      "args": ["serve"],
-      "env": {
-        "GNOSIS_MCP_DATABASE_URL": "postgresql://user:pass@localhost:5432/mydb"
-      }
+      "args": ["serve"]
     }
   }
 }
 ```
+
+For PostgreSQL, add `"env": {"GNOSIS_MCP_DATABASE_URL": "postgresql://..."}`.
 
 </details>
 
@@ -158,10 +184,10 @@ Write tools require `GNOSIS_MCP_WRITABLE=true`. Read tools are always on.
 Three modes, one tool:
 
 ```bash
-# Keyword — fast, exact matches
+# Keyword — fast, exact matches (works on both backends)
 gnosis-mcp search "stripe webhook"
 
-# Hybrid — keyword + semantic similarity
+# Hybrid — keyword + semantic similarity (PostgreSQL with embeddings)
 gnosis-mcp search "how does billing work" --embed
 
 # Filtered — narrow by category
@@ -186,28 +212,29 @@ gnosis-mcp embed --provider ollama      # or use local Ollama
 
 Supports OpenAI, Ollama, and any OpenAI-compatible endpoint. Uses stdlib `urllib.request` — no new runtime deps.
 
-**Built-in hybrid scoring** — when `query_embedding` is provided, search automatically combines keyword (tsvector) and cosine similarity using reciprocal rank fusion.
+**Built-in hybrid scoring** — on PostgreSQL, when `query_embedding` is provided, search automatically combines keyword (tsvector) and cosine similarity using reciprocal rank fusion.
 
 ## Configuration
 
-All settings via environment variables. Only `DATABASE_URL` is required.
+All settings via environment variables. No config files required.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `GNOSIS_MCP_DATABASE_URL` | *required* | PostgreSQL connection string |
-| `GNOSIS_MCP_SCHEMA` | `public` | Database schema |
+| `GNOSIS_MCP_DATABASE_URL` | SQLite auto | PostgreSQL URL or SQLite path |
+| `GNOSIS_MCP_BACKEND` | `auto` | Force `sqlite` or `postgres` |
+| `GNOSIS_MCP_SCHEMA` | `public` | Database schema (PostgreSQL) |
 | `GNOSIS_MCP_CHUNKS_TABLE` | `documentation_chunks` | Chunks table name |
-| `GNOSIS_MCP_SEARCH_FUNCTION` | — | Custom search function |
+| `GNOSIS_MCP_SEARCH_FUNCTION` | — | Custom search function (PostgreSQL) |
 | `GNOSIS_MCP_EMBEDDING_DIM` | `1536` | Vector dimension for init-db |
 | `GNOSIS_MCP_WRITABLE` | `false` | Enable write tools |
 | `GNOSIS_MCP_TRANSPORT` | `stdio` | Transport: `stdio` or `sse` |
 
 <details>
-<summary>All 33 variables</summary>
+<summary>All variables</summary>
 
 **Search & chunking:** `GNOSIS_MCP_CONTENT_PREVIEW_CHARS` (200), `GNOSIS_MCP_CHUNK_SIZE` (4000), `GNOSIS_MCP_SEARCH_LIMIT_MAX` (20).
 
-**Connection pool:** `GNOSIS_MCP_POOL_MIN` (1), `GNOSIS_MCP_POOL_MAX` (3).
+**Connection pool (PostgreSQL):** `GNOSIS_MCP_POOL_MIN` (1), `GNOSIS_MCP_POOL_MAX` (3).
 
 **Webhooks:** `GNOSIS_MCP_WEBHOOK_URL`, `GNOSIS_MCP_WEBHOOK_TIMEOUT` (5s).
 
@@ -222,7 +249,7 @@ All settings via environment variables. Only `DATABASE_URL` is required.
 </details>
 
 <details>
-<summary>Custom search function</summary>
+<summary>Custom search function (PostgreSQL)</summary>
 
 Delegate search to your own PostgreSQL function for custom ranking:
 
@@ -244,7 +271,7 @@ GNOSIS_MCP_SEARCH_FUNCTION=my_schema.my_search
 </details>
 
 <details>
-<summary>Multi-table mode</summary>
+<summary>Multi-table mode (PostgreSQL)</summary>
 
 Query across multiple doc tables:
 
@@ -276,7 +303,7 @@ git clone https://github.com/nicholasglazer/gnosis-mcp.git
 cd gnosis-mcp
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
-pytest                    # 138 tests, no database needed
+pytest                    # 176 tests, no database needed
 ruff check src/ tests/
 ```
 
@@ -284,16 +311,20 @@ ruff check src/ tests/
 
 ```
 src/gnosis_mcp/
-├── config.py    Frozen dataclass, 33 env vars, SQL injection validation
-├── db.py        asyncpg pool + FastMCP lifespan
-├── server.py    FastMCP server — 6 tools, 3 resources, webhooks
-├── ingest.py    Markdown scanner — H2 chunking, frontmatter, content hashing
-├── schema.py    SQL templates — tables, indexes, search functions
-├── embed.py     Embedding sidecar — provider abstraction, batch backfill
-└── cli.py       CLI — serve, init-db, ingest, search, embed, stats, export, check
+├── backend.py         DocBackend protocol + create_backend() factory
+├── pg_backend.py      PostgreSQL backend — asyncpg, tsvector, pgvector
+├── sqlite_backend.py  SQLite backend — aiosqlite, FTS5
+├── sqlite_schema.py   SQLite DDL — tables, FTS5, triggers
+├── config.py          Frozen dataclass, env vars, backend auto-detection
+├── db.py              Backend lifecycle + FastMCP lifespan
+├── server.py          FastMCP server — 6 tools, 3 resources, webhooks
+├── ingest.py          Markdown scanner — H2 chunking, frontmatter, content hashing
+├── schema.py          PostgreSQL DDL — tables, indexes, search functions
+├── embed.py           Embedding sidecar — provider abstraction, batch backfill
+└── cli.py             CLI — serve, init-db, ingest, search, embed, stats, export, check
 ```
 
-Design constraints: 2 runtime dependencies only (`mcp` + `asyncpg`). No pydantic, no click, no ORM. All SQL identifiers validated at startup. Write tools gated behind `cfg.writable`. Pure functions testable without a database.
+**Zero config by default.** Install and run — SQLite handles everything. Set a `DATABASE_URL` to upgrade to PostgreSQL + pgvector for hybrid search and multi-table support. Backend protocol keeps the abstraction clean: PostgreSQL and SQLite each use natural SQL in their own dialect.
 
 ## AI-Friendly Docs
 

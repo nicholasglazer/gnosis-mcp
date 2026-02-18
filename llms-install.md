@@ -3,8 +3,9 @@
 ## Prerequisites
 
 - Python 3.11 or later
-- PostgreSQL with pgvector extension
-- A documentation table (or use `gnosis-mcp init-db` to create one), or just a folder of markdown files
+- A folder of markdown files to index
+
+No database server required — SQLite works out of the box.
 
 ## Step 1: Install
 
@@ -18,23 +19,13 @@ Or with uvx (no install needed):
 uvx gnosis-mcp serve
 ```
 
-## Step 2: Set Database URL
+For PostgreSQL support:
 
 ```bash
-export GNOSIS_MCP_DATABASE_URL="postgresql://user:pass@localhost:5432/mydb"
+pip install gnosis-mcp[postgres]
 ```
 
-## Step 3: Initialize Database (optional)
-
-If you don't have documentation tables yet:
-
-```bash
-gnosis-mcp init-db
-```
-
-This creates the chunks table, links table, indexes, and a basic search function. Safe to run multiple times (idempotent).
-
-## Step 4: Load Your Docs
+## Step 2: Load Your Docs
 
 Point at a folder of markdown files:
 
@@ -42,7 +33,15 @@ Point at a folder of markdown files:
 gnosis-mcp ingest ./docs/
 ```
 
-This scans all `.md` files, chunks by H2 headings, extracts metadata from frontmatter, and inserts into PostgreSQL. Re-running skips unchanged files.
+This auto-creates the SQLite database at `~/.local/share/gnosis-mcp/docs.db`, scans all `.md` files, chunks by H2 headings, extracts metadata from frontmatter, and inserts into the database. Re-running skips unchanged files.
+
+For PostgreSQL, set the URL first and initialize the schema:
+
+```bash
+export GNOSIS_MCP_DATABASE_URL="postgresql://user:pass@localhost:5432/mydb"
+gnosis-mcp init-db
+gnosis-mcp ingest ./docs/
+```
 
 Preview without writing:
 
@@ -50,15 +49,28 @@ Preview without writing:
 gnosis-mcp ingest ./docs/ --dry-run
 ```
 
-## Step 5: Verify
+## Step 3: Verify
 
 ```bash
 gnosis-mcp check
 ```
 
-## Step 6: Add to MCP Client
+## Step 4: Add to MCP Client
 
 Add this to your MCP client configuration:
+
+```json
+{
+  "mcpServers": {
+    "docs": {
+      "command": "gnosis-mcp",
+      "args": ["serve"]
+    }
+  }
+}
+```
+
+For PostgreSQL, add the env block:
 
 ```json
 {
@@ -88,13 +100,12 @@ Add this to your MCP client configuration:
 ```json
 {
   "env": {
-    "GNOSIS_MCP_DATABASE_URL": "postgresql://...",
     "GNOSIS_MCP_WRITABLE": "true"
   }
 }
 ```
 
-## Optional: Custom Hybrid Search
+## Optional: Custom Hybrid Search (PostgreSQL)
 
 If you have a PostgreSQL function for hybrid semantic+keyword search:
 

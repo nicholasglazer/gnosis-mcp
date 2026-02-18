@@ -28,10 +28,8 @@ def cmd_serve(args: argparse.Namespace) -> None:
 
         async def _ingest() -> None:
             results = await ingest_path(
-                database_url=config.database_url,
+                config=config,
                 root=args.ingest,
-                schema=config.schema,
-                chunks_table=config.chunks_tables[0],
             )
             ingested = sum(1 for r in results if r.action == "ingested")
             unchanged = sum(1 for r in results if r.action == "unchanged")
@@ -46,124 +44,81 @@ def cmd_serve(args: argparse.Namespace) -> None:
 
 def cmd_init_db(args: argparse.Namespace) -> None:
     """Create documentation tables and indexes."""
+    from gnosis_mcp.backend import create_backend
     from gnosis_mcp.config import GnosisMcpConfig
-    from gnosis_mcp.schema import get_init_sql
 
     config = GnosisMcpConfig.from_env()
-    sql = get_init_sql(config)
 
     if args.dry_run:
-        sys.stdout.write(sql + "\n")
+        if config.backend == "postgres":
+            from gnosis_mcp.schema import get_init_sql
+            sys.stdout.write(get_init_sql(config) + "\n")
+        else:
+            from gnosis_mcp.sqlite_schema import get_sqlite_schema
+            sys.stdout.write("\n".join(get_sqlite_schema()) + "\n")
         return
 
     async def _run() -> None:
-        import asyncpg
-
-        conn = await asyncpg.connect(config.database_url)
+        backend = create_backend(config)
+        await backend.startup()
         try:
-            await conn.execute(sql)
-            log.info(
-                "Created tables in %s: %s, %s, %s.search_%s()",
-                config.schema,
-                config.qualified_chunks_table,
-                config.qualified_links_table,
-                config.schema,
-                config.chunks_table,
-            )
+            sql = await backend.init_schema()
+            log.info("Schema initialized (%s backend)", config.backend)
         finally:
-            await conn.close()
+            await backend.shutdown()
 
     asyncio.run(_run())
 
 
 def cmd_check(args: argparse.Namespace) -> None:
     """Verify database connection and schema."""
+    from gnosis_mcp.backend import create_backend
     from gnosis_mcp.config import GnosisMcpConfig
 
     config = GnosisMcpConfig.from_env()
 
     async def _run() -> None:
-        import asyncpg
-
-        log.info("Connecting to %s ...", _mask_url(config.database_url))
-        conn = await asyncpg.connect(config.database_url)
+        backend = create_backend(config)
+        await backend.startup()
         try:
-            # Connection
-            version = await conn.fetchval("SELECT version()")
-            log.info("PostgreSQL: %s", version.split(",")[0])
+            health = await backend.check_health()
 
-            # pgvector
-            has_vector = await conn.fetchval(
-                "SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'vector')"
-            )
-            log.info("pgvector: %s", "installed" if has_vector else "not installed")
+            log.info("Backend: %s", health.get("backend"))
+            log.info("Version: %s", health.get("version", "unknown"))
 
-            # Chunks table
-            chunks_exists = await conn.fetchval(
-                "SELECT EXISTS ("
-                "  SELECT 1 FROM information_schema.tables"
-                "  WHERE table_schema = $1 AND table_name = $2"
-                ")",
-                config.schema,
-                config.chunks_table,
-            )
-            if chunks_exists:
-                count = await conn.fetchval(
-                    f"SELECT count(*) FROM {config.qualified_chunks_table}"
-                )
-                log.info("%s: %d rows", config.qualified_chunks_table, count)
+            if "pgvector" in health:
+                log.info("pgvector: %s", "installed" if health["pgvector"] else "not installed")
+
+            if "fts_table_exists" in health:
+                log.info("FTS5: %s", "ready" if health["fts_table_exists"] else "not initialized")
+
+            if health.get("chunks_table_exists"):
+                log.info("Chunks: %d rows", health.get("chunks_count", 0))
             else:
-                log.warning("%s: does not exist", config.qualified_chunks_table)
+                log.warning("Chunks table: does not exist")
 
-            # Links table
-            links_exists = await conn.fetchval(
-                "SELECT EXISTS ("
-                "  SELECT 1 FROM information_schema.tables"
-                "  WHERE table_schema = $1 AND table_name = $2"
-                ")",
-                config.schema,
-                config.links_table,
-            )
-            if links_exists:
-                count = await conn.fetchval(
-                    f"SELECT count(*) FROM {config.qualified_links_table}"
-                )
-                log.info("%s: %d rows", config.qualified_links_table, count)
-            else:
-                log.warning("%s: does not exist", config.qualified_links_table)
+            if health.get("links_table_exists"):
+                log.info("Links: %d rows", health.get("links_count", 0))
 
-            # Custom search function
-            if config.search_function:
-                fn_schema, fn_name = (
-                    config.search_function.split(".", 1)
-                    if "." in config.search_function
-                    else ("public", config.search_function)
-                )
-                fn_exists = await conn.fetchval(
-                    "SELECT EXISTS ("
-                    "  SELECT 1 FROM information_schema.routines"
-                    "  WHERE routine_schema = $1 AND routine_name = $2"
-                    ")",
-                    fn_schema,
-                    fn_name,
-                )
-                if fn_exists:
-                    log.info("%s(): found", config.search_function)
-                else:
-                    log.warning("%s(): NOT FOUND", config.search_function)
+            if health.get("search_function_exists") is not None:
+                fn_status = "found" if health["search_function_exists"] else "NOT FOUND"
+                log.info("Search function: %s", fn_status)
 
-            if chunks_exists:
+            if health.get("path"):
+                log.info("Database: %s", health["path"])
+
+            if health.get("chunks_table_exists"):
                 log.info("All checks passed.")
             else:
                 log.info("Run `gnosis-mcp init-db` to create tables.")
         finally:
-            await conn.close()
+            await backend.shutdown()
 
     asyncio.run(_run())
 
 
 def cmd_ingest(args: argparse.Namespace) -> None:
-    """Ingest markdown files into PostgreSQL."""
+    """Ingest markdown files into the database."""
     from gnosis_mcp.config import GnosisMcpConfig
     from gnosis_mcp.ingest import ingest_path
 
@@ -171,10 +126,8 @@ def cmd_ingest(args: argparse.Namespace) -> None:
 
     async def _run() -> None:
         results = await ingest_path(
-            database_url=config.database_url,
+            config=config,
             root=args.path,
-            schema=config.schema,
-            chunks_table=config.chunks_tables[0],
             dry_run=args.dry_run,
         )
 
@@ -204,25 +157,22 @@ def cmd_ingest(args: argparse.Namespace) -> None:
 
 def cmd_search(args: argparse.Namespace) -> None:
     """Search documents from the command line."""
+    from gnosis_mcp.backend import create_backend
     from gnosis_mcp.config import GnosisMcpConfig
 
     config = GnosisMcpConfig.from_env()
     limit = args.limit
     category = args.category
     use_embed = getattr(args, "embed", False)
+    preview = config.content_preview_chars
 
     async def _run() -> None:
-        import asyncpg
-
-        conn = await asyncpg.connect(config.database_url)
+        backend = create_backend(config)
+        await backend.startup()
         try:
-            cfg = config
-            preview = cfg.content_preview_chars
-
-            # Auto-embed the query if --embed flag is set and provider is configured
             query_embedding = None
             if use_embed:
-                provider = cfg.embed_provider
+                provider = config.embed_provider
                 if not provider:
                     log.error("--embed requires GNOSIS_MCP_EMBED_PROVIDER to be set")
                     return
@@ -231,117 +181,33 @@ def cmd_search(args: argparse.Namespace) -> None:
                 vectors = embed_texts(
                     [args.query],
                     provider=provider,
-                    model=cfg.embed_model,
-                    api_key=cfg.embed_api_key,
-                    url=cfg.embed_url,
+                    model=config.embed_model,
+                    api_key=config.embed_api_key,
+                    url=config.embed_url,
                 )
                 query_embedding = vectors[0] if vectors else None
 
-            if cfg.search_function:
-                if query_embedding:
-                    embedding_str = "[" + ",".join(str(f) for f in query_embedding) + "]"
-                    try:
-                        rows = await conn.fetch(
-                            f"SELECT * FROM {cfg.search_function}("
-                            f"p_query_text := $1, p_embedding := $2::vector, "
-                            f"p_categories := $3, p_limit := $4)",
-                            args.query,
-                            embedding_str,
-                            [category] if category else None,
-                            limit,
-                        )
-                    except Exception:
-                        log.debug("Custom search function doesn't accept p_embedding, falling back")
-                        rows = await conn.fetch(
-                            f"SELECT * FROM {cfg.search_function}("
-                            f"p_query_text := $1, p_categories := $2, p_limit := $3)",
-                            args.query,
-                            [category] if category else None,
-                            limit,
-                        )
-                else:
-                    rows = await conn.fetch(
-                        f"SELECT * FROM {cfg.search_function}("
-                        f"p_query_text := $1, p_categories := $2, p_limit := $3)",
-                        args.query,
-                        [category] if category else None,
-                        limit,
-                    )
-                for r in rows:
-                    score = round(float(r.get("combined_score", 0)), 4)
-                    content = r["content"]
-                    snippet = content[:preview] + "..." if len(content) > preview else content
-                    sys.stdout.write(f"\n  {r['file_path']}  (score: {score})\n")
-                    sys.stdout.write(f"  {r['title']}\n")
-                    sys.stdout.write(f"  {snippet}\n")
-            elif query_embedding:
-                # Built-in hybrid search
-                embedding_str = "[" + ",".join(str(f) for f in query_embedding) + "]"
-                select = (
-                    f"{cfg.col_file_path}, {cfg.col_title}, {cfg.col_content}, "
-                    f"CASE WHEN {cfg.col_embedding} IS NOT NULL THEN "
-                    f"  (ts_rank({cfg.col_tsv}, websearch_to_tsquery('english', $1))::float * 0.4 "
-                    f"  + (1.0 - ({cfg.col_embedding} <=> $4::vector))::float * 0.6) "
-                    f"ELSE ts_rank({cfg.col_tsv}, websearch_to_tsquery('english', $1))::float "
-                    f"END AS score"
-                )
-                where = (
-                    f"({cfg.col_tsv} @@ websearch_to_tsquery('english', $1) "
-                    f"OR ({cfg.col_embedding} IS NOT NULL "
-                    f"AND ({cfg.col_embedding} <=> $4::vector) < 0.8))"
-                )
-                if category:
-                    where += f" AND {cfg.col_category} = $3"
-                sql = (
-                    f"SELECT {select} FROM {cfg.qualified_chunks_table} "
-                    f"WHERE {where} ORDER BY score DESC LIMIT $2"
-                )
-                params: list = [args.query, limit]
-                if category:
-                    params.append(category)
-                params.append(embedding_str)
+            results = await backend.search(
+                args.query,
+                category=category,
+                limit=limit,
+                query_embedding=query_embedding,
+            )
 
-                rows = await conn.fetch(sql, *params)
-                for r in rows:
-                    score = round(float(r["score"]), 4)
-                    content = r[cfg.col_content]
-                    snippet = content[:preview] + "..." if len(content) > preview else content
-                    sys.stdout.write(f"\n  {r[cfg.col_file_path]}  (score: {score})\n")
-                    sys.stdout.write(f"  {r[cfg.col_title]}\n")
-                    sys.stdout.write(f"  {snippet}\n")
-            else:
-                select = (
-                    f"{cfg.col_file_path}, {cfg.col_title}, {cfg.col_content}, "
-                    f"ts_rank({cfg.col_tsv}, websearch_to_tsquery('english', $1)) AS score"
-                )
-                where = f"{cfg.col_tsv} @@ websearch_to_tsquery('english', $1)"
-                if category:
-                    where += f" AND {cfg.col_category} = $3"
+            for r in results:
+                score = round(float(r["score"]), 4)
+                content = r["content"]
+                snippet = content[:preview] + "..." if len(content) > preview else content
+                sys.stdout.write(f"\n  {r['file_path']}  (score: {score})\n")
+                sys.stdout.write(f"  {r['title']}\n")
+                sys.stdout.write(f"  {snippet}\n")
 
-                sql = (
-                    f"SELECT {select} FROM {cfg.qualified_chunks_table} "
-                    f"WHERE {where} ORDER BY score DESC LIMIT $2"
-                )
-                params = [args.query, limit]
-                if category:
-                    params.append(category)
-
-                rows = await conn.fetch(sql, *params)
-                for r in rows:
-                    score = round(float(r["score"]), 4)
-                    content = r[cfg.col_content]
-                    snippet = content[:preview] + "..." if len(content) > preview else content
-                    sys.stdout.write(f"\n  {r[cfg.col_file_path]}  (score: {score})\n")
-                    sys.stdout.write(f"  {r[cfg.col_title]}\n")
-                    sys.stdout.write(f"  {snippet}\n")
-
-            if not rows:
+            if not results:
                 log.info("No results for: %s", args.query)
             else:
-                sys.stdout.write(f"\n  {len(rows)} result(s)\n")
-
+                sys.stdout.write(f"\n  {len(results)} result(s)\n")
         finally:
-            await conn.close()
+            await backend.shutdown()
 
     asyncio.run(_run())
 
@@ -367,11 +233,7 @@ def cmd_embed(args: argparse.Namespace) -> None:
 
     async def _run() -> None:
         result = await embed_pending(
-            database_url=config.database_url,
-            schema=config.schema,
-            chunks_table=config.chunks_tables[0],
-            col_embedding=config.col_embedding,
-            col_content=config.col_content,
+            config=config,
             provider=provider,
             model=model,
             api_key=api_key,
@@ -394,43 +256,23 @@ def cmd_embed(args: argparse.Namespace) -> None:
 
 def cmd_stats(args: argparse.Namespace) -> None:
     """Show documentation statistics."""
+    from gnosis_mcp.backend import create_backend
     from gnosis_mcp.config import GnosisMcpConfig
 
     config = GnosisMcpConfig.from_env()
 
     async def _run() -> None:
-        import asyncpg
-
-        conn = await asyncpg.connect(config.database_url)
+        backend = create_backend(config)
+        await backend.startup()
         try:
-            cfg = config
-            qt = cfg.qualified_chunks_table
+            s = await backend.stats()
 
-            # Total chunks
-            total = await conn.fetchval(f"SELECT count(*) FROM {qt}")
+            sys.stdout.write(f"\n  {s['table']}\n")
+            sys.stdout.write(f"  Documents: {s['docs']}\n")
+            sys.stdout.write(f"  Chunks:    {s['chunks']}\n")
+            sys.stdout.write(f"  Content:   {_format_bytes(s['content_bytes'])}\n\n")
 
-            # Unique documents
-            docs = await conn.fetchval(
-                f"SELECT count(DISTINCT {cfg.col_file_path}) FROM {qt}"
-            )
-
-            # Categories breakdown
-            cats = await conn.fetch(
-                f"SELECT {cfg.col_category} AS cat, count(DISTINCT {cfg.col_file_path}) AS docs, "
-                f"count(*) AS chunks "
-                f"FROM {qt} GROUP BY {cfg.col_category} ORDER BY docs DESC"
-            )
-
-            # Total content size
-            size = await conn.fetchval(
-                f"SELECT coalesce(sum(length({cfg.col_content})), 0) FROM {qt}"
-            )
-
-            sys.stdout.write(f"\n  {qt}\n")
-            sys.stdout.write(f"  Documents: {docs}\n")
-            sys.stdout.write(f"  Chunks:    {total}\n")
-            sys.stdout.write(f"  Content:   {_format_bytes(size)}\n\n")
-
+            cats = s.get("categories", [])
             if cats:
                 sys.stdout.write("  Category              Docs  Chunks\n")
                 sys.stdout.write("  --------------------  ----  ------\n")
@@ -439,28 +281,17 @@ def cmd_stats(args: argparse.Namespace) -> None:
                     sys.stdout.write(f"  {cat:<22}{r['docs']:>4}  {r['chunks']:>6}\n")
                 sys.stdout.write("\n")
 
-            # Links
-            links_exists = await conn.fetchval(
-                "SELECT EXISTS ("
-                "  SELECT 1 FROM information_schema.tables"
-                "  WHERE table_schema = $1 AND table_name = $2"
-                ")",
-                cfg.schema,
-                cfg.links_table,
-            )
-            if links_exists:
-                link_count = await conn.fetchval(
-                    f"SELECT count(*) FROM {cfg.qualified_links_table}"
-                )
-                sys.stdout.write(f"  Links: {link_count}\n")
+            if s.get("links") is not None:
+                sys.stdout.write(f"  Links: {s['links']}\n")
         finally:
-            await conn.close()
+            await backend.shutdown()
 
     asyncio.run(_run())
 
 
 def cmd_export(args: argparse.Namespace) -> None:
     """Export documents as JSON or markdown."""
+    from gnosis_mcp.backend import create_backend
     from gnosis_mcp.config import GnosisMcpConfig
 
     config = GnosisMcpConfig.from_env()
@@ -468,50 +299,16 @@ def cmd_export(args: argparse.Namespace) -> None:
     category = args.category
 
     async def _run() -> None:
-        import asyncpg
-
-        conn = await asyncpg.connect(config.database_url)
+        backend = create_backend(config)
+        await backend.startup()
         try:
-            cfg = config
-            qt = cfg.qualified_chunks_table
-
-            where = ""
-            params: list = []
-            if category:
-                where = f" WHERE {cfg.col_category} = $1"
-                params = [category]
-
-            rows = await conn.fetch(
-                f"SELECT {cfg.col_file_path}, {cfg.col_chunk_index}, "
-                f"{cfg.col_title}, {cfg.col_content}, {cfg.col_category} "
-                f"FROM {qt}{where} "
-                f"ORDER BY {cfg.col_file_path}, {cfg.col_chunk_index}",
-                *params,
-            )
-
-            # Reassemble chunks into documents
-            docs: dict[str, dict] = {}
-            for r in rows:
-                fp = r[cfg.col_file_path]
-                if fp not in docs:
-                    docs[fp] = {
-                        "file_path": fp,
-                        "title": r[cfg.col_title],
-                        "category": r[cfg.col_category],
-                        "content": "",
-                    }
-                docs[fp]["content"] += r[cfg.col_content] + "\n\n"
-
-            # Strip trailing whitespace
-            for d in docs.values():
-                d["content"] = d["content"].rstrip()
+            docs = await backend.export_docs(category=category)
 
             if fmt == "json":
-                json.dump(list(docs.values()), sys.stdout, indent=2)
+                json.dump(docs, sys.stdout, indent=2)
                 sys.stdout.write("\n")
             else:
-                # markdown: each doc as its own section
-                for d in docs.values():
+                for d in docs:
                     sys.stdout.write(f"---\nfile_path: {d['file_path']}\n")
                     sys.stdout.write(f"title: {d['title']}\n")
                     sys.stdout.write(f"category: {d['category']}\n---\n\n")
@@ -520,7 +317,7 @@ def cmd_export(args: argparse.Namespace) -> None:
 
             log.info("Exported %d document(s)", len(docs))
         finally:
-            await conn.close()
+            await backend.shutdown()
 
     asyncio.run(_run())
 
@@ -556,7 +353,7 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(
         prog="gnosis-mcp",
-        description="MCP server for PostgreSQL documentation with pgvector search",
+        description="Zero-config MCP server for searchable documentation (SQLite default, PostgreSQL optional)",
     )
     parser.add_argument(
         "-V", "--version", action="version", version=f"gnosis-mcp {__version__}"
@@ -583,7 +380,7 @@ def main() -> None:
     p_init.add_argument("--dry-run", action="store_true", help="Print SQL without executing")
 
     # ingest
-    p_ingest = sub.add_parser("ingest", help="Ingest markdown files into PostgreSQL")
+    p_ingest = sub.add_parser("ingest", help="Ingest markdown files")
     p_ingest.add_argument("path", help="File or directory to ingest")
     p_ingest.add_argument("--dry-run", action="store_true", help="Show what would be ingested")
 

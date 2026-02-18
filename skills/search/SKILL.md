@@ -74,6 +74,6 @@ Arguments:
 
 ## Notes
 
-- Default keyword search uses PostgreSQL tsvector (fast, no GPU needed)
-- Hybrid search uses pgvector embeddings + keyword scoring
-- Embedding model dimension: configurable (default 384 for HNSW cosine index)
+- Keyword search uses FTS5 (SQLite) or tsvector (PostgreSQL) — no GPU needed
+- Hybrid search available on PostgreSQL with pgvector embeddings + keyword scoring
+- Backend auto-detected: no `DATABASE_URL` → SQLite, `postgresql://` → PostgreSQL

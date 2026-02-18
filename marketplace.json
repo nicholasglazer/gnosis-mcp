@@ -1,0 +1,15 @@
+{
+  "name": "gnosis-mcp",
+  "owner": {
+    "name": "Nicholas Glazer",
+    "email": "nicholasglazer@gmail.com"
+  },
+  "plugins": [
+    {
+      "name": "gnosis",
+      "source": ".",
+      "description": "Zero-config knowledge base MCP server — search, manage, and embed documentation",
+      "version": "0.6.0"
+    }
+  ]
+}

@@ -6,28 +6,71 @@ from gnosis_mcp.config import GnosisMcpConfig, _validate_identifier
 
 
 class TestFromEnv:
-    def test_requires_database_url(self, monkeypatch):
+    def test_no_url_defaults_to_sqlite(self, monkeypatch):
         monkeypatch.delenv("GNOSIS_MCP_DATABASE_URL", raising=False)
         monkeypatch.delenv("DATABASE_URL", raising=False)
-        with pytest.raises(ValueError, match="DATABASE_URL"):
-            GnosisMcpConfig.from_env()
+        cfg = GnosisMcpConfig.from_env()
+        assert cfg.backend == "sqlite"
+        assert cfg.database_url.endswith("gnosis-mcp/docs.db")
 
     def test_gnosis_mcp_database_url(self, monkeypatch):
         monkeypatch.setenv("GNOSIS_MCP_DATABASE_URL", "postgresql://localhost/docs")
         cfg = GnosisMcpConfig.from_env()
         assert cfg.database_url == "postgresql://localhost/docs"
+        assert cfg.backend == "postgres"
 
     def test_fallback_to_database_url(self, monkeypatch):
         monkeypatch.delenv("GNOSIS_MCP_DATABASE_URL", raising=False)
         monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/fallback")
         cfg = GnosisMcpConfig.from_env()
         assert cfg.database_url == "postgresql://localhost/fallback"
+        assert cfg.backend == "postgres"
 
     def test_gnosis_mcp_takes_precedence(self, monkeypatch):
         monkeypatch.setenv("GNOSIS_MCP_DATABASE_URL", "postgresql://localhost/gnosis")
         monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/other")
         cfg = GnosisMcpConfig.from_env()
         assert cfg.database_url == "postgresql://localhost/gnosis"
+
+
+class TestBackendDetection:
+    def test_auto_postgres_from_url(self, monkeypatch):
+        monkeypatch.setenv("GNOSIS_MCP_DATABASE_URL", "postgresql://localhost/db")
+        cfg = GnosisMcpConfig.from_env()
+        assert cfg.backend == "postgres"
+
+    def test_auto_sqlite_no_url(self, monkeypatch):
+        monkeypatch.delenv("GNOSIS_MCP_DATABASE_URL", raising=False)
+        monkeypatch.delenv("DATABASE_URL", raising=False)
+        cfg = GnosisMcpConfig.from_env()
+        assert cfg.backend == "sqlite"
+
+    def test_explicit_sqlite(self, monkeypatch):
+        monkeypatch.delenv("GNOSIS_MCP_DATABASE_URL", raising=False)
+        monkeypatch.delenv("DATABASE_URL", raising=False)
+        monkeypatch.setenv("GNOSIS_MCP_BACKEND", "sqlite")
+        cfg = GnosisMcpConfig.from_env()
+        assert cfg.backend == "sqlite"
+
+    def test_explicit_postgres_requires_url(self, monkeypatch):
+        monkeypatch.delenv("GNOSIS_MCP_DATABASE_URL", raising=False)
+        monkeypatch.delenv("DATABASE_URL", raising=False)
+        monkeypatch.setenv("GNOSIS_MCP_BACKEND", "postgres")
+        with pytest.raises(ValueError, match="PostgreSQL backend requires"):
+            GnosisMcpConfig.from_env()
+
+    def test_sqlite_default_path_xdg(self, monkeypatch):
+        monkeypatch.delenv("GNOSIS_MCP_DATABASE_URL", raising=False)
+        monkeypatch.delenv("DATABASE_URL", raising=False)
+        monkeypatch.setenv("XDG_DATA_HOME", "/tmp/test-xdg")
+        cfg = GnosisMcpConfig.from_env()
+        assert cfg.database_url == "/tmp/test-xdg/gnosis-mcp/docs.db"
+
+    def test_auto_sqlite_for_file_path(self, monkeypatch):
+        monkeypatch.setenv("GNOSIS_MCP_DATABASE_URL", "/path/to/my.db")
+        cfg = GnosisMcpConfig.from_env()
+        assert cfg.backend == "sqlite"
+        assert cfg.database_url == "/path/to/my.db"
 
 
 class TestDefaults:

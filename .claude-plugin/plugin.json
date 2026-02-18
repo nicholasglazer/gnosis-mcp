@@ -1,7 +1,7 @@
 {
   "name": "gnosis",
-  "version": "0.5.0",
-  "description": "Knowledge base MCP server — search, manage, and embed documentation with PostgreSQL + pgvector",
+  "version": "0.6.0",
+  "description": "Zero-config knowledge base MCP server — search, manage, and embed documentation (SQLite default, PostgreSQL optional)",
   "author": {
     "name": "Nicholas Glazer",
     "url": "https://github.com/nicholasglazer"
@@ -13,9 +13,15 @@
     "knowledge-base",
     "documentation",
     "mcp",
+    "mcp-server",
     "search",
+    "sqlite",
+    "postgresql",
     "pgvector",
     "semantic-search",
-    "postgresql"
+    "rag",
+    "vector-search",
+    "ai",
+    "claude"
   ]
 }

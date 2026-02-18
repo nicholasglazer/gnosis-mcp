@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import re
 from dataclasses import dataclass
+from pathlib import Path
 
 # Valid SQL identifier: letters, digits, underscores. Qualified names allow dots.
 __all__ = ["GnosisMcpConfig"]
@@ -14,6 +15,7 @@ _IDENT_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)*$")
 _VALID_LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
 _VALID_TRANSPORTS = ("stdio", "sse")
 _VALID_EMBED_PROVIDERS = ("openai", "ollama", "custom")
+_VALID_BACKENDS = ("auto", "sqlite", "postgres")
 
 
 def _validate_identifier(value: str, name: str) -> str:
@@ -26,6 +28,16 @@ def _validate_identifier(value: str, name: str) -> str:
     return value
 
 
+def _resolve_sqlite_path() -> str:
+    """Resolve the default SQLite database path using XDG conventions."""
+    xdg = os.environ.get("XDG_DATA_HOME")
+    if xdg:
+        base = Path(xdg)
+    else:
+        base = Path.home() / ".local" / "share"
+    return str(base / "gnosis-mcp" / "docs.db")
+
+
 @dataclass(frozen=True)
 class GnosisMcpConfig:
     """Immutable server configuration loaded from environment variables.
@@ -34,7 +46,10 @@ class GnosisMcpConfig:
     against SQL injection on construction.
     """
 
-    database_url: str
+    database_url: str | None = None
+
+    # Backend selection: "auto", "sqlite", "postgres"
+    backend: str = "auto"
 
     schema: str = "public"
     chunks_table: str = "documentation_chunks"
@@ -58,7 +73,7 @@ class GnosisMcpConfig:
     col_target_path: str = "target_path"
     col_relation_type: str = "relation_type"
 
-    # Pool settings
+    # Pool settings (PostgreSQL only)
     pool_min: int = 1
     pool_max: int = 3
 
@@ -90,7 +105,27 @@ class GnosisMcpConfig:
 
     def __post_init__(self) -> None:
         """Validate all SQL identifiers and tuning parameters after construction."""
-        # Validate each chunks table name individually (supports comma-separated)
+        # Resolve backend from "auto"
+        if self.backend == "auto":
+            resolved = self._detect_backend()
+            object.__setattr__(self, "backend", resolved)
+
+        if self.backend not in ("sqlite", "postgres"):
+            raise ValueError(
+                f"GNOSIS_MCP_BACKEND must resolve to 'sqlite' or 'postgres', got {self.backend!r}"
+            )
+
+        # For sqlite, set default path if database_url is None
+        if self.backend == "sqlite" and self.database_url is None:
+            object.__setattr__(self, "database_url", _resolve_sqlite_path())
+
+        # For postgres, database_url is required
+        if self.backend == "postgres" and not self.database_url:
+            raise ValueError(
+                "PostgreSQL backend requires GNOSIS_MCP_DATABASE_URL or DATABASE_URL"
+            )
+
+        # Validate identifiers (relevant for both backends, harmless for SQLite)
         for table_name in self.chunks_tables:
             _validate_identifier(table_name, "chunks_table")
 
@@ -149,6 +184,16 @@ class GnosisMcpConfig:
                 f"GNOSIS_MCP_EMBED_BATCH_SIZE must be >= 1, got {self.embed_batch_size}"
             )
 
+    def _detect_backend(self) -> str:
+        """Auto-detect backend from database_url."""
+        url = self.database_url
+        if url is None:
+            return "sqlite"
+        if url.startswith("postgresql://") or url.startswith("postgres://"):
+            return "postgres"
+        # Treat any other URL as a SQLite file path
+        return "sqlite"
+
     @property
     def chunks_tables(self) -> list[str]:
         """Split comma-separated chunks_table into a list."""
@@ -178,14 +223,12 @@ class GnosisMcpConfig:
         """Build config from GNOSIS_MCP_* environment variables.
 
         Falls back to DATABASE_URL if GNOSIS_MCP_DATABASE_URL is not set.
+        When neither is set, defaults to SQLite at ~/.local/share/gnosis-mcp/docs.db.
         """
         database_url = os.environ.get("GNOSIS_MCP_DATABASE_URL") or os.environ.get(
             "DATABASE_URL"
         )
-        if not database_url:
-            raise ValueError(
-                "Set GNOSIS_MCP_DATABASE_URL or DATABASE_URL to a PostgreSQL connection string"
-            )
+        # database_url can be None — that means SQLite default
 
         def env(key: str, default: str | None = None) -> str | None:
             return os.environ.get(f"GNOSIS_MCP_{key}", default)
@@ -201,8 +244,11 @@ class GnosisMcpConfig:
                     f"GNOSIS_MCP_{key} must be an integer, got: {val!r}"
                 ) from None
 
+        backend_raw = env("BACKEND", "auto")
+
         return cls(
-            database_url=database_url,
+            database_url=database_url if database_url else None,
+            backend=backend_raw,
             schema=env("SCHEMA", "public"),
             chunks_table=env("CHUNKS_TABLE", "documentation_chunks"),
             links_table=env("LINKS_TABLE", "documentation_links"),

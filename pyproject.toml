@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "gnosis-mcp"
-version = "0.5.0"
-description = "MCP server for PostgreSQL documentation with pgvector search"
+version = "0.6.0"
+description = "Zero-config MCP server for searchable documentation (SQLite default, PostgreSQL optional)"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.11"
@@ -15,17 +15,16 @@ keywords = [
     "mcp-server",
     "model-context-protocol",
     "documentation",
-    "pgvector",
-    "postgresql",
+    "sqlite",
+    "knowledge-base",
+    "rag",
+    "vector-search",
+    "search",
     "ai",
     "llm",
     "claude",
     "cursor",
     "windsurf",
-    "knowledge-base",
-    "rag",
-    "vector-search",
-    "search",
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -41,10 +40,13 @@ classifiers = [
 ]
 dependencies = [
     "mcp>=1.20",
-    "asyncpg>=0.29",
+    "aiosqlite>=0.20",
 ]
 
 [project.optional-dependencies]
+postgres = [
+    "asyncpg>=0.29",
+]
 dev = [
     "pytest>=8",
     "pytest-asyncio>=0.24",

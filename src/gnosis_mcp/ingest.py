@@ -1,10 +1,9 @@
-"""File ingestion: scan markdown files, chunk by headings, load into PostgreSQL."""
+"""File ingestion: scan markdown files, chunk by headings, load into database."""
 
 from __future__ import annotations
 
 import hashlib
 import logging
-import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -112,27 +111,21 @@ def scan_files(root: Path) -> list[Path]:
 
 
 async def ingest_path(
-    database_url: str,
+    config,
     root: str,
     *,
-    schema: str = "public",
-    chunks_table: str = "documentation_chunks",
     dry_run: bool = False,
 ) -> list[IngestResult]:
-    """Scan a path for markdown files and load them into PostgreSQL.
+    """Scan a path for markdown files and load them into the database.
 
     Args:
-        database_url: PostgreSQL connection string.
+        config: GnosisMcpConfig instance.
         root: File or directory path to ingest.
-        schema: Database schema name.
-        chunks_table: Target chunks table name.
         dry_run: If True, scan and report but don't write.
 
     Returns:
         List of IngestResult for each file processed.
     """
-    import asyncpg
-
     root_path = Path(root).resolve()
     if not root_path.exists():
         return [IngestResult(path=root, chunks=0, action="error", detail="Path does not exist")]
@@ -157,19 +150,19 @@ async def ingest_path(
             results.append(IngestResult(path=str(f.relative_to(base)), chunks=len(chunks), action="dry-run"))
         return results
 
-    qualified_table = f"{schema}.{chunks_table}"
-    conn = await asyncpg.connect(database_url)
+    from gnosis_mcp.backend import create_backend
+
+    backend = create_backend(config)
+    await backend.startup()
 
     try:
-        # Check for content_hash column (optional, for skip-if-unchanged)
-        has_hash = await conn.fetchval(
-            "SELECT EXISTS ("
-            "  SELECT 1 FROM information_schema.columns"
-            "  WHERE table_schema = $1 AND table_name = $2 AND column_name = 'content_hash'"
-            ")",
-            schema,
-            chunks_table,
-        )
+        # Auto-initialize schema if tables don't exist (zero-config experience)
+        await backend.init_schema()
+
+        # Check for optional columns once before the file loop
+        table_name = config.chunks_tables[0]
+        has_hash = await backend.has_column(table_name, "content_hash")
+        has_tags = await backend.has_column(table_name, "tags")
 
         for f in files:
             rel = str(f.relative_to(base))
@@ -189,16 +182,11 @@ async def ingest_path(
 
             # Skip unchanged files
             if has_hash:
-                existing = await conn.fetchval(
-                    f"SELECT content_hash FROM {qualified_table} WHERE file_path = $1 LIMIT 1",
-                    rel,
-                )
+                existing = await backend.get_content_hash(rel)
                 if existing == digest:
-                    # Count existing chunks for reporting
-                    count = await conn.fetchval(
-                        f"SELECT COUNT(*) FROM {qualified_table} WHERE file_path = $1", rel
-                    )
-                    results.append(IngestResult(path=rel, chunks=count, action="unchanged"))
+                    # Count existing chunks — use get_doc for chunk count
+                    doc_chunks = await backend.get_doc(rel)
+                    results.append(IngestResult(path=rel, chunks=len(doc_chunks), action="unchanged"))
                     continue
 
             # Extract metadata
@@ -211,45 +199,23 @@ async def ingest_path(
             # Chunk
             chunks = chunk_by_headings(body, rel)
 
-            # Write in a transaction
-            async with conn.transaction():
-                await conn.execute(f"DELETE FROM {qualified_table} WHERE file_path = $1", rel)
-                for i, chunk in enumerate(chunks):
-                    cols = "file_path, chunk_index, title, content, category, audience"
-                    vals = "$1, $2, $3, $4, $5, $6"
-                    params: list = [rel, i, chunk["title"], chunk["content"], category, audience]
-                    idx = 7
+            # Write via backend
+            count = await backend.ingest_file(
+                rel,
+                chunks,
+                title=title,
+                category=category,
+                audience=audience,
+                tags=tags,
+                content_hash=digest,
+                has_tags_col=has_tags,
+                has_hash_col=has_hash,
+            )
 
-                    # Optional columns
-                    col_check = await conn.fetchval(
-                        "SELECT EXISTS ("
-                        "  SELECT 1 FROM information_schema.columns"
-                        "  WHERE table_schema = $1 AND table_name = $2 AND column_name = 'tags'"
-                        ")",
-                        schema,
-                        chunks_table,
-                    )
-                    if col_check and tags:
-                        cols += ", tags"
-                        vals += f", ${idx}"
-                        params.append(tags)
-                        idx += 1
-
-                    if has_hash:
-                        cols += ", content_hash"
-                        vals += f", ${idx}"
-                        params.append(digest)
-                        idx += 1
-
-                    await conn.execute(
-                        f"INSERT INTO {qualified_table} ({cols}) VALUES ({vals})",
-                        *params,
-                    )
-
-            results.append(IngestResult(path=rel, chunks=len(chunks), action="ingested"))
-            log.info("ingested: %s (%d chunks)", rel, len(chunks))
+            results.append(IngestResult(path=rel, chunks=count, action="ingested"))
+            log.info("ingested: %s (%d chunks)", rel, count)
 
     finally:
-        await conn.close()
+        await backend.shutdown()
 
     return results

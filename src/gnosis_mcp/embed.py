@@ -119,11 +119,7 @@ def embed_texts(
 
 
 async def embed_pending(
-    database_url: str,
-    schema: str = "public",
-    chunks_table: str = "documentation_chunks",
-    col_embedding: str = "embedding",
-    col_content: str = "content",
+    config,
     provider: str = "openai",
     model: str = "text-embedding-3-small",
     api_key: str | None = None,
@@ -134,11 +130,7 @@ async def embed_pending(
     """Find chunks with NULL embeddings and backfill them.
 
     Args:
-        database_url: PostgreSQL connection string.
-        schema: Database schema name.
-        chunks_table: Table name for documentation chunks.
-        col_embedding: Column name for embedding vector.
-        col_content: Column name for text content.
+        config: GnosisMcpConfig instance.
         provider: Embedding provider ("openai", "ollama", "custom").
         model: Model name for the embedding API.
         api_key: API key for the provider.
@@ -149,16 +141,12 @@ async def embed_pending(
     Returns:
         EmbedResult with counts of embedded, total null, and errors.
     """
-    import asyncpg
+    from gnosis_mcp.backend import create_backend
 
-    qualified_table = f"{schema}.{chunks_table}"
-
-    conn = await asyncpg.connect(database_url)
+    backend = create_backend(config)
+    await backend.startup()
     try:
-        # Count total NULL embeddings
-        total_null = await conn.fetchval(
-            f"SELECT count(*) FROM {qualified_table} WHERE {col_embedding} IS NULL"
-        )
+        total_null = await backend.count_pending_embeddings()
 
         if dry_run:
             return EmbedResult(embedded=0, total_null=total_null, errors=0)
@@ -170,18 +158,12 @@ async def embed_pending(
         errors = 0
 
         while True:
-            rows = await conn.fetch(
-                f"SELECT id, {col_content} FROM {qualified_table} "
-                f"WHERE {col_embedding} IS NULL "
-                f"ORDER BY id LIMIT $1",
-                batch_size,
-            )
-
+            rows = await backend.get_pending_embeddings(batch_size)
             if not rows:
                 break
 
             ids = [r["id"] for r in rows]
-            texts = [r[col_content] for r in rows]
+            texts = [r["content"] for r in rows]
 
             try:
                 vectors = embed_texts(texts, provider, model, api_key, url)
@@ -191,15 +173,9 @@ async def embed_pending(
                 break
 
             for row_id, vector in zip(ids, vectors):
-                embedding_str = "[" + ",".join(str(f) for f in vector) + "]"
-                await conn.execute(
-                    f"UPDATE {qualified_table} "
-                    f"SET {col_embedding} = $1::vector WHERE id = $2",
-                    embedding_str,
-                    row_id,
-                )
+                await backend.set_embedding(row_id, vector)
                 embedded += 1
 
         return EmbedResult(embedded=embedded, total_null=total_null, errors=errors)
     finally:
-        await conn.close()
+        await backend.shutdown()

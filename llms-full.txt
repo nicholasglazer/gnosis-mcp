@@ -1,24 +1,47 @@
 # Gnosis MCP — Full Reference
 
-> MCP server for PostgreSQL documentation with pgvector search.
+> Zero-config MCP server for searchable documentation (SQLite default, PostgreSQL optional).
 > PyPI: gnosis-mcp | CLI: gnosis-mcp | Import: gnosis_mcp
 
 ## Install
 
 ```bash
-pip install gnosis-mcp
+pip install gnosis-mcp               # SQLite (default)
+pip install gnosis-mcp[postgres]     # + PostgreSQL support
 ```
 
-## Quick Setup
+## Quick Setup (SQLite)
+
+```bash
+gnosis-mcp ingest ./docs/   # Auto-creates DB + loads markdown
+gnosis-mcp check            # Verify database
+```
+
+## Quick Setup (PostgreSQL)
 
 ```bash
 export GNOSIS_MCP_DATABASE_URL="postgresql://user:pass@localhost:5432/mydb"
 gnosis-mcp init-db          # Create tables (idempotent)
 gnosis-mcp ingest ./docs/   # Load markdown files
-gnosis-mcp check             # Verify connection + schema
+gnosis-mcp check            # Verify connection + schema
 ```
 
 ## MCP Client Config
+
+SQLite (no env needed):
+
+```json
+{
+  "mcpServers": {
+    "docs": {
+      "command": "gnosis-mcp",
+      "args": ["serve"]
+    }
+  }
+}
+```
+
+PostgreSQL:
 
 ```json
 {
@@ -40,15 +63,27 @@ Config file locations:
 - Windsurf: `~/.codeium/windsurf/mcp_config.json`
 - Cline: Cline MCP settings panel
 
+## Backends
+
+| | SQLite (default) | PostgreSQL |
+|---|---|---|
+| Install | `pip install gnosis-mcp` | `pip install gnosis-mcp[postgres]` |
+| Config | Nothing | Set `DATABASE_URL` |
+| Search | FTS5 keyword (BM25) | tsvector + pgvector hybrid |
+| Embeddings | Binary blobs | Native vector type + HNSW index |
+| Multi-table | No | Yes (UNION ALL) |
+
+Auto-detection: `DATABASE_URL` set to `postgresql://...` → PostgreSQL. Not set → SQLite. Override: `GNOSIS_MCP_BACKEND=sqlite|postgres`.
+
 ## Tools (6)
 
 ### Read Tools (always available)
 
-1. **search_docs(query, category?, limit?, query_embedding?)** — Search docs using keyword (tsvector) or hybrid semantic+keyword search.
+1. **search_docs(query, category?, limit?, query_embedding?)** — Search docs using keyword (FTS5/tsvector) or hybrid semantic+keyword search.
    - query: string (required) — search text
    - category: string (optional) — filter by category
    - limit: int (default 5, max configurable) — result count
-   - query_embedding: list[float] (optional) — pre-computed embedding for hybrid search
+   - query_embedding: list[float] (optional) — pre-computed embedding for hybrid search (PostgreSQL)
 
 2. **get_doc(path, max_length?)** — Get full document by file path. Reassembles chunks in order.
    - path: string (required) — e.g. "guides/quickstart.md"
@@ -73,17 +108,18 @@ Config file locations:
 
 ## Configuration (Environment Variables)
 
-All settings via GNOSIS_MCP_* environment variables. Only DATABASE_URL is required.
+All settings via GNOSIS_MCP_* environment variables. Nothing required for SQLite.
 
 ### Core Settings
-- GNOSIS_MCP_DATABASE_URL — PostgreSQL connection string (falls back to DATABASE_URL)
-- GNOSIS_MCP_SCHEMA — Database schema (default: public)
-- GNOSIS_MCP_CHUNKS_TABLE — Chunks table name, comma-separated for multi-table (default: documentation_chunks)
+- GNOSIS_MCP_DATABASE_URL — PostgreSQL URL or SQLite file path (default: SQLite at ~/.local/share/gnosis-mcp/docs.db)
+- GNOSIS_MCP_BACKEND — Force backend: auto, sqlite, postgres (default: auto)
+- GNOSIS_MCP_SCHEMA — Database schema, PostgreSQL only (default: public)
+- GNOSIS_MCP_CHUNKS_TABLE — Chunks table name, comma-separated for multi-table on PG (default: documentation_chunks)
 - GNOSIS_MCP_LINKS_TABLE — Links table name (default: documentation_links)
-- GNOSIS_MCP_SEARCH_FUNCTION — Custom search function e.g. internal.search_docs (default: none, uses built-in tsvector)
+- GNOSIS_MCP_SEARCH_FUNCTION — Custom search function, PostgreSQL only (default: none)
 - GNOSIS_MCP_EMBEDDING_DIM — Embedding vector dimension for init-db (default: 1536)
-- GNOSIS_MCP_POOL_MIN — Min pool connections (default: 1)
-- GNOSIS_MCP_POOL_MAX — Max pool connections (default: 3)
+- GNOSIS_MCP_POOL_MIN — Min pool connections, PostgreSQL only (default: 1)
+- GNOSIS_MCP_POOL_MAX — Max pool connections, PostgreSQL only (default: 3)
 - GNOSIS_MCP_WRITABLE — Enable write tools: true/1/yes (default: false)
 - GNOSIS_MCP_WEBHOOK_URL — URL to POST on doc changes (default: none)
 
@@ -116,7 +152,7 @@ All settings via GNOSIS_MCP_* environment variables. Only DATABASE_URL is requir
 - GNOSIS_MCP_COL_TARGET_PATH (default: target_path)
 - GNOSIS_MCP_COL_RELATION_TYPE (default: relation_type)
 
-## Custom Search Function
+## Custom Search Function (PostgreSQL)
 
 Your function must accept:
 ```sql
@@ -133,7 +169,7 @@ Optionally, your function can also accept `p_embedding vector(N)` for hybrid sea
 gnosis-mcp serve [--transport stdio|sse] [--ingest PATH]   # Start MCP server (optionally ingest first)
 gnosis-mcp init-db [--dry-run]                             # Create tables (or preview SQL)
 gnosis-mcp ingest <path> [--dry-run]                       # Load markdown files
-gnosis-mcp search <query> [-n LIMIT] [-c CAT] [--embed]    # Search (--embed for hybrid)
+gnosis-mcp search <query> [-n LIMIT] [-c CAT] [--embed]    # Search (--embed for hybrid, PG only)
 gnosis-mcp embed [--provider P] [--model M] [--dry-run]    # Backfill NULL embeddings via API
 gnosis-mcp stats                                           # Show document/chunk/category counts
 gnosis-mcp export [-f json|markdown] [-c CAT]              # Export documents as JSON or markdown
@@ -143,7 +179,7 @@ gnosis-mcp --version                                       # Show version
 
 ## Ingest
 
-`gnosis-mcp ingest <path>` scans a file or directory for markdown files and loads them into PostgreSQL.
+`gnosis-mcp ingest <path>` scans a file or directory for markdown files and loads them into the database.
 
 - Chunks by H2 headers (smarter than paragraph boundaries)
 - Parses YAML-like frontmatter for title, category, audience, tags
@@ -157,16 +193,20 @@ gnosis-mcp --version                                       # Show version
 
 ```
 src/gnosis_mcp/
-├── config.py   # GnosisMcpConfig frozen dataclass, env var loading, validation
-├── db.py       # asyncpg pool + FastMCP lifespan context manager
-├── server.py   # FastMCP server: 6 tools + 3 resources + webhook helper
-├── ingest.py   # File scanner: markdown chunking, frontmatter, content hashing
-├── schema.py   # SQL template for init-db (chunks + links + HNSW index + hybrid search)
-├── embed.py    # Embedding sidecar: provider abstraction (openai/ollama/custom), batch backfill
-└── cli.py      # argparse CLI: serve, init-db, ingest, search, embed, stats, export, check
+├── backend.py         # DocBackend Protocol + create_backend() factory
+├── pg_backend.py      # PostgreSQL backend — asyncpg, tsvector, pgvector, UNION ALL
+├── sqlite_backend.py  # SQLite backend — aiosqlite, FTS5 MATCH + bm25()
+├── sqlite_schema.py   # SQLite DDL — tables, FTS5, triggers, indexes
+├── config.py          # GnosisMcpConfig frozen dataclass, backend auto-detection
+├── db.py              # Backend lifecycle + FastMCP lifespan
+├── server.py          # FastMCP server: 6 tools + 3 resources + webhook helper
+├── ingest.py          # File scanner: markdown chunking, frontmatter, content hashing
+├── schema.py          # PostgreSQL DDL — tables, indexes, HNSW, hybrid search functions
+├── embed.py           # Embedding sidecar: provider abstraction (openai/ollama/custom)
+└── cli.py             # argparse CLI: serve, init-db, ingest, search, embed, stats, export, check
 ```
 
-Dependencies: mcp>=1.20, asyncpg>=0.29 (2 total).
+Default install deps: mcp + aiosqlite. Optional: asyncpg (via `[postgres]` extra).
 
 ## License
 

@@ -1,6 +1,7 @@
 """Tests for server helpers (no DB required)."""
 
-from gnosis_mcp.server import _row_count, _split_chunks
+from gnosis_mcp.pg_backend import _row_count
+from gnosis_mcp.server import _split_chunks
 
 
 class TestSplitChunks:
