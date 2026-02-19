@@ -187,7 +187,7 @@ Optionally, your function can also accept `p_embedding vector(N)` for hybrid sea
 
 ```
 gnosis-mcp ingest <path> [--dry-run] [--embed]             # Load markdown files (--embed to generate embeddings)
-gnosis-mcp serve [--transport stdio|sse] [--ingest PATH]   # Start MCP server (optionally ingest first)
+gnosis-mcp serve [--transport stdio|sse] [--ingest PATH] [--watch PATH]   # Start MCP server (--watch for live reload)
 gnosis-mcp search <query> [-n LIMIT] [-c CAT] [--embed]    # Search (--embed for hybrid semantic+keyword)
 gnosis-mcp stats                                           # Show document/chunk/embedding counts
 gnosis-mcp check                                           # Verify connection + sqlite-vec status
@@ -204,6 +204,7 @@ gnosis-mcp --version                                       # Show version
 - Chunks by H2 headers (keeps sections together, not arbitrary character limits)
 - Parses YAML-like frontmatter for title, category, audience, tags
 - Content hashing: skips unchanged files on re-run
+- Watch mode: `gnosis-mcp serve --watch ./docs/` auto-re-ingests on file changes (mtime polling + debounce + auto-embed)
 - Category inferred from parent directory name
 - Title extracted from first H1 heading
 - Skips tiny files (<50 chars)
@@ -221,6 +222,7 @@ src/gnosis_mcp/
 ├── db.py              # Backend lifecycle + FastMCP lifespan
 ├── server.py          # FastMCP server: 6 tools + 3 resources + webhook helper
 ├── ingest.py          # File scanner: markdown chunking, frontmatter, content hashing
+├── watch.py           # File watcher: mtime polling, auto-re-ingest on changes
 ├── schema.py          # PostgreSQL DDL — tables, indexes, HNSW, hybrid search functions
 ├── embed.py           # Embedding sidecar: provider abstraction (openai/ollama/custom/local)
 ├── local_embed.py     # Local ONNX embedding engine — HuggingFace model auto-download

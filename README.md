@@ -40,7 +40,7 @@ Gnosis MCP fixes this. Point it at a folder of markdown files and it creates a s
 
 **Lower token costs.** A search returns ~600 tokens of ranked results. Reading the same docs as files costs 3,000-8,000+ tokens. On a 170-doc knowledge base (~840K tokens), that's the difference between a precise answer and a blown context window.
 
-**Docs that stay current.** Add a new markdown file, run `ingest`, it's searchable immediately. No routing tables to maintain, no hardcoded paths to update.
+**Docs that stay current.** Add a new markdown file, run `ingest`, it's searchable immediately. Or use `--watch` to auto-re-ingest on file changes. No routing tables to maintain, no hardcoded paths to update.
 
 **Works with what you have.** Your docs are already markdown files in a folder. Gnosis MCP indexes them as-is — no format conversion, no special syntax needed.
 
@@ -383,7 +383,7 @@ All tables must share the same schema. Reads use `UNION ALL`. Writes target the 
 
 ```
 gnosis-mcp ingest <path> [--dry-run] [--embed]             Load markdown files (--embed to generate embeddings)
-gnosis-mcp serve [--transport stdio|sse] [--ingest PATH]   Start MCP server (optionally ingest first)
+gnosis-mcp serve [--transport stdio|sse] [--ingest PATH] [--watch PATH]   Start MCP server (--watch for live reload)
 gnosis-mcp search <query> [-n LIMIT] [-c CAT] [--embed]    Search (--embed for hybrid semantic+keyword)
 gnosis-mcp stats                                           Show document, chunk, and embedding counts
 gnosis-mcp check                                           Verify database connection + sqlite-vec status
@@ -400,6 +400,7 @@ gnosis-mcp export [-f json|markdown] [-c CAT]              Export documents
 - **Frontmatter support** — extracts `title`, `category`, `audience`, `tags` from YAML frontmatter
 - **Auto-categorization** — infers category from the parent directory name
 - **Incremental updates** — content hashing skips unchanged files on re-run
+- **Watch mode** — `gnosis-mcp serve --watch ./docs/` auto-re-ingests on file changes
 - **Dry run** — preview what would be indexed with `--dry-run`
 
 ## Available on
@@ -418,6 +419,7 @@ src/gnosis_mcp/
 ├── db.py              Backend lifecycle + FastMCP lifespan
 ├── server.py          FastMCP server — 6 tools, 3 resources, auto-embed queries
 ├── ingest.py          Markdown scanner — H2 chunking, frontmatter
+├── watch.py           File watcher — mtime polling, auto-re-ingest on changes
 ├── schema.py          PostgreSQL DDL — tables, indexes, search functions
 ├── embed.py           Embedding providers — OpenAI, Ollama, custom, local ONNX
 ├── local_embed.py     Local ONNX embedding engine — HuggingFace model download
@@ -441,7 +443,7 @@ git clone https://github.com/nicholasglazer/gnosis-mcp.git
 cd gnosis-mcp
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
-pytest                    # 176 tests, no database needed
+pytest                    # 220+ tests, no database needed
 ruff check src/ tests/
 ```
 

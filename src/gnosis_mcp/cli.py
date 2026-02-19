@@ -23,13 +23,16 @@ def cmd_serve(args: argparse.Namespace) -> None:
 
     config = GnosisMcpConfig.from_env()
 
-    if args.ingest:
+    # --watch implies --ingest with the same path
+    ingest_root = args.watch or args.ingest
+
+    if ingest_root:
         from gnosis_mcp.ingest import ingest_path
 
         async def _ingest() -> None:
             results = await ingest_path(
                 config=config,
-                root=args.ingest,
+                root=ingest_root,
             )
             ingested = sum(1 for r in results if r.action == "ingested")
             unchanged = sum(1 for r in results if r.action == "unchanged")
@@ -37,6 +40,11 @@ def cmd_serve(args: argparse.Namespace) -> None:
             log.info("Ingest: %d new, %d unchanged (%d total chunks)", ingested, unchanged, total)
 
         asyncio.run(_ingest())
+
+    if args.watch:
+        from gnosis_mcp.watch import start_watcher
+
+        start_watcher(args.watch, config, embed=True)
 
     transport = args.transport or config.transport
     mcp.run(transport=transport)
@@ -449,6 +457,12 @@ def main() -> None:
         metavar="PATH",
         default=None,
         help="Ingest markdown files from PATH before starting the server",
+    )
+    p_serve.add_argument(
+        "--watch",
+        metavar="PATH",
+        default=None,
+        help="Watch PATH for .md file changes and auto-re-ingest (implies --ingest)",
     )
 
     # init-db

@@ -5,7 +5,7 @@
 
 ## What it does
 
-Gnosis MCP loads markdown files into a database, chunks them by H2 headings, and exposes them as MCP tools and resources. AI agents call `search_docs` to find relevant documentation instead of guessing or reading entire files.
+Gnosis MCP loads markdown files into a database, chunks them by H2 headings, and exposes them as MCP tools and resources. AI agents call `search_docs` to find relevant documentation instead of guessing or reading entire files. Use `--watch` to auto-re-ingest when files change.
 
 ## Quick Start
 
