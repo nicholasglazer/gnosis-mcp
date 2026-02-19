@@ -1,3 +1,4 @@
+<!-- mcp-name: io.github.nicholasglazer/gnosis -->
 <div align="center">
 
 <h1>Gnosis MCP</h1>

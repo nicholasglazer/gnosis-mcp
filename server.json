@@ -1,0 +1,21 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.nicholasglazer/gnosis",
+  "title": "Gnosis MCP",
+  "description": "Zero-config MCP server for searchable documentation. SQLite or PostgreSQL.",
+  "repository": {
+    "url": "https://github.com/nicholasglazer/gnosis-mcp",
+    "source": "github"
+  },
+  "version": "0.6.1",
+  "packages": [
+    {
+      "registryType": "pypi",
+      "identifier": "gnosis-mcp",
+      "version": "0.6.1",
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  ]
+}
