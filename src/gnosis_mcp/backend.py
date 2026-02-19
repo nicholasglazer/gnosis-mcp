@@ -142,6 +142,15 @@ class DocBackend(Protocol):
         """Get the content_hash for the first chunk of a document, or None."""
         ...
 
+    async def insert_links(
+        self,
+        source_path: str,
+        target_paths: list[str],
+        relation_type: str = "relates_to",
+    ) -> int:
+        """Insert links from source to each target. Returns count inserted."""
+        ...
+
     async def ingest_file(
         self,
         rel_path: str,

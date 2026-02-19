@@ -12,6 +12,7 @@ __all__ = [
     "IngestResult",
     "content_hash",
     "parse_frontmatter",
+    "extract_relates_to",
     "extract_title",
     "chunk_by_headings",
     "scan_files",
@@ -63,6 +64,71 @@ def parse_frontmatter(markdown: str) -> tuple[dict[str, str], str]:
         meta[key] = val
 
     return meta, body
+
+
+def extract_relates_to(markdown: str) -> list[str]:
+    """Extract ``relates_to`` paths from frontmatter.
+
+    Supports two formats:
+
+    Comma-separated::
+
+        relates_to: guides/setup.md, architecture/overview.md
+
+    YAML list::
+
+        relates_to:
+          - guides/setup.md
+          - architecture/overview.md
+
+    Skips glob patterns (containing ``*`` or ``?``).
+    Returns a list of clean path strings.
+    """
+    if not markdown.startswith("---"):
+        return []
+
+    end = markdown.find("\n---", 3)
+    if end == -1:
+        return []
+
+    fm_block = markdown[4:end]
+    lines = fm_block.split("\n")
+
+    paths: list[str] = []
+    in_list = False
+
+    for line in lines:
+        # Check for "relates_to: value" (inline comma-separated)
+        match = re.match(r"^relates_to\s*:\s*(.+)$", line)
+        if match:
+            val = match.group(1).strip()
+            if val:
+                # Comma-separated values on the same line
+                for v in val.split(","):
+                    v = v.strip().strip("\"'- ")
+                    if v:
+                        paths.append(v)
+                in_list = False
+                continue
+
+        # Check for "relates_to:" with no value (YAML list header)
+        if re.match(r"^relates_to\s*:\s*$", line):
+            in_list = True
+            continue
+
+        # Parse YAML list items
+        if in_list:
+            item_match = re.match(r"^\s+-\s+(.+)$", line)
+            if item_match:
+                v = item_match.group(1).strip().strip("\"'")
+                if v:
+                    paths.append(v)
+            elif line.strip():
+                # Non-empty, non-list line: end of list
+                in_list = False
+
+    # Filter out glob patterns
+    return [p for p in paths if "*" not in p and "?" not in p]
 
 
 def extract_title(markdown: str) -> str | None:
@@ -211,6 +277,15 @@ async def ingest_path(
                 has_tags_col=has_tags,
                 has_hash_col=has_hash,
             )
+
+            # Extract and insert frontmatter links
+            link_targets = extract_relates_to(text)
+            if link_targets:
+                try:
+                    inserted = await backend.insert_links(rel, link_targets)
+                    log.info("links: %s -> %d targets", rel, inserted)
+                except Exception:
+                    log.debug("insert_links failed for %s (links table may not exist)", rel)
 
             results.append(IngestResult(path=rel, chunks=count, action="ingested"))
             log.info("ingested: %s (%d chunks)", rel, count)

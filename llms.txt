@@ -77,6 +77,8 @@ Returns: `{"path", "chunks_updated", "action": "metadata_updated"}`
 
 Auto-detection: `DATABASE_URL` set to `postgresql://...` -> PostgreSQL. Not set -> SQLite at `~/.local/share/gnosis-mcp/docs.db`. Override: `GNOSIS_MCP_BACKEND=sqlite|postgres`.
 
+Ingestion extracts `relates_to` from frontmatter (comma-separated or YAML list) and populates the links table for `get_related` queries.
+
 Local embeddings (`[embeddings]` extra): ONNX Runtime + tokenizers + sqlite-vec. Default model: MongoDB/mdbr-leaf-ir (23MB, Apache 2.0). No API key needed.
 
 ## Configuration

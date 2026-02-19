@@ -62,6 +62,7 @@ Default install: `mcp>=1.20` + `aiosqlite>=0.20`. Optional: `pip install gnosis-
 - **Webhook notifications**: Fire-and-forget POST to `GNOSIS_MCP_WEBHOOK_URL` on write operations
 - **Custom search delegation**: Set `GNOSIS_MCP_SEARCH_FUNCTION` to use your own hybrid search (PostgreSQL only)
 - **Column overrides**: `GNOSIS_MCP_COL_*` are for connecting to existing tables with non-standard names
+- **Frontmatter link extraction**: `ingest` parses `relates_to` from frontmatter (comma-separated or YAML list), inserts into links table for `get_related` queries. Glob patterns are skipped.
 - **H2-based chunking**: `ingest` splits markdown by H2 headers (smarter than paragraph boundaries)
 - **Content hashing**: `ingest` skips unchanged files using SHA-256 hash comparison
 - **4-tier embedding support**: (1) Local ONNX via `[embeddings]` extra, (2) pre-computed embeddings via tools, (3) backfill with `gnosis-mcp embed`, (4) built-in hybrid search when `query_embedding` is provided

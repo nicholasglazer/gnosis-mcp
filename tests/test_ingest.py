@@ -7,6 +7,7 @@ import pytest
 from gnosis_mcp.ingest import (
     chunk_by_headings,
     content_hash,
+    extract_relates_to,
     extract_title,
     parse_frontmatter,
     scan_files,
@@ -64,6 +65,58 @@ class TestParseFrontmatter:
         meta, body = parse_frontmatter(md)
         assert meta == {}
         assert body == "Body"
+
+
+# ---------------------------------------------------------------------------
+# extract_relates_to
+# ---------------------------------------------------------------------------
+
+
+class TestExtractRelatesTo:
+    def test_no_frontmatter(self):
+        assert extract_relates_to("# Title\n\nContent") == []
+
+    def test_no_relates_to(self):
+        md = "---\ntitle: My Doc\ncategory: guides\n---\n# Title"
+        assert extract_relates_to(md) == []
+
+    def test_comma_separated(self):
+        md = "---\nrelates_to: guides/setup.md, architecture/overview.md\n---\nBody"
+        result = extract_relates_to(md)
+        assert result == ["guides/setup.md", "architecture/overview.md"]
+
+    def test_single_value(self):
+        md = "---\nrelates_to: guides/setup.md\n---\nBody"
+        result = extract_relates_to(md)
+        assert result == ["guides/setup.md"]
+
+    def test_yaml_list(self):
+        md = "---\nrelates_to:\n  - guides/setup.md\n  - architecture/overview.md\n---\nBody"
+        result = extract_relates_to(md)
+        assert result == ["guides/setup.md", "architecture/overview.md"]
+
+    def test_filters_globs(self):
+        md = "---\nrelates_to:\n  - guides/*.md\n  - architecture/overview.md\n  - src/**/*.ts\n---\nBody"
+        result = extract_relates_to(md)
+        assert result == ["architecture/overview.md"]
+
+    def test_quoted_values(self):
+        md = '---\nrelates_to: "guides/setup.md", \'architecture/overview.md\'\n---\nBody'
+        result = extract_relates_to(md)
+        assert result == ["guides/setup.md", "architecture/overview.md"]
+
+    def test_yaml_list_with_other_fields(self):
+        md = "---\ntitle: Test\nrelates_to:\n  - guides/a.md\n  - guides/b.md\ncategory: guides\n---\nBody"
+        result = extract_relates_to(md)
+        assert result == ["guides/a.md", "guides/b.md"]
+
+    def test_incomplete_frontmatter(self):
+        md = "---\nrelates_to: foo.md"
+        assert extract_relates_to(md) == []
+
+    def test_empty_relates_to(self):
+        md = "---\nrelates_to:\n---\nBody"
+        assert extract_relates_to(md) == []
 
 
 # ---------------------------------------------------------------------------

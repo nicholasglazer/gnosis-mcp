@@ -400,6 +400,7 @@ gnosis-mcp export [-f json|markdown] [-c CAT]              Export documents
 
 - **Smart chunking** — splits by H2 headings, keeping sections together (not arbitrary character limits)
 - **Frontmatter support** — extracts `title`, `category`, `audience`, `tags` from YAML frontmatter
+- **Auto-linking** — `relates_to` in frontmatter creates bidirectional links (queryable via `get_related`)
 - **Auto-categorization** — infers category from the parent directory name
 - **Incremental updates** — content hashing skips unchanged files on re-run
 - **Watch mode** — `gnosis-mcp serve --watch ./docs/` auto-re-ingests on file changes

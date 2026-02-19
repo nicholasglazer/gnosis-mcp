@@ -669,6 +669,39 @@ class PostgresBackend:
                 path,
             )
 
+    async def insert_links(
+        self,
+        source_path: str,
+        target_paths: list[str],
+        relation_type: str = "relates_to",
+    ) -> int:
+        if not target_paths:
+            return 0
+        cfg = self._cfg
+        lt = cfg.qualified_links_table
+
+        async with await self._acquire() as conn:
+            await conn.execute(
+                f"DELETE FROM {lt} "
+                f"WHERE {cfg.col_source_path} = $1 AND {cfg.col_relation_type} = $2",
+                source_path,
+                relation_type,
+            )
+
+            count = 0
+            for target in target_paths:
+                await conn.execute(
+                    f"INSERT INTO {lt} ({cfg.col_source_path}, {cfg.col_target_path}, {cfg.col_relation_type}) "
+                    f"VALUES ($1, $2, $3) "
+                    f"ON CONFLICT ({cfg.col_source_path}, {cfg.col_target_path}, {cfg.col_relation_type}) DO NOTHING",
+                    source_path,
+                    target,
+                    relation_type,
+                )
+                count += 1
+
+            return count
+
     async def ingest_file(
         self,
         rel_path: str,

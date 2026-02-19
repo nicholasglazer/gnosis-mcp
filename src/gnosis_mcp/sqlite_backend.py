@@ -624,6 +624,34 @@ class SqliteBackend:
         )
         return rows[0][0] if rows else None
 
+    async def insert_links(
+        self,
+        source_path: str,
+        target_paths: list[str],
+        relation_type: str = "relates_to",
+    ) -> int:
+        if not target_paths:
+            return 0
+
+        # Delete existing links from this source with the same relation type
+        await self._db.execute(
+            "DELETE FROM documentation_links "
+            "WHERE source_path = ? AND relation_type = ?",
+            (source_path, relation_type),
+        )
+
+        count = 0
+        for target in target_paths:
+            await self._db.execute(
+                "INSERT OR IGNORE INTO documentation_links "
+                "(source_path, target_path, relation_type) VALUES (?, ?, ?)",
+                (source_path, target, relation_type),
+            )
+            count += 1
+
+        await self._db.commit()
+        return count
+
     async def ingest_file(
         self,
         rel_path: str,

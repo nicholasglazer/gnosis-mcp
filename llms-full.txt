@@ -203,6 +203,7 @@ gnosis-mcp --version                                       # Show version
 
 - Chunks by H2 headers (keeps sections together, not arbitrary character limits)
 - Parses YAML-like frontmatter for title, category, audience, tags
+- Auto-linking: `relates_to` in frontmatter populates the links table (supports comma-separated and YAML list, skips glob patterns)
 - Content hashing: skips unchanged files on re-run
 - Watch mode: `gnosis-mcp serve --watch ./docs/` auto-re-ingests on file changes (mtime polling + debounce + auto-embed)
 - Category inferred from parent directory name
