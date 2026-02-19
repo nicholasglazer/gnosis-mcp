@@ -134,22 +134,22 @@ async def search_docs(
             limit=limit,
             query_embedding=query_embedding,
         )
-        return json.dumps(
-            [
-                {
-                    "file_path": r["file_path"],
-                    "title": r["title"],
-                    "content_preview": (
-                        r["content"][:preview] + "..."
-                        if len(r["content"]) > preview
-                        else r["content"]
-                    ),
-                    "score": round(float(r["score"]), 4),
-                }
-                for r in results
-            ],
-            indent=2,
-        )
+        items = []
+        for r in results:
+            item = {
+                "file_path": r["file_path"],
+                "title": r["title"],
+                "content_preview": (
+                    r["content"][:preview] + "..."
+                    if len(r["content"]) > preview
+                    else r["content"]
+                ),
+                "score": round(float(r["score"]), 4),
+            }
+            if r.get("highlight"):
+                item["highlight"] = r["highlight"]
+            items.append(item)
+        return json.dumps(items, indent=2)
     except Exception:
         log.exception("search_docs failed")
         return json.dumps({"error": f"Search failed for query: {query!r}"})

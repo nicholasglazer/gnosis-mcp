@@ -285,6 +285,8 @@ gnosis-mcp search "auth" -c guides
 
 When called via MCP, the agent passes a `query` string for keyword search. On PostgreSQL with embeddings, it can also pass `query_embedding` for hybrid mode that combines keyword matching with semantic similarity.
 
+Search results include a `highlight` field with matched terms wrapped in `<mark>` tags for context-aware snippets (FTS5 `snippet()` on SQLite, `ts_headline()` on PostgreSQL).
+
 ## Embeddings
 
 Embeddings enable semantic search — finding docs by meaning, not just keywords.

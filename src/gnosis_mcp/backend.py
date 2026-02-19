@@ -42,7 +42,7 @@ class DocBackend(Protocol):
         limit: int = 5,
         query_embedding: list[float] | None = None,
     ) -> list[dict[str, Any]]:
-        """Search documents. Returns list of {file_path, title, content, category, score}."""
+        """Search documents. Returns list of {file_path, title, content, category, score, highlight}."""
         ...
 
     async def get_doc(self, path: str) -> list[dict[str, Any]]:

@@ -193,7 +193,8 @@ class SqliteBackend:
 
         sql = (
             "SELECT c.file_path, c.title, c.content, c.category, "
-            "  bm25(documentation_chunks_fts) AS score "
+            "  bm25(documentation_chunks_fts) AS score, "
+            "  snippet(documentation_chunks_fts, 1, '<mark>', '</mark>', '...', 32) AS highlight "
             "FROM documentation_chunks_fts f "
             "JOIN documentation_chunks c ON c.id = f.rowid "
             "WHERE documentation_chunks_fts MATCH ? "
@@ -216,6 +217,7 @@ class SqliteBackend:
                 "content": r[2],
                 "category": r[3],
                 "score": -float(r[4]),  # Negate to make higher = better
+                "highlight": r[5],
             }
             for r in rows
         ]
@@ -327,6 +329,7 @@ class SqliteBackend:
                 "content": data["content"],
                 "category": data["category"],
                 "score": score,
+                "highlight": data.get("highlight"),
             })
 
         return results

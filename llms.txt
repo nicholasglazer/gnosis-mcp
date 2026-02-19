@@ -35,7 +35,8 @@ Add to your editor's MCP config (e.g. `.claude/mcp.json` for Claude Code):
 #### search_docs(query: str, category?: str, limit?: int, query_embedding?: list[float]) -> JSON
 Search documentation using keyword (FTS5/tsvector) or hybrid semantic+keyword search.
 When `query_embedding` is provided (PostgreSQL), combines keyword and cosine similarity scoring.
-Returns: `[{"file_path", "title", "content_preview", "score"}]`
+Returns: `[{"file_path", "title", "content_preview", "score", "highlight"}]`
+The `highlight` field contains matched terms in `<mark>` tags (FTS5 snippet on SQLite, ts_headline on PostgreSQL).
 
 #### get_doc(path: str, max_length?: int) -> JSON
 Retrieve full document by file path. Reassembles chunks in order.

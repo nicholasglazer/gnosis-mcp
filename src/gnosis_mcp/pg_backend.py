@@ -244,6 +244,7 @@ class PostgresBackend:
                 "content": r["content"],
                 "category": r.get("category"),
                 "score": float(r.get("combined_score", 0)),
+                "highlight": r.get("highlight"),
             }
             for r in rows
         ]
@@ -258,7 +259,9 @@ class PostgresBackend:
             f"  (ts_rank({cfg.col_tsv}, websearch_to_tsquery('english', $1))::float * 0.4 "
             f"  + (1.0 - ({cfg.col_embedding} <=> $4::vector))::float * 0.6) "
             f"ELSE ts_rank({cfg.col_tsv}, websearch_to_tsquery('english', $1))::float "
-            f"END AS score"
+            f"END AS score, "
+            f"ts_headline('english', {cfg.col_content}, websearch_to_tsquery('english', $1), "
+            f"'StartSel=<mark>, StopSel=</mark>, MaxWords=35, MinWords=20') AS highlight"
         )
         where = (
             f"({cfg.col_tsv} @@ websearch_to_tsquery('english', $1) "
@@ -282,6 +285,7 @@ class PostgresBackend:
                 "content": r[cfg.col_content],
                 "category": r.get(cfg.col_category),
                 "score": float(r["score"]),
+                "highlight": r["highlight"],
             }
             for r in rows
         ]
@@ -291,7 +295,9 @@ class PostgresBackend:
         select = (
             f"{cfg.col_file_path}, {cfg.col_title}, {cfg.col_content}, "
             f"{cfg.col_category}, "
-            f"ts_rank({cfg.col_tsv}, websearch_to_tsquery('english', $1)) AS score"
+            f"ts_rank({cfg.col_tsv}, websearch_to_tsquery('english', $1)) AS score, "
+            f"ts_headline('english', {cfg.col_content}, websearch_to_tsquery('english', $1), "
+            f"'StartSel=<mark>, StopSel=</mark>, MaxWords=35, MinWords=20') AS highlight"
         )
         where = f"{cfg.col_tsv} @@ websearch_to_tsquery('english', $1)"
         if category:
@@ -310,6 +316,7 @@ class PostgresBackend:
                 "content": r[cfg.col_content],
                 "category": r.get(cfg.col_category),
                 "score": float(r["score"]),
+                "highlight": r["highlight"],
             }
             for r in rows
         ]

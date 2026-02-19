@@ -252,11 +252,15 @@ def cmd_search(args: argparse.Namespace) -> None:
 
             for r in results:
                 score = round(float(r["score"]), 4)
+                highlight = r.get("highlight")
                 content = r["content"]
                 snippet = content[:preview] + "..." if len(content) > preview else content
                 sys.stdout.write(f"\n  {r['file_path']}  (score: {score})\n")
                 sys.stdout.write(f"  {r['title']}\n")
-                sys.stdout.write(f"  {snippet}\n")
+                if highlight:
+                    sys.stdout.write(f"  {highlight}\n")
+                else:
+                    sys.stdout.write(f"  {snippet}\n")
 
             if not results:
                 log.info("No results for: %s", args.query)

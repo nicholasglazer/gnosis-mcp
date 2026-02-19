@@ -98,7 +98,7 @@ The `[embeddings]` extra installs: onnxruntime, tokenizers, numpy, huggingface-h
 
 ### Read Tools (always available)
 
-1. **search_docs(query, category?, limit?, query_embedding?)** — Search docs using keyword (FTS5/tsvector) or hybrid semantic+keyword search.
+1. **search_docs(query, category?, limit?, query_embedding?)** — Search docs using keyword (FTS5/tsvector) or hybrid semantic+keyword search. Returns `highlight` field with matched terms in `<mark>` tags.
    - query: string (required) — search text
    - category: string (optional) — filter by category
    - limit: int (default 5, max configurable) — result count
