@@ -223,7 +223,9 @@ async def ingest_path(
 
     try:
         # Auto-initialize schema if tables don't exist (zero-config experience)
-        await backend.init_schema()
+        table_exists = await backend.has_column(config.chunks_tables[0], "file_path")
+        if not table_exists:
+            await backend.init_schema()
 
         # Check for optional columns once before the file loop
         table_name = config.chunks_tables[0]
