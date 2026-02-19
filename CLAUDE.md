@@ -8,14 +8,15 @@ Open-source Python MCP server for searchable documentation. Zero-config SQLite d
 src/gnosis_mcp/
 ├── backend.py         # DocBackend Protocol + create_backend() factory
 ├── pg_backend.py      # PostgreSQL backend — asyncpg pool, $N params, tsvector, pgvector, UNION ALL
-├── sqlite_backend.py  # SQLite backend — aiosqlite, FTS5 MATCH + bm25(), ? params
-├── sqlite_schema.py   # SQLite DDL — tables, FTS5 virtual table, sync triggers, indexes
+├── sqlite_backend.py  # SQLite backend — aiosqlite, FTS5 + sqlite-vec hybrid (RRF), ? params
+├── sqlite_schema.py   # SQLite DDL — tables, FTS5 virtual table, vec0 virtual table, sync triggers
 ├── config.py          # GnosisMcpConfig frozen dataclass, backend auto-detection, GNOSIS_MCP_* env vars
 ├── db.py              # Backend lifecycle + FastMCP lifespan context manager
-├── server.py          # FastMCP server: 6 tools + 3 resources + webhook helper
+├── server.py          # FastMCP server: 6 tools + 3 resources + auto-embed queries
 ├── ingest.py          # File ingestion: scan markdown, chunk by H2, frontmatter, content hashing
 ├── schema.py          # PostgreSQL DDL — tables, indexes, HNSW, hybrid search functions
-├── embed.py           # Embedding sidecar: provider abstraction (openai/ollama/custom), batch backfill
+├── embed.py           # Embedding providers: openai/ollama/custom/local, batch backfill
+├── local_embed.py     # Local ONNX embedding engine — HuggingFace model auto-download, CPU inference
 └── cli.py             # argparse CLI: serve, init-db, ingest, search, embed, stats, export, check
 ```
 
@@ -24,18 +25,18 @@ src/gnosis_mcp/
 All database operations go through `DocBackend` (a `typing.Protocol` in `backend.py`). Two implementations:
 
 - **PostgresBackend** (`pg_backend.py`): asyncpg, `$N` params, `::vector` casts, `ts_rank`, `websearch_to_tsquery`, `<=>`, `information_schema` queries, `UNION ALL` for multi-table
-- **SqliteBackend** (`sqlite_backend.py`): aiosqlite, `?` params, FTS5 `MATCH` + `bm25()`, `sqlite_master` for existence, `PRAGMA table_info` for column checks
+- **SqliteBackend** (`sqlite_backend.py`): aiosqlite, `?` params, FTS5 `MATCH` + `bm25()`, sqlite-vec for hybrid search (RRF), `sqlite_master` for existence, `PRAGMA table_info` for column checks
 
 **Auto-detection**: `DATABASE_URL` set to `postgresql://...` → PostgreSQL. Not set → SQLite at `~/.local/share/gnosis-mcp/docs.db`. Override with `GNOSIS_MCP_BACKEND=sqlite|postgres`.
 
 ## Dependencies
 
-Default install: `mcp>=1.20` + `aiosqlite>=0.20`. Optional: `pip install gnosis-mcp[postgres]` adds `asyncpg>=0.29`.
+Default install: `mcp>=1.20` + `aiosqlite>=0.20`. Optional: `pip install gnosis-mcp[postgres]` adds `asyncpg>=0.29`. Optional: `pip install gnosis-mcp[embeddings]` adds `onnxruntime`, `tokenizers`, `numpy`, `huggingface-hub`, `sqlite-vec`.
 
 ## Tools
 
 ### Read (always available)
-1. **search_docs(query, category?, limit?, query_embedding?)** -- keyword (FTS5/tsvector), hybrid (with embedding on PG), or custom function search
+1. **search_docs(query, category?, limit?, query_embedding?)** -- keyword (FTS5/tsvector), hybrid (with embedding on SQLite via sqlite-vec or PG via pgvector), or custom function search. Auto-embeds query when local provider configured.
 2. **get_doc(path, max_length?)** -- reassemble document chunks by file_path + chunk_index (optional truncation)
 3. **get_related(path)** -- bidirectional link graph query
 
@@ -62,8 +63,10 @@ Default install: `mcp>=1.20` + `aiosqlite>=0.20`. Optional: `pip install gnosis-
 - **Column overrides**: `GNOSIS_MCP_COL_*` are for connecting to existing tables with non-standard names
 - **H2-based chunking**: `ingest` splits markdown by H2 headers (smarter than paragraph boundaries)
 - **Content hashing**: `ingest` skips unchanged files using SHA-256 hash comparison
-- **3-tier embedding support**: Accept pre-computed embeddings via tools, backfill with `gnosis-mcp embed`, built-in hybrid search when `query_embedding` is provided
-- **Zero embedding deps**: Embedding providers use stdlib `urllib.request` — no new runtime dependencies
+- **4-tier embedding support**: (1) Local ONNX via `[embeddings]` extra, (2) pre-computed embeddings via tools, (3) backfill with `gnosis-mcp embed`, (4) built-in hybrid search when `query_embedding` is provided
+- **Local ONNX embedder**: `local_embed.py` — HuggingFace model auto-download, ONNX Runtime CPU inference, mean pooling, L2 normalization, Matryoshka dimension truncation
+- **sqlite-vec hybrid search**: Reciprocal Rank Fusion (RRF) merges FTS5 keyword + vec0 cosine results. Better than linear blending for incompatible score scales.
+- **Zero embedding deps for remote providers**: Remote providers use stdlib `urllib.request` — no new runtime dependencies
 - **HNSW vector index**: PostgreSQL `init-db` creates an HNSW index for fast cosine similarity search
 - **FTS5 with porter tokenizer**: SQLite uses FTS5 with porter stemming, sync triggers for INSERT/UPDATE/DELETE
 - **XDG-compliant paths**: SQLite default at `~/.local/share/gnosis-mcp/docs.db`, no platformdirs dependency

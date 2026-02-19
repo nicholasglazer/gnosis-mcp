@@ -92,6 +92,11 @@ def cmd_check(args: argparse.Namespace) -> None:
             if "fts_table_exists" in health:
                 log.info("FTS5: %s", "ready" if health["fts_table_exists"] else "not initialized")
 
+            if "sqlite_vec" in health:
+                log.info("sqlite-vec: %s", "loaded" if health["sqlite_vec"] else "not available")
+                if health.get("vec_table_exists"):
+                    log.info("Vec0 table: %d vectors", health.get("vec_count", 0))
+
             if health.get("chunks_table_exists"):
                 log.info("Chunks: %d rows", health.get("chunks_count", 0))
             else:
@@ -152,6 +157,40 @@ def cmd_ingest(args: argparse.Namespace) -> None:
             total_chunks,
         )
 
+        # Embed after ingest if requested
+        if getattr(args, "embed", False) and not args.dry_run and total_chunks > 0:
+            from gnosis_mcp.embed import embed_pending
+
+            provider = config.embed_provider
+            if not provider and _detect_local_provider():
+                provider = "local"
+                log.info("Auto-detected local embedding provider")
+
+            if not provider:
+                log.warning(
+                    "Skipping --embed: no provider configured and [embeddings] not installed"
+                )
+                return
+
+            model = config.embed_model if config.embed_provider else "MongoDB/mdbr-leaf-ir"
+            if provider != "local":
+                model = config.embed_model
+
+            log.info("Embedding chunks with provider=%s model=%s ...", provider, model)
+            embed_result = await embed_pending(
+                config=config,
+                provider=provider,
+                model=model,
+                api_key=config.embed_api_key,
+                url=config.embed_url,
+                batch_size=config.embed_batch_size,
+                dim=config.embed_dim,
+            )
+            log.info(
+                "Embedded: %d/%d chunks (%d errors)",
+                embed_result.embedded, embed_result.total_null, embed_result.errors,
+            )
+
     asyncio.run(_run())
 
 
@@ -173,17 +212,26 @@ def cmd_search(args: argparse.Namespace) -> None:
             query_embedding = None
             if use_embed:
                 provider = config.embed_provider
+                if not provider and _detect_local_provider():
+                    provider = "local"
                 if not provider:
-                    log.error("--embed requires GNOSIS_MCP_EMBED_PROVIDER to be set")
+                    log.error(
+                        "--embed requires GNOSIS_MCP_EMBED_PROVIDER or gnosis-mcp[embeddings]"
+                    )
                     return
                 from gnosis_mcp.embed import embed_texts
+
+                model = config.embed_model
+                if provider == "local" and not config.embed_provider:
+                    model = "MongoDB/mdbr-leaf-ir"
 
                 vectors = embed_texts(
                     [args.query],
                     provider=provider,
-                    model=config.embed_model,
+                    model=model,
                     api_key=config.embed_api_key,
                     url=config.embed_url,
+                    dim=config.embed_dim,
                 )
                 query_embedding = vectors[0] if vectors else None
 
@@ -212,6 +260,17 @@ def cmd_search(args: argparse.Namespace) -> None:
     asyncio.run(_run())
 
 
+def _detect_local_provider() -> bool:
+    """Check if the [embeddings] extra is installed."""
+    try:
+        import onnxruntime  # noqa: F401
+        import tokenizers  # noqa: F401
+
+        return True
+    except ImportError:
+        return False
+
+
 def cmd_embed(args: argparse.Namespace) -> None:
     """Embed chunks with NULL embeddings using a configured provider."""
     from gnosis_mcp.config import GnosisMcpConfig
@@ -219,17 +278,26 @@ def cmd_embed(args: argparse.Namespace) -> None:
 
     config = GnosisMcpConfig.from_env()
     provider = args.provider or config.embed_provider
+
+    # Auto-detect: if no provider set and [embeddings] extra is installed, use local
+    if not provider and _detect_local_provider():
+        provider = "local"
+        log.info("Auto-detected local embedding provider (onnxruntime installed)")
+
     if not provider:
         log.error(
             "No embedding provider configured. "
-            "Set GNOSIS_MCP_EMBED_PROVIDER or use --provider."
+            "Set GNOSIS_MCP_EMBED_PROVIDER, use --provider, or install gnosis-mcp[embeddings]."
         )
         sys.exit(1)
 
-    model = args.model or config.embed_model
+    model = args.model or (
+        config.embed_model if config.embed_provider else "MongoDB/mdbr-leaf-ir"
+    ) if provider == "local" else (args.model or config.embed_model)
     batch_size = args.batch_size or config.embed_batch_size
     api_key = config.embed_api_key
     url = config.embed_url
+    dim = config.embed_dim
 
     async def _run() -> None:
         result = await embed_pending(
@@ -240,6 +308,7 @@ def cmd_embed(args: argparse.Namespace) -> None:
             url=url,
             batch_size=batch_size,
             dry_run=args.dry_run,
+            dim=dim,
         )
 
         if args.dry_run:
@@ -270,7 +339,14 @@ def cmd_stats(args: argparse.Namespace) -> None:
             sys.stdout.write(f"\n  {s['table']}\n")
             sys.stdout.write(f"  Documents: {s['docs']}\n")
             sys.stdout.write(f"  Chunks:    {s['chunks']}\n")
-            sys.stdout.write(f"  Content:   {_format_bytes(s['content_bytes'])}\n\n")
+            if s.get("embedded_chunks") is not None:
+                sys.stdout.write(f"  Embedded:  {s['embedded_chunks']}\n")
+            sys.stdout.write(f"  Content:   {_format_bytes(s['content_bytes'])}\n")
+            if s.get("sqlite_vec") is not None:
+                sys.stdout.write(
+                    f"  Vector:    {'sqlite-vec loaded' if s['sqlite_vec'] else 'keyword only'}\n"
+                )
+            sys.stdout.write("\n")
 
             cats = s.get("categories", [])
             if cats:
@@ -383,6 +459,10 @@ def main() -> None:
     p_ingest = sub.add_parser("ingest", help="Ingest markdown files")
     p_ingest.add_argument("path", help="File or directory to ingest")
     p_ingest.add_argument("--dry-run", action="store_true", help="Show what would be ingested")
+    p_ingest.add_argument(
+        "--embed", action="store_true",
+        help="Embed all chunks after ingestion (auto-detects local provider if installed)",
+    )
 
     # search
     p_search = sub.add_parser("search", help="Search documents from the command line")
@@ -407,7 +487,7 @@ def main() -> None:
     # embed
     p_embed = sub.add_parser("embed", help="Embed chunks with NULL embeddings")
     p_embed.add_argument(
-        "--provider", choices=["openai", "ollama", "custom"], default=None,
+        "--provider", choices=["openai", "ollama", "custom", "local"], default=None,
         help="Embedding provider (overrides GNOSIS_MCP_EMBED_PROVIDER)",
     )
     p_embed.add_argument("--model", default=None, help="Embedding model name")

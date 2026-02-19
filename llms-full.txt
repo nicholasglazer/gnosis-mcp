@@ -8,6 +8,7 @@
 
 ```bash
 pip install gnosis-mcp               # SQLite (default, zero config)
+pip install gnosis-mcp[embeddings]  # + Local ONNX semantic search (no API key)
 pip install gnosis-mcp[postgres]     # + PostgreSQL support
 ```
 
@@ -17,6 +18,14 @@ pip install gnosis-mcp[postgres]     # + PostgreSQL support
 gnosis-mcp ingest ./docs/   # Auto-creates DB + loads markdown
 gnosis-mcp search "query"   # Test it works
 gnosis-mcp serve             # Start MCP server
+```
+
+## Quick Setup (SQLite + Semantic Search)
+
+```bash
+pip install gnosis-mcp[embeddings]
+gnosis-mcp ingest ./docs/ --embed   # Ingest + embed (downloads 23MB model on first run)
+gnosis-mcp serve                    # Hybrid keyword+semantic search auto-activated
 ```
 
 ## Quick Setup (PostgreSQL)
@@ -73,15 +82,17 @@ PostgreSQL:
 
 ## Backends
 
-| | SQLite (default) | PostgreSQL |
-|---|---|---|
-| Install | `pip install gnosis-mcp` | `pip install gnosis-mcp[postgres]` |
-| Config | Nothing | Set `DATABASE_URL` |
-| Search | FTS5 keyword (BM25) | tsvector + pgvector hybrid |
-| Embeddings | Binary blobs | Native vector type + HNSW index |
-| Multi-table | No | Yes (UNION ALL) |
+| | SQLite (default) | SQLite + embeddings | PostgreSQL |
+|---|---|---|---|
+| Install | `pip install gnosis-mcp` | `pip install gnosis-mcp[embeddings]` | `pip install gnosis-mcp[postgres]` |
+| Config | Nothing | Nothing | Set `DATABASE_URL` |
+| Search | FTS5 keyword (BM25) | Hybrid keyword+semantic (RRF) | tsvector + pgvector hybrid |
+| Embeddings | None | Local ONNX (23MB, no API) | Any provider + HNSW index |
+| Multi-table | No | No | Yes (UNION ALL) |
 
 Auto-detection: `DATABASE_URL` set to `postgresql://...` -> PostgreSQL. Not set -> SQLite. Override: `GNOSIS_MCP_BACKEND=sqlite|postgres`.
+
+The `[embeddings]` extra installs: onnxruntime, tokenizers, numpy, huggingface-hub, sqlite-vec. Default model: MongoDB/mdbr-leaf-ir (23M params, 23MB quantized). Model auto-downloads from HuggingFace Hub on first use. Customize with `GNOSIS_MCP_EMBED_MODEL`.
 
 ## Tools (6)
 
@@ -132,8 +143,9 @@ All settings via GNOSIS_MCP_* environment variables. Nothing required for SQLite
 - GNOSIS_MCP_WEBHOOK_URL — URL to POST on doc changes (default: none)
 
 ### Embedding
-- GNOSIS_MCP_EMBED_PROVIDER — Embedding provider: openai, ollama, or custom (default: none)
-- GNOSIS_MCP_EMBED_MODEL — Embedding model name (default: text-embedding-3-small)
+- GNOSIS_MCP_EMBED_PROVIDER — Embedding provider: openai, ollama, custom, or local (default: none, auto-detects local if [embeddings] installed)
+- GNOSIS_MCP_EMBED_MODEL — Embedding model name (default: text-embedding-3-small for remote, MongoDB/mdbr-leaf-ir for local)
+- GNOSIS_MCP_EMBED_DIM — Embedding dimension for local Matryoshka truncation and vec0 table width (default: 384)
 - GNOSIS_MCP_EMBED_API_KEY — API key for embedding provider (default: none)
 - GNOSIS_MCP_EMBED_URL — Custom embedding endpoint URL (default: none)
 - GNOSIS_MCP_EMBED_BATCH_SIZE — Chunks per embedding batch, min 1 (default: 50)
@@ -174,12 +186,12 @@ Optionally, your function can also accept `p_embedding vector(N)` for hybrid sea
 ## CLI
 
 ```
-gnosis-mcp ingest <path> [--dry-run]                       # Load markdown files
+gnosis-mcp ingest <path> [--dry-run] [--embed]             # Load markdown files (--embed to generate embeddings)
 gnosis-mcp serve [--transport stdio|sse] [--ingest PATH]   # Start MCP server (optionally ingest first)
-gnosis-mcp search <query> [-n LIMIT] [-c CAT] [--embed]    # Search (--embed for hybrid, PG only)
-gnosis-mcp stats                                           # Show document/chunk/category counts
-gnosis-mcp check                                           # Verify connection + schema
-gnosis-mcp embed [--provider P] [--model M] [--dry-run]    # Backfill NULL embeddings via API
+gnosis-mcp search <query> [-n LIMIT] [-c CAT] [--embed]    # Search (--embed for hybrid semantic+keyword)
+gnosis-mcp stats                                           # Show document/chunk/embedding counts
+gnosis-mcp check                                           # Verify connection + sqlite-vec status
+gnosis-mcp embed [--provider P] [--model M] [--dry-run]    # Backfill embeddings (auto-detects local provider)
 gnosis-mcp init-db [--dry-run]                             # Create tables (or preview SQL)
 gnosis-mcp export [-f json|markdown] [-c CAT]              # Export documents as JSON or markdown
 gnosis-mcp --version                                       # Show version
@@ -210,11 +222,12 @@ src/gnosis_mcp/
 ├── server.py          # FastMCP server: 6 tools + 3 resources + webhook helper
 ├── ingest.py          # File scanner: markdown chunking, frontmatter, content hashing
 ├── schema.py          # PostgreSQL DDL — tables, indexes, HNSW, hybrid search functions
-├── embed.py           # Embedding sidecar: provider abstraction (openai/ollama/custom)
+├── embed.py           # Embedding sidecar: provider abstraction (openai/ollama/custom/local)
+├── local_embed.py     # Local ONNX embedding engine — HuggingFace model auto-download
 └── cli.py             # argparse CLI: serve, init-db, ingest, search, embed, stats, export, check
 ```
 
-Default install deps: mcp + aiosqlite. Optional: asyncpg (via `[postgres]` extra).
+Default install deps: mcp + aiosqlite. Optional: asyncpg (via `[postgres]` extra), onnxruntime + tokenizers + numpy + huggingface-hub + sqlite-vec (via `[embeddings]` extra).
 
 ## License
 

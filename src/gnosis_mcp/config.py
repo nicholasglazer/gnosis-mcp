@@ -14,7 +14,7 @@ _IDENT_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)*$")
 
 _VALID_LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
 _VALID_TRANSPORTS = ("stdio", "sse")
-_VALID_EMBED_PROVIDERS = ("openai", "ollama", "custom")
+_VALID_EMBED_PROVIDERS = ("openai", "ollama", "custom", "local")
 _VALID_BACKENDS = ("auto", "sqlite", "postgres")
 
 
@@ -93,8 +93,9 @@ class GnosisMcpConfig:
     webhook_timeout: int = 5
 
     # Embedding provider (Tier 2 sidecar)
-    embed_provider: str | None = None  # "openai", "ollama", "custom"
+    embed_provider: str | None = None  # "openai", "ollama", "custom", "local"
     embed_model: str = "text-embedding-3-small"
+    embed_dim: int = 384  # Matryoshka truncation dim for local provider, vec0 column width
     embed_api_key: str | None = None
     embed_url: str | None = None  # custom endpoint or ollama override
     embed_batch_size: int = 50
@@ -276,6 +277,7 @@ class GnosisMcpConfig:
             webhook_timeout=env_int("WEBHOOK_TIMEOUT", 5),
             embed_provider=env("EMBED_PROVIDER"),
             embed_model=env("EMBED_MODEL", "text-embedding-3-small"),
+            embed_dim=env_int("EMBED_DIM", 384),
             embed_api_key=env("EMBED_API_KEY"),
             embed_url=env("EMBED_URL"),
             embed_batch_size=env_int("EMBED_BATCH_SIZE", 50),

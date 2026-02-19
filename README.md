@@ -32,7 +32,7 @@ AI coding agents can read your source code but not your documentation. They gues
 
 Gnosis MCP fixes this. Point it at a folder of markdown files and it creates a searchable knowledge base that any [MCP](https://modelcontextprotocol.io/)-compatible AI agent can query — Claude Code, Cursor, Windsurf, Cline, and any tool that supports the Model Context Protocol.
 
-**No database server.** SQLite works out of the box. Scale to PostgreSQL + pgvector when you need hybrid semantic search.
+**No database server.** SQLite works out of the box with keyword search, or add `[embeddings]` for local semantic search. Scale to PostgreSQL + pgvector when needed.
 
 ## Why use this
 
@@ -54,11 +54,20 @@ gnosis-mcp serve                # starts MCP server
 
 That's it. Your AI agent can now search your docs.
 
+**Want semantic search?** Add local ONNX embeddings (no API key needed, ~23MB model):
+
+```bash
+pip install gnosis-mcp[embeddings]
+gnosis-mcp ingest ./docs/ --embed   # ingest + embed in one step
+gnosis-mcp serve                    # hybrid keyword+semantic search auto-activated
+```
+
 Test it before connecting to an editor:
 
 ```bash
-gnosis-mcp search "getting started"    # verify search works
-gnosis-mcp stats                       # see what was indexed
+gnosis-mcp search "getting started"           # keyword search
+gnosis-mcp search "how does auth work" --embed # hybrid semantic+keyword
+gnosis-mcp stats                               # see what was indexed
 ```
 
 <details>
@@ -159,14 +168,14 @@ Any tool that supports the [Model Context Protocol](https://modelcontextprotocol
 
 ## Choose Your Backend
 
-| | SQLite (default) | PostgreSQL |
-|---|---|---|
-| **Install** | `pip install gnosis-mcp` | `pip install gnosis-mcp[postgres]` |
-| **Config** | Nothing — works immediately | Set `DATABASE_URL` |
-| **Search** | FTS5 keyword (BM25) | tsvector + pgvector hybrid |
-| **Embeddings** | Stored as binary blobs | Native `vector` type + HNSW index |
-| **Multi-table** | No | Yes (`UNION ALL` across tables) |
-| **Best for** | Personal projects, small teams | Production, semantic search, large doc sets |
+| | SQLite (default) | SQLite + embeddings | PostgreSQL |
+|---|---|---|---|
+| **Install** | `pip install gnosis-mcp` | `pip install gnosis-mcp[embeddings]` | `pip install gnosis-mcp[postgres]` |
+| **Config** | Nothing | Nothing | Set `DATABASE_URL` |
+| **Search** | FTS5 keyword (BM25) | Hybrid keyword + semantic (RRF) | tsvector + pgvector hybrid |
+| **Embeddings** | None | Local ONNX (23MB, no API key) | Any provider + HNSW index |
+| **Multi-table** | No | No | Yes (`UNION ALL`) |
+| **Best for** | Quick start, keyword-only | Semantic search without a server | Production, large doc sets |
 
 **Auto-detection:** Set `DATABASE_URL` to `postgresql://...` and it uses PostgreSQL. Don't set it and it uses SQLite. Override with `GNOSIS_MCP_BACKEND=sqlite|postgres`.
 
@@ -278,21 +287,28 @@ When called via MCP, the agent passes a `query` string for keyword search. On Po
 
 ## Embeddings
 
-Embeddings enable semantic search — finding docs by meaning, not just keywords. Gnosis MCP supports three approaches, none of which add runtime dependencies:
+Embeddings enable semantic search — finding docs by meaning, not just keywords.
 
-**1. Pre-computed vectors** — pass `embeddings` to `upsert_doc` or `query_embedding` to `search_docs` if you generate them in your own pipeline.
-
-**2. CLI backfill** — find chunks missing embeddings and generate them:
+**1. Local ONNX (recommended for SQLite)** — zero-config, no API key needed:
 
 ```bash
-gnosis-mcp embed --dry-run              # preview what needs embedding
-gnosis-mcp embed                        # backfill via OpenAI (default)
-gnosis-mcp embed --provider ollama      # or use local Ollama
+pip install gnosis-mcp[embeddings]
+gnosis-mcp ingest ./docs/ --embed       # ingest + embed in one step
+gnosis-mcp embed                        # or embed existing chunks separately
 ```
 
-Supports OpenAI, Ollama, and any OpenAI-compatible endpoint (e.g., local models via vLLM or LiteLLM).
+Uses [MongoDB/mdbr-leaf-ir](https://huggingface.co/MongoDB/mdbr-leaf-ir) (~23MB quantized, Apache 2.0). Auto-downloads on first run. Customize with `GNOSIS_MCP_EMBED_MODEL`.
 
-**3. Built-in hybrid scoring** — on PostgreSQL, when both keyword and embedding results are available, search automatically combines them using reciprocal rank fusion.
+**2. Remote providers** — OpenAI, Ollama, or any OpenAI-compatible endpoint:
+
+```bash
+gnosis-mcp embed --provider openai      # requires GNOSIS_MCP_EMBED_API_KEY
+gnosis-mcp embed --provider ollama      # uses local Ollama server
+```
+
+**3. Pre-computed vectors** — pass `embeddings` to `upsert_doc` or `query_embedding` to `search_docs` from your own pipeline.
+
+**Hybrid search** — when embeddings are available, search automatically combines keyword (BM25) and semantic (cosine) results using Reciprocal Rank Fusion (RRF). Works on both SQLite (via sqlite-vec) and PostgreSQL (via pgvector).
 
 ## Configuration
 
@@ -318,7 +334,7 @@ All settings via environment variables. Nothing required for SQLite — it works
 
 **Webhooks:** `GNOSIS_MCP_WEBHOOK_URL`, `GNOSIS_MCP_WEBHOOK_TIMEOUT` (5s). Set a URL to receive POST notifications when documents are created, updated, or deleted.
 
-**Embeddings:** `GNOSIS_MCP_EMBED_PROVIDER` (openai/ollama/custom), `GNOSIS_MCP_EMBED_MODEL` (text-embedding-3-small), `GNOSIS_MCP_EMBED_API_KEY`, `GNOSIS_MCP_EMBED_URL` (custom endpoint), `GNOSIS_MCP_EMBED_BATCH_SIZE` (50).
+**Embeddings:** `GNOSIS_MCP_EMBED_PROVIDER` (openai/ollama/custom/local), `GNOSIS_MCP_EMBED_MODEL` (text-embedding-3-small for remote, MongoDB/mdbr-leaf-ir for local), `GNOSIS_MCP_EMBED_DIM` (384, Matryoshka truncation dimension for local provider), `GNOSIS_MCP_EMBED_API_KEY`, `GNOSIS_MCP_EMBED_URL` (custom endpoint), `GNOSIS_MCP_EMBED_BATCH_SIZE` (50).
 
 **Column overrides** (for connecting to existing tables with non-standard column names): `GNOSIS_MCP_COL_FILE_PATH`, `GNOSIS_MCP_COL_TITLE`, `GNOSIS_MCP_COL_CONTENT`, `GNOSIS_MCP_COL_CHUNK_INDEX`, `GNOSIS_MCP_COL_CATEGORY`, `GNOSIS_MCP_COL_AUDIENCE`, `GNOSIS_MCP_COL_TAGS`, `GNOSIS_MCP_COL_EMBEDDING`, `GNOSIS_MCP_COL_TSV`, `GNOSIS_MCP_COL_SOURCE_PATH`, `GNOSIS_MCP_COL_TARGET_PATH`, `GNOSIS_MCP_COL_RELATION_TYPE`.
 
@@ -366,12 +382,12 @@ All tables must share the same schema. Reads use `UNION ALL`. Writes target the 
 ## CLI Reference
 
 ```
-gnosis-mcp ingest <path> [--dry-run]                       Load markdown files into the database
+gnosis-mcp ingest <path> [--dry-run] [--embed]             Load markdown files (--embed to generate embeddings)
 gnosis-mcp serve [--transport stdio|sse] [--ingest PATH]   Start MCP server (optionally ingest first)
-gnosis-mcp search <query> [-n LIMIT] [-c CAT] [--embed]    Search from the command line
-gnosis-mcp stats                                           Show document and chunk counts
-gnosis-mcp check                                           Verify database connection
-gnosis-mcp embed [--provider P] [--model M] [--dry-run]    Backfill embeddings
+gnosis-mcp search <query> [-n LIMIT] [-c CAT] [--embed]    Search (--embed for hybrid semantic+keyword)
+gnosis-mcp stats                                           Show document, chunk, and embedding counts
+gnosis-mcp check                                           Verify database connection + sqlite-vec status
+gnosis-mcp embed [--provider P] [--model M] [--dry-run]    Backfill embeddings (auto-detects local provider)
 gnosis-mcp init-db [--dry-run]                             Create tables + indexes manually
 gnosis-mcp export [-f json|markdown] [-c CAT]              Export documents
 ```
@@ -396,14 +412,15 @@ Gnosis MCP is listed on the [Official MCP Registry](https://registry.modelcontex
 src/gnosis_mcp/
 ├── backend.py         DocBackend protocol + create_backend() factory
 ├── pg_backend.py      PostgreSQL — asyncpg, tsvector, pgvector
-├── sqlite_backend.py  SQLite — aiosqlite, FTS5
-├── sqlite_schema.py   SQLite DDL — tables, FTS5, triggers
+├── sqlite_backend.py  SQLite — aiosqlite, FTS5, sqlite-vec hybrid search (RRF)
+├── sqlite_schema.py   SQLite DDL — tables, FTS5, triggers, vec0 virtual table
 ├── config.py          Config from env vars, backend auto-detection
 ├── db.py              Backend lifecycle + FastMCP lifespan
-├── server.py          FastMCP server — 6 tools, 3 resources
+├── server.py          FastMCP server — 6 tools, 3 resources, auto-embed queries
 ├── ingest.py          Markdown scanner — H2 chunking, frontmatter
 ├── schema.py          PostgreSQL DDL — tables, indexes, search functions
-├── embed.py           Embedding providers — OpenAI, Ollama, custom
+├── embed.py           Embedding providers — OpenAI, Ollama, custom, local ONNX
+├── local_embed.py     Local ONNX embedding engine — HuggingFace model download
 └── cli.py             CLI — serve, ingest, search, embed, stats, check
 ```
 

@@ -19,7 +19,13 @@ Or with uvx (no install needed):
 uvx gnosis-mcp serve
 ```
 
-For PostgreSQL support (optional — only needed for semantic search):
+For local semantic search (no API key needed, ~23MB model download):
+
+```bash
+pip install gnosis-mcp[embeddings]
+```
+
+For PostgreSQL support:
 
 ```bash
 pip install gnosis-mcp[postgres]
@@ -153,13 +159,23 @@ By default, only read tools (search, get, related) are enabled. To let your AI a
 }
 ```
 
-## Optional: Add Semantic Search (PostgreSQL)
+## Optional: Add Semantic Search
 
-Keyword search works immediately on both backends. For semantic search (finding docs by meaning, not just keywords):
+Keyword search works immediately. For semantic search (finding docs by meaning, not just keywords):
 
-1. Install with PostgreSQL support: `pip install gnosis-mcp[postgres]`
+### SQLite (local ONNX — no API key needed)
+
+1. Install with embeddings: `pip install gnosis-mcp[embeddings]`
+2. Ingest with embeddings: `gnosis-mcp ingest ./docs/ --embed` (downloads 23MB model on first run)
+3. Search with hybrid mode: `gnosis-mcp search "how does billing work" --embed`
+
+Or embed existing chunks: `gnosis-mcp embed` (auto-detects local provider)
+
+### PostgreSQL (remote providers)
+
+1. Install with PostgreSQL: `pip install gnosis-mcp[postgres]`
 2. Enable pgvector: `CREATE EXTENSION IF NOT EXISTS vector;`
-3. Backfill embeddings: `gnosis-mcp embed` (uses OpenAI by default, or `--provider ollama` for local)
+3. Backfill embeddings: `gnosis-mcp embed --provider openai` (or `--provider ollama` for local Ollama)
 4. Search with `--embed` flag: `gnosis-mcp search "how does billing work" --embed`
 
 ## Optional: Custom Search Function (PostgreSQL)

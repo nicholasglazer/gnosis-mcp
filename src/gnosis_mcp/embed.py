@@ -1,7 +1,7 @@
 """Embedding provider abstraction and NULL backfill for documentation chunks.
 
-Uses only stdlib (urllib.request) — no new dependencies.
-Supports: openai, ollama, and custom OpenAI-compatible endpoints.
+Supports: openai, ollama, custom OpenAI-compatible endpoints, and local ONNX.
+Remote providers use stdlib (urllib.request). Local provider uses onnxruntime.
 """
 
 from __future__ import annotations
@@ -85,21 +85,29 @@ def embed_texts(
     model: str = "text-embedding-3-small",
     api_key: str | None = None,
     url: str | None = None,
+    dim: int | None = None,
 ) -> list[list[float]]:
     """Embed a batch of texts using the specified provider.
 
     Args:
         texts: List of text strings to embed.
-        provider: One of "openai", "ollama", "custom".
+        provider: One of "openai", "ollama", "custom", "local".
         model: Model name for the embedding API.
         api_key: API key (required for openai, optional for others).
         url: Custom endpoint URL (overrides provider default).
+        dim: Embedding dimension (used by local provider for Matryoshka truncation).
 
     Returns:
         List of embedding vectors, one per input text.
     """
     if not texts:
         return []
+
+    if provider == "local":
+        from gnosis_mcp.local_embed import get_embedder
+
+        embedder = get_embedder(model=model, dim=dim)
+        return embedder.embed(texts)
 
     endpoint = get_provider_url(provider, url)
 
@@ -126,6 +134,7 @@ async def embed_pending(
     url: str | None = None,
     batch_size: int = 50,
     dry_run: bool = False,
+    dim: int | None = None,
 ) -> EmbedResult:
     """Find chunks with NULL embeddings and backfill them.
 
@@ -166,7 +175,7 @@ async def embed_pending(
             texts = [r["content"] for r in rows]
 
             try:
-                vectors = embed_texts(texts, provider, model, api_key, url)
+                vectors = embed_texts(texts, provider, model, api_key, url, dim=dim)
             except Exception:
                 log.exception("Embedding batch failed (ids %d-%d)", ids[0], ids[-1])
                 errors += len(ids)

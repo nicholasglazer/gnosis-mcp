@@ -115,6 +115,18 @@ async def search_docs(
     limit = max(1, min(cfg.search_limit_max, limit))
     preview = cfg.content_preview_chars
 
+    # Auto-embed query when local provider is available and no embedding provided
+    if query_embedding is None and cfg.embed_provider == "local":
+        try:
+            from gnosis_mcp.embed import embed_texts
+
+            vectors = embed_texts(
+                [query], provider="local", model=cfg.embed_model, dim=cfg.embed_dim
+            )
+            query_embedding = vectors[0] if vectors else None
+        except ImportError:
+            pass  # [embeddings] not installed
+
     try:
         results = await ctx.backend.search(
             query,

@@ -1,8 +1,8 @@
-"""SQLite schema DDL with FTS5 full-text search."""
+"""SQLite schema DDL with FTS5 full-text search and optional vec0 vector index."""
 
 from __future__ import annotations
 
-__all__ = ["get_sqlite_schema"]
+__all__ = ["get_sqlite_schema", "get_vec0_schema"]
 
 
 def get_sqlite_schema() -> list[str]:
@@ -72,3 +72,14 @@ CREATE TABLE IF NOT EXISTS documentation_links (
         "CREATE INDEX IF NOT EXISTS idx_links_source ON documentation_links (source_path)",
         "CREATE INDEX IF NOT EXISTS idx_links_target ON documentation_links (target_path)",
     ]
+
+
+def get_vec0_schema(dim: int = 384) -> str:
+    """Return the vec0 virtual table DDL for sqlite-vec.
+
+    Only executed when sqlite-vec extension is loaded.
+    """
+    return (
+        f"CREATE VIRTUAL TABLE IF NOT EXISTS documentation_chunks_vec "
+        f"USING vec0(chunk_id INTEGER PRIMARY KEY, embedding float[{dim}])"
+    )

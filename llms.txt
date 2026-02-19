@@ -68,17 +68,19 @@ Returns: `{"path", "chunks_updated", "action": "metadata_updated"}`
 
 ## Backends
 
-| | SQLite (default) | PostgreSQL |
-|---|---|---|
-| Install | `pip install gnosis-mcp` | `pip install gnosis-mcp[postgres]` |
-| Config | Nothing | Set `DATABASE_URL` |
-| Search | FTS5 keyword (BM25) | tsvector + pgvector hybrid |
+| | SQLite (default) | SQLite + embeddings | PostgreSQL |
+|---|---|---|---|
+| Install | `pip install gnosis-mcp` | `pip install gnosis-mcp[embeddings]` | `pip install gnosis-mcp[postgres]` |
+| Config | Nothing | Nothing | Set `DATABASE_URL` |
+| Search | FTS5 keyword (BM25) | Hybrid keyword + semantic (RRF) | tsvector + pgvector hybrid |
 
 Auto-detection: `DATABASE_URL` set to `postgresql://...` -> PostgreSQL. Not set -> SQLite at `~/.local/share/gnosis-mcp/docs.db`. Override: `GNOSIS_MCP_BACKEND=sqlite|postgres`.
 
+Local embeddings (`[embeddings]` extra): ONNX Runtime + tokenizers + sqlite-vec. Default model: MongoDB/mdbr-leaf-ir (23MB, Apache 2.0). No API key needed.
+
 ## Configuration
 
-Set `GNOSIS_MCP_DATABASE_URL` (or `DATABASE_URL`) for PostgreSQL. Leave unset for SQLite. Optional: `GNOSIS_MCP_BACKEND`, `GNOSIS_MCP_SCHEMA`, `GNOSIS_MCP_CHUNKS_TABLE` (comma-separated for multi-table on PG), `GNOSIS_MCP_LINKS_TABLE`, `GNOSIS_MCP_SEARCH_FUNCTION`, `GNOSIS_MCP_EMBEDDING_DIM`, `GNOSIS_MCP_WRITABLE`, `GNOSIS_MCP_WEBHOOK_URL`, `GNOSIS_MCP_COL_*` for column names. Embedding: `GNOSIS_MCP_EMBED_PROVIDER` (openai/ollama/custom), `GNOSIS_MCP_EMBED_MODEL`, `GNOSIS_MCP_EMBED_API_KEY`, `GNOSIS_MCP_EMBED_URL`, `GNOSIS_MCP_EMBED_BATCH_SIZE`. Tuning: `GNOSIS_MCP_CONTENT_PREVIEW_CHARS`, `GNOSIS_MCP_CHUNK_SIZE`, `GNOSIS_MCP_SEARCH_LIMIT_MAX`, `GNOSIS_MCP_WEBHOOK_TIMEOUT`, `GNOSIS_MCP_TRANSPORT`, `GNOSIS_MCP_LOG_LEVEL`.
+Set `GNOSIS_MCP_DATABASE_URL` (or `DATABASE_URL`) for PostgreSQL. Leave unset for SQLite. Optional: `GNOSIS_MCP_BACKEND`, `GNOSIS_MCP_SCHEMA`, `GNOSIS_MCP_CHUNKS_TABLE` (comma-separated for multi-table on PG), `GNOSIS_MCP_LINKS_TABLE`, `GNOSIS_MCP_SEARCH_FUNCTION`, `GNOSIS_MCP_EMBEDDING_DIM`, `GNOSIS_MCP_WRITABLE`, `GNOSIS_MCP_WEBHOOK_URL`, `GNOSIS_MCP_COL_*` for column names. Embedding: `GNOSIS_MCP_EMBED_PROVIDER` (openai/ollama/custom/local), `GNOSIS_MCP_EMBED_MODEL`, `GNOSIS_MCP_EMBED_DIM` (384, for local Matryoshka truncation), `GNOSIS_MCP_EMBED_API_KEY`, `GNOSIS_MCP_EMBED_URL`, `GNOSIS_MCP_EMBED_BATCH_SIZE`. Tuning: `GNOSIS_MCP_CONTENT_PREVIEW_CHARS`, `GNOSIS_MCP_CHUNK_SIZE`, `GNOSIS_MCP_SEARCH_LIMIT_MAX`, `GNOSIS_MCP_WEBHOOK_TIMEOUT`, `GNOSIS_MCP_TRANSPORT`, `GNOSIS_MCP_LOG_LEVEL`.
 
 ## Database Schema
 

@@ -1,16 +1,20 @@
-"""SQLite backend using aiosqlite + FTS5."""
+"""SQLite backend using aiosqlite + FTS5 + optional sqlite-vec for hybrid search."""
 
 from __future__ import annotations
 
 import json
 import logging
 import re
+import struct
 from pathlib import Path
 from typing import Any
 
 __all__ = ["SqliteBackend"]
 
 log = logging.getLogger("gnosis_mcp")
+
+# RRF constant (standard value from the original paper)
+_RRF_K = 60
 
 # Characters that have special meaning in FTS5 queries
 _FTS5_SPECIAL = re.compile(r'["\*\(\)\-\+\^:]')
@@ -43,6 +47,7 @@ class SqliteBackend:
         self._cfg: GnosisMcpConfig = config
         self._db = None
         self._db_path: str = config.database_url  # For SQLite, this is the file path
+        self._has_vec: bool = False
 
     # -- lifecycle -------------------------------------------------------------
 
@@ -62,7 +67,28 @@ class SqliteBackend:
         await self._db.execute("PRAGMA journal_mode=WAL")
         await self._db.execute("PRAGMA foreign_keys=ON")
 
-        log.info("gnosis-mcp started: backend=sqlite path=%s", db_path)
+        self._has_vec = await self._try_load_sqlite_vec()
+
+        log.info(
+            "gnosis-mcp started: backend=sqlite path=%s sqlite-vec=%s",
+            db_path, self._has_vec,
+        )
+
+    async def _try_load_sqlite_vec(self) -> bool:
+        """Attempt to load the sqlite-vec extension. Returns True on success."""
+        try:
+            import sqlite_vec  # noqa: F811
+
+            await self._db.enable_load_extension(True)
+            await self._db.load_extension(sqlite_vec.loadable_path())
+            await self._db.enable_load_extension(False)
+            return True
+        except ImportError:
+            log.debug("sqlite-vec not installed — vector search disabled")
+            return False
+        except Exception:
+            log.debug("sqlite-vec extension failed to load", exc_info=True)
+            return False
 
     async def shutdown(self) -> None:
         if self._db:
@@ -72,11 +98,20 @@ class SqliteBackend:
     # -- schema ----------------------------------------------------------------
 
     async def init_schema(self) -> str:
-        from gnosis_mcp.sqlite_schema import get_sqlite_schema
+        from gnosis_mcp.sqlite_schema import get_sqlite_schema, get_vec0_schema
 
         statements = get_sqlite_schema()
         for stmt in statements:
             await self._db.execute(stmt)
+
+        if self._has_vec:
+            vec0_sql = get_vec0_schema(dim=self._cfg.embed_dim)
+            try:
+                await self._db.execute(vec0_sql)
+                statements.append(vec0_sql)
+            except Exception:
+                log.warning("Failed to create vec0 table", exc_info=True)
+
         await self._db.commit()
         return "\n".join(statements)
 
@@ -98,6 +133,17 @@ class SqliteBackend:
         # Check FTS table
         fts_exists = await self._table_exists("documentation_chunks_fts")
         result["fts_table_exists"] = fts_exists
+
+        # sqlite-vec status
+        result["sqlite_vec"] = self._has_vec
+        if self._has_vec:
+            vec_exists = await self._table_exists("documentation_chunks_vec")
+            result["vec_table_exists"] = vec_exists
+            if vec_exists:
+                row = await self._db.execute_fetchall(
+                    "SELECT count(*) FROM documentation_chunks_vec"
+                )
+                result["vec_count"] = row[0][0]
 
         # Check links table
         links_exists = await self._table_exists("documentation_links")
@@ -127,6 +173,22 @@ class SqliteBackend:
         limit: int = 5,
         query_embedding: list[float] | None = None,
     ) -> list[dict[str, Any]]:
+        if query_embedding and self._has_vec and await self._table_exists(
+            "documentation_chunks_vec"
+        ):
+            return await self._search_hybrid(
+                query, query_embedding, category=category, limit=limit
+            )
+        return await self._search_keyword(query, category=category, limit=limit)
+
+    async def _search_keyword(
+        self,
+        query: str,
+        *,
+        category: str | None = None,
+        limit: int = 5,
+    ) -> list[dict[str, Any]]:
+        """FTS5 keyword-only search (existing path)."""
         fts_query = _to_fts5_query(query)
 
         sql = (
@@ -157,6 +219,117 @@ class SqliteBackend:
             }
             for r in rows
         ]
+
+    async def _search_hybrid(
+        self,
+        query: str,
+        query_embedding: list[float],
+        *,
+        category: str | None = None,
+        limit: int = 5,
+    ) -> list[dict[str, Any]]:
+        """Hybrid search: FTS5 keyword + sqlite-vec semantic, merged with RRF."""
+        import sqlite_vec
+
+        # Fetch more candidates than needed for RRF merging
+        fetch_n = max(limit * 4, 20)
+
+        # 1. Keyword results (FTS5 BM25)
+        keyword_results = await self._search_keyword(
+            query, category=category, limit=fetch_n
+        )
+
+        # 2. Semantic results (sqlite-vec KNN cosine distance)
+        query_blob = sqlite_vec.serialize_float32(query_embedding)
+        vec_sql = (
+            "SELECT v.chunk_id, v.distance "
+            "FROM documentation_chunks_vec v "
+            "WHERE v.embedding MATCH ? "
+            "ORDER BY v.distance ASC "
+            "LIMIT ?"
+        )
+        vec_rows = await self._db.execute_fetchall(vec_sql, (query_blob, fetch_n))
+
+        # Build lookup: chunk_id → row data
+        semantic_ids = [r[0] for r in vec_rows]
+        semantic_map: dict[int, float] = {}  # chunk_id → distance
+        for r in vec_rows:
+            semantic_map[r[0]] = float(r[1])
+
+        # Fetch full chunk data for semantic results
+        chunk_data: dict[int, dict[str, Any]] = {}
+        if semantic_ids:
+            placeholders = ",".join("?" * len(semantic_ids))
+            data_sql = (
+                f"SELECT id, file_path, title, content, category "
+                f"FROM documentation_chunks WHERE id IN ({placeholders})"
+            )
+            data_rows = await self._db.execute_fetchall(data_sql, semantic_ids)
+            for r in data_rows:
+                chunk_data[r[0]] = {
+                    "file_path": r[1],
+                    "title": r[2],
+                    "content": r[3],
+                    "category": r[4],
+                }
+
+        # Apply category filter to semantic results if needed
+        if category:
+            semantic_ids = [
+                cid for cid in semantic_ids
+                if cid in chunk_data and chunk_data[cid]["category"] == category
+            ]
+
+        # 3. RRF merge
+        # Build rank maps (1-indexed)
+        keyword_rank: dict[str, int] = {}
+        keyword_data: dict[str, dict[str, Any]] = {}
+        for rank, r in enumerate(keyword_results, 1):
+            fp_key = f"{r['file_path']}:{r['content'][:50]}"
+            keyword_rank[fp_key] = rank
+            keyword_data[fp_key] = r
+
+        semantic_rank: dict[str, int] = {}
+        semantic_data_by_key: dict[str, dict[str, Any]] = {}
+        for rank, cid in enumerate(semantic_ids, 1):
+            if cid not in chunk_data:
+                continue
+            cd = chunk_data[cid]
+            fp_key = f"{cd['file_path']}:{cd['content'][:50]}"
+            semantic_rank[fp_key] = rank
+            semantic_data_by_key[fp_key] = cd
+
+        # Compute RRF scores
+        all_keys = set(keyword_rank) | set(semantic_rank)
+        rrf_scores: list[tuple[float, str]] = []
+        for key in all_keys:
+            score = 0.0
+            if key in keyword_rank:
+                score += 1.0 / (_RRF_K + keyword_rank[key])
+            if key in semantic_rank:
+                score += 1.0 / (_RRF_K + semantic_rank[key])
+            rrf_scores.append((score, key))
+
+        rrf_scores.sort(reverse=True)
+
+        # Build final results
+        results: list[dict[str, Any]] = []
+        for score, key in rrf_scores[:limit]:
+            if key in keyword_data:
+                data = keyword_data[key]
+            elif key in semantic_data_by_key:
+                data = semantic_data_by_key[key]
+            else:
+                continue
+            results.append({
+                "file_path": data["file_path"],
+                "title": data["title"],
+                "content": data["content"],
+                "category": data["category"],
+                "score": score,
+            })
+
+        return results
 
     # -- document CRUD ---------------------------------------------------------
 
@@ -340,16 +513,26 @@ class SqliteBackend:
             )
             links = rows[0][0]
 
-        return {
+        # Embedded chunks count
+        rows = await self._db.execute_fetchall(
+            "SELECT count(*) FROM documentation_chunks WHERE embedding IS NOT NULL"
+        )
+        embedded = rows[0][0]
+
+        result = {
             "table": "documentation_chunks",
             "docs": docs,
             "chunks": total,
+            "embedded_chunks": embedded,
             "content_bytes": size,
             "categories": [
                 {"cat": r[0], "docs": r[1], "chunks": r[2]} for r in cats
             ],
             "links": links,
+            "sqlite_vec": self._has_vec,
         }
+
+        return result
 
     async def export_docs(self, category: str | None = None) -> list[dict[str, Any]]:
         if category:
@@ -399,14 +582,27 @@ class SqliteBackend:
         return [{"id": r[0], "content": r[1]} for r in rows]
 
     async def set_embedding(self, chunk_id: int, embedding: list[float]) -> None:
-        import struct
-
         # Store as binary blob (compact float32 array)
         blob = struct.pack(f"<{len(embedding)}f", *embedding)
         await self._db.execute(
             "UPDATE documentation_chunks SET embedding = ? WHERE id = ?",
             (blob, chunk_id),
         )
+
+        # Also write to vec0 table for KNN search
+        if self._has_vec and await self._table_exists("documentation_chunks_vec"):
+            try:
+                import sqlite_vec
+
+                vec_blob = sqlite_vec.serialize_float32(embedding)
+                await self._db.execute(
+                    "INSERT OR REPLACE INTO documentation_chunks_vec(chunk_id, embedding) "
+                    "VALUES (?, ?)",
+                    (chunk_id, vec_blob),
+                )
+            except Exception:
+                log.debug("Failed to write vec0 embedding for chunk %d", chunk_id)
+
         await self._db.commit()
 
     # -- ingest support --------------------------------------------------------
