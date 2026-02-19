@@ -1,4 +1,4 @@
-name: Publish to PyPI
+name: Publish to PyPI & MCP Registry
 
 on:
   push:
@@ -20,7 +20,7 @@ jobs:
           name: dist
           path: dist/
 
-  publish:
+  publish-pypi:
     needs: build
     runs-on: ubuntu-latest
     environment: pypi
@@ -32,3 +32,19 @@ jobs:
           name: dist
           path: dist/
       - uses: pypa/gh-action-pypi-publish@release/v1
+
+  publish-mcp-registry:
+    needs: publish-pypi
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install mcp-publisher
+        run: |
+          curl -sL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz" | tar xz
+          sudo mv mcp-publisher /usr/local/bin/
+      - name: Login via GitHub OIDC
+        run: mcp-publisher login github-oidc
+      - name: Publish to MCP Registry
+        run: mcp-publisher publish

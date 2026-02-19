@@ -3,7 +3,7 @@
 ## Prerequisites
 
 - Python 3.11 or later
-- A folder of markdown files to index
+- A folder of markdown files you want your AI agent to search
 
 No database server required — SQLite works out of the box.
 
@@ -19,7 +19,7 @@ Or with uvx (no install needed):
 uvx gnosis-mcp serve
 ```
 
-For PostgreSQL support:
+For PostgreSQL support (optional — only needed for semantic search):
 
 ```bash
 pip install gnosis-mcp[postgres]
@@ -33,9 +33,9 @@ Point at a folder of markdown files:
 gnosis-mcp ingest ./docs/
 ```
 
-This auto-creates the SQLite database at `~/.local/share/gnosis-mcp/docs.db`, scans all `.md` files, chunks by H2 headings, extracts metadata from frontmatter, and inserts into the database. Re-running skips unchanged files.
+This auto-creates the SQLite database at `~/.local/share/gnosis-mcp/docs.db`, scans all `.md` files, chunks them by H2 headings, extracts metadata from frontmatter, and inserts into the database. Re-running skips unchanged files — safe to run as often as you like.
 
-For PostgreSQL, set the URL first and initialize the schema:
+For PostgreSQL, set the URL first:
 
 ```bash
 export GNOSIS_MCP_DATABASE_URL="postgresql://user:pass@localhost:5432/mydb"
@@ -43,7 +43,7 @@ gnosis-mcp init-db
 gnosis-mcp ingest ./docs/
 ```
 
-Preview without writing:
+Preview what would be indexed without writing anything:
 
 ```bash
 gnosis-mcp ingest ./docs/ --dry-run
@@ -52,12 +52,16 @@ gnosis-mcp ingest ./docs/ --dry-run
 ## Step 3: Verify
 
 ```bash
-gnosis-mcp check
+gnosis-mcp check    # verify database connection
+gnosis-mcp stats    # see document and chunk counts
+gnosis-mcp search "getting started"   # test a search
 ```
 
-## Step 4: Add to MCP Client
+## Step 4: Connect to Your Editor
 
-Add this to your MCP client configuration:
+Add the MCP server config to your editor so your AI agent can search your docs.
+
+**Claude Code** — add to `.claude/mcp.json`:
 
 ```json
 {
@@ -70,7 +74,35 @@ Add this to your MCP client configuration:
 }
 ```
 
-For PostgreSQL, add the env block:
+**Cursor** — add to `.cursor/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "docs": {
+      "command": "gnosis-mcp",
+      "args": ["serve"]
+    }
+  }
+}
+```
+
+**Windsurf** — add to `~/.codeium/windsurf/mcp_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "docs": {
+      "command": "gnosis-mcp",
+      "args": ["serve"]
+    }
+  }
+}
+```
+
+**Cline** — open the Cline MCP settings panel and add the same server config.
+
+For PostgreSQL, add an env block to any of the above:
 
 ```json
 {
@@ -86,26 +118,34 @@ For PostgreSQL, add the env block:
 }
 ```
 
-### Config file locations
-
-| Client | Config Path |
-|--------|------------|
-| Claude Code | `.claude/mcp.json` |
-| Cursor | `.cursor/mcp.json` |
-| Windsurf | `~/.codeium/windsurf/mcp_config.json` |
-| Cline | Cline MCP settings panel |
-
 ## Optional: Enable Write Mode
+
+By default, only read tools (search, get, related) are enabled. To let your AI agent create, update, and delete docs:
 
 ```json
 {
-  "env": {
-    "GNOSIS_MCP_WRITABLE": "true"
+  "mcpServers": {
+    "docs": {
+      "command": "gnosis-mcp",
+      "args": ["serve"],
+      "env": {
+        "GNOSIS_MCP_WRITABLE": "true"
+      }
+    }
   }
 }
 ```
 
-## Optional: Custom Hybrid Search (PostgreSQL)
+## Optional: Add Semantic Search (PostgreSQL)
+
+Keyword search works immediately on both backends. For semantic search (finding docs by meaning, not just keywords):
+
+1. Install with PostgreSQL support: `pip install gnosis-mcp[postgres]`
+2. Enable pgvector: `CREATE EXTENSION IF NOT EXISTS vector;`
+3. Backfill embeddings: `gnosis-mcp embed` (uses OpenAI by default, or `--provider ollama` for local)
+4. Search with `--embed` flag: `gnosis-mcp search "how does billing work" --embed`
+
+## Optional: Custom Search Function (PostgreSQL)
 
 If you have a PostgreSQL function for hybrid semantic+keyword search:
 

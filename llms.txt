@@ -1,10 +1,32 @@
 # Gnosis MCP
 
-> Zero-config MCP server for searchable documentation (SQLite default, PostgreSQL optional)
+> Zero-config MCP server that makes your markdown docs searchable by AI agents.
+> SQLite default, PostgreSQL optional. Works with Claude Code, Cursor, Windsurf, Cline.
 
-## Overview
+## What it does
 
-Gnosis MCP loads your markdown docs into a database and exposes them as Model Context Protocol (MCP) tools and resources. 6 tools and 3 resources for AI agents to search, retrieve, browse, and manage documentation. Works immediately with SQLite — no database server needed. Upgrade to PostgreSQL + pgvector for hybrid semantic search.
+Gnosis MCP loads markdown files into a database, chunks them by H2 headings, and exposes them as MCP tools and resources. AI agents call `search_docs` to find relevant documentation instead of guessing or reading entire files.
+
+## Quick Start
+
+```bash
+pip install gnosis-mcp
+gnosis-mcp ingest ./docs/       # auto-creates SQLite database + loads markdown
+gnosis-mcp serve                # start MCP server
+```
+
+Add to your editor's MCP config (e.g. `.claude/mcp.json` for Claude Code):
+
+```json
+{
+  "mcpServers": {
+    "docs": {
+      "command": "gnosis-mcp",
+      "args": ["serve"]
+    }
+  }
+}
+```
 
 ## Tools
 
@@ -52,7 +74,7 @@ Returns: `{"path", "chunks_updated", "action": "metadata_updated"}`
 | Config | Nothing | Set `DATABASE_URL` |
 | Search | FTS5 keyword (BM25) | tsvector + pgvector hybrid |
 
-Auto-detection: `DATABASE_URL` set to `postgresql://...` → PostgreSQL. Not set → SQLite at `~/.local/share/gnosis-mcp/docs.db`. Override: `GNOSIS_MCP_BACKEND=sqlite|postgres`.
+Auto-detection: `DATABASE_URL` set to `postgresql://...` -> PostgreSQL. Not set -> SQLite at `~/.local/share/gnosis-mcp/docs.db`. Override: `GNOSIS_MCP_BACKEND=sqlite|postgres`.
 
 ## Configuration
 
@@ -63,20 +85,19 @@ Set `GNOSIS_MCP_DATABASE_URL` (or `DATABASE_URL`) for PostgreSQL. Leave unset fo
 Chunks table: `(file_path, chunk_index, title, content, category, audience, tags, embedding, content_hash)`
 Links table: `(source_path, target_path, relation_type)`
 
-Run `gnosis-mcp init-db` to create tables manually, or `gnosis-mcp init-db --dry-run` to preview SQL. Tables are also auto-created on first `ingest`.
+Tables are auto-created on first `ingest`. Run `gnosis-mcp init-db` to create them manually, or `--dry-run` to preview SQL.
 
-## Quick Start
+## Editor Config Locations
 
-```bash
-pip install gnosis-mcp
-gnosis-mcp ingest ./docs/       # auto-creates database + loads markdown
-gnosis-mcp search "getting started"
-gnosis-mcp serve
-```
+| Editor | Config Path |
+|--------|------------|
+| Claude Code | `.claude/mcp.json` |
+| Cursor | `.cursor/mcp.json` |
+| Windsurf | `~/.codeium/windsurf/mcp_config.json` |
+| Cline | Cline MCP settings panel |
 
 ## Documentation
 
-- [README](README.md): Install, quickstart, config, tools reference, examples
-- [CLAUDE.md](CLAUDE.md): Architecture, design decisions, rules
+- [README](README.md): Quick start, editor setup, backend comparison, configuration
 - [llms-full.txt](llms-full.txt): Complete reference in one file
 - [llms-install.md](llms-install.md): Step-by-step install guide

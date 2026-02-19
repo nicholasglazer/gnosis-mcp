@@ -10,19 +10,19 @@
   <a href="https://pypi.org/project/gnosis-mcp/"><img src="https://img.shields.io/pypi/pyversions/gnosis-mcp" alt="Python"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License"></a>
   <a href="https://github.com/nicholasglazer/gnosis-mcp/actions"><img src="https://github.com/nicholasglazer/gnosis-mcp/actions/workflows/publish.yml/badge.svg" alt="CI"></a>
+  <a href="https://registry.modelcontextprotocol.io"><img src="https://img.shields.io/badge/MCP-Registry-blue" alt="MCP Registry"></a>
 </p>
 
 <p>
   <a href="#quick-start">Quick Start</a> &middot;
-  <a href="#choose-your-backend">Choose Your Backend</a> &middot;
-  <a href="#claude-code-plugin">Claude Code Plugin</a> &middot;
-  <a href="#what-it-does">What It Does</a> &middot;
+  <a href="#choose-your-backend">Backends</a> &middot;
+  <a href="#editor-integrations">Editor Setup</a> &middot;
+  <a href="#what-it-does">Tools & Resources</a> &middot;
   <a href="#configuration">Configuration</a> &middot;
-  <a href="llms-full.txt">Full Reference</a> &middot;
-  <a href="https://miozu.com/products/gnosis-mcp">Docs</a>
+  <a href="llms-full.txt">Full Reference</a>
 </p>
 
-<a href="https://miozu.com/products/gnosis-mcp"><img src="https://miozu.com/oss/gnosis-mcp-demo.gif" alt="Gnosis MCP demo — init, ingest, search, check" width="700"></a>
+<a href="https://miozu.com/products/gnosis-mcp"><img src="https://miozu.com/oss/gnosis-mcp-demo.gif" alt="Gnosis MCP demo — ingest, search, serve" width="700"></a>
 
 </div>
 
@@ -30,39 +30,54 @@
 
 AI coding agents can read your source code but not your documentation. They guess at architecture, miss established patterns, and hallucinate details they could have looked up.
 
-Gnosis MCP fixes this. It loads your markdown docs into a database and exposes them as [MCP](https://modelcontextprotocol.io/) tools — search, read, and manage — that any compatible agent can call. Claude Code, Cursor, Windsurf, Cline, VS Code.
+Gnosis MCP fixes this. Point it at a folder of markdown files and it creates a searchable knowledge base that any [MCP](https://modelcontextprotocol.io/)-compatible AI agent can query — Claude Code, Cursor, Windsurf, Cline, and any tool that supports the Model Context Protocol.
 
-Zero config. Install, point at a folder, search. Works with SQLite out of the box — no database server needed. Scale up to PostgreSQL + pgvector when you're ready.
+**No database server.** SQLite works out of the box. Scale to PostgreSQL + pgvector when you need hybrid semantic search.
 
-## What you get
+## Why use this
 
-**Less hallucination.** Agents search your docs before guessing. When the billing rules, API contracts, or architecture decisions are one tool call away, the agent uses them instead of making things up.
+**Less hallucination.** Agents search your docs before guessing. Architecture decisions, API contracts, billing rules — one tool call away instead of made up.
 
-**Lower token costs.** A targeted search returns ~600 tokens of ranked snippets. Loading the same information by reading full files costs 3,000-8,000+ tokens. On a knowledge base with 170 docs (~840K tokens total), that's the difference between finding the right answer and blowing your context window.
+**Lower token costs.** A search returns ~600 tokens of ranked results. Reading the same docs as files costs 3,000-8,000+ tokens. On a 170-doc knowledge base (~840K tokens), that's the difference between a precise answer and a blown context window.
 
-**Docs that stay useful.** New docs are searchable the moment you ingest them. No manual routing tables to maintain, no hardcoded file paths to update. Agents discover docs dynamically through search, not through stale indexes.
+**Docs that stay current.** Add a new markdown file, run `ingest`, it's searchable immediately. No routing tables to maintain, no hardcoded paths to update.
 
-**One search, full coverage.** FTS5 keyword search works out of the box. Add PostgreSQL + pgvector for hybrid keyword+semantic search when you need it.
+**Works with what you have.** Your docs are already markdown files in a folder. Gnosis MCP indexes them as-is — no format conversion, no special syntax needed.
 
 ## Quick Start
 
 ```bash
 pip install gnosis-mcp
-gnosis-mcp ingest ./docs/       # load your markdown (auto-creates SQLite database)
-gnosis-mcp serve                # start MCP server
+gnosis-mcp ingest ./docs/       # loads markdown, auto-creates SQLite database
+gnosis-mcp serve                # starts MCP server
 ```
 
-That's it. Two commands. No database server, no connection strings, no config files.
+That's it. Your AI agent can now search your docs.
 
-Or without installing:
+Test it before connecting to an editor:
 
 ```bash
+gnosis-mcp search "getting started"    # verify search works
+gnosis-mcp stats                       # see what was indexed
+```
+
+<details>
+<summary>Try without installing (uvx)</summary>
+
+```bash
+uvx gnosis-mcp ingest ./docs/
 uvx gnosis-mcp serve
 ```
 
-### Connect your editor
+</details>
 
-**Claude Code** — add to `.claude/mcp.json`:
+## Editor Integrations
+
+Gnosis MCP works with any MCP-compatible editor. Add the server config, and your AI agent gets `search_docs`, `get_doc`, and `get_related` tools automatically.
+
+### Claude Code
+
+Add to `.claude/mcp.json`:
 
 ```json
 {
@@ -75,15 +90,45 @@ uvx gnosis-mcp serve
 }
 ```
 
-<details>
-<summary>Cursor, Windsurf, Cline</summary>
+Or install as a [Claude Code plugin](#claude-code-plugin) for a richer experience with slash commands.
 
-Same JSON structure. Place it in:
-- **Cursor**: `.cursor/mcp.json`
-- **Windsurf**: `~/.codeium/windsurf/mcp_config.json`
-- **Cline**: Cline MCP settings panel
+### Cursor
 
-</details>
+Add to `.cursor/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "docs": {
+      "command": "gnosis-mcp",
+      "args": ["serve"]
+    }
+  }
+}
+```
+
+### Windsurf
+
+Add to `~/.codeium/windsurf/mcp_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "docs": {
+      "command": "gnosis-mcp",
+      "args": ["serve"]
+    }
+  }
+}
+```
+
+### Cline
+
+Open Cline MCP settings panel and add the same server config.
+
+### Other MCP clients
+
+Any tool that supports the [Model Context Protocol](https://modelcontextprotocol.io/) works. The server communicates over stdio by default, or SSE with `--transport sse`.
 
 ## Choose Your Backend
 
@@ -94,7 +139,7 @@ Same JSON structure. Place it in:
 | **Search** | FTS5 keyword (BM25) | tsvector + pgvector hybrid |
 | **Embeddings** | Stored as binary blobs | Native `vector` type + HNSW index |
 | **Multi-table** | No | Yes (`UNION ALL` across tables) |
-| **Best for** | Personal projects, demos, single-user | Teams, production, semantic search |
+| **Best for** | Personal projects, small teams | Production, semantic search, large doc sets |
 
 **Auto-detection:** Set `DATABASE_URL` to `postgresql://...` and it uses PostgreSQL. Don't set it and it uses SQLite. Override with `GNOSIS_MCP_BACKEND=sqlite|postgres`.
 
@@ -104,21 +149,29 @@ Same JSON structure. Place it in:
 ```bash
 pip install gnosis-mcp[postgres]
 export GNOSIS_MCP_DATABASE_URL="postgresql://user:pass@localhost:5432/mydb"
-gnosis-mcp init-db
-gnosis-mcp ingest ./docs/
+gnosis-mcp init-db              # create tables + indexes
+gnosis-mcp ingest ./docs/       # load your markdown
 gnosis-mcp serve
 ```
 
-For hybrid search with pgvector:
-```bash
+For hybrid semantic+keyword search, also enable pgvector:
+
+```sql
 CREATE EXTENSION IF NOT EXISTS vector;
+```
+
+Then backfill embeddings:
+
+```bash
+gnosis-mcp embed                        # via OpenAI (default)
+gnosis-mcp embed --provider ollama      # or use local Ollama
 ```
 
 </details>
 
 ## Claude Code Plugin
 
-Install as a Claude Code plugin to get the MCP server, skills, and health check hook in one step:
+For Claude Code users, install as a plugin to get the MCP server plus slash commands:
 
 ```bash
 claude plugin marketplace add nicholasglazer/gnosis-mcp
@@ -133,6 +186,7 @@ This gives you:
 | **`/gnosis:search`** | Search docs with keyword or `--semantic` hybrid mode |
 | **`/gnosis:status`** | Health check — connectivity, doc stats, troubleshooting |
 | **`/gnosis:manage`** | CRUD — add, delete, update metadata, bulk embed |
+
 The plugin works with both SQLite and PostgreSQL backends.
 
 <details>
@@ -157,20 +211,20 @@ For PostgreSQL, add `"env": {"GNOSIS_MCP_DATABASE_URL": "postgresql://..."}`.
 
 ## What It Does
 
-Gnosis MCP provides 6 tools and 3 resources over MCP.
+Gnosis MCP exposes 6 tools and 3 resources over MCP. Your AI agent calls these automatically when it needs information from your docs.
 
 ### Tools
 
 | Tool | What it does | Mode |
 |------|-------------|------|
-| `search_docs` | Keyword or hybrid semantic+keyword search | Read |
+| `search_docs` | Search by keyword or hybrid semantic+keyword | Read |
 | `get_doc` | Retrieve a full document by path | Read |
-| `get_related` | Find linked documents | Read |
+| `get_related` | Find linked/related documents | Read |
 | `upsert_doc` | Create or replace a document | Write |
-| `delete_doc` | Remove a document | Write |
+| `delete_doc` | Remove a document and its chunks | Write |
 | `update_metadata` | Change title, category, tags | Write |
 
-Write tools require `GNOSIS_MCP_WRITABLE=true`. Read tools are always on.
+Read tools are always available. Write tools require `GNOSIS_MCP_WRITABLE=true`.
 
 ### Resources
 
@@ -178,57 +232,55 @@ Write tools require `GNOSIS_MCP_WRITABLE=true`. Read tools are always on.
 |-----|---------|
 | `gnosis://docs` | All documents — path, title, category, chunk count |
 | `gnosis://docs/{path}` | Full document content |
-| `gnosis://categories` | Categories with doc counts |
+| `gnosis://categories` | Categories with document counts |
 
-### Search
-
-Three modes, one tool:
+### How search works
 
 ```bash
-# Keyword — fast, exact matches (works on both backends)
+# Keyword search — works on both SQLite and PostgreSQL
 gnosis-mcp search "stripe webhook"
 
-# Hybrid — keyword + semantic similarity (PostgreSQL with embeddings)
+# Hybrid search — keyword + semantic similarity (PostgreSQL + embeddings)
 gnosis-mcp search "how does billing work" --embed
 
-# Filtered — narrow by category
+# Filtered — narrow results to a specific category
 gnosis-mcp search "auth" -c guides
 ```
 
-When called via MCP, pass `query_embedding` for hybrid mode. Without it, you get keyword search.
+When called via MCP, the agent passes a `query` string for keyword search. On PostgreSQL with embeddings, it can also pass `query_embedding` for hybrid mode that combines keyword matching with semantic similarity.
 
 ## Embeddings
 
-Gnosis MCP handles embeddings in three tiers, all without adding dependencies:
+Embeddings enable semantic search — finding docs by meaning, not just keywords. Gnosis MCP supports three approaches, none of which add runtime dependencies:
 
-**Accept pre-computed vectors** — pass `embeddings` to `upsert_doc` or `query_embedding` to `search_docs` if you generate them externally.
+**1. Pre-computed vectors** — pass `embeddings` to `upsert_doc` or `query_embedding` to `search_docs` if you generate them in your own pipeline.
 
-**Backfill with the CLI** — find chunks missing embeddings and fill them:
+**2. CLI backfill** — find chunks missing embeddings and generate them:
 
 ```bash
-gnosis-mcp embed --dry-run              # see what needs embedding
+gnosis-mcp embed --dry-run              # preview what needs embedding
 gnosis-mcp embed                        # backfill via OpenAI (default)
 gnosis-mcp embed --provider ollama      # or use local Ollama
 ```
 
-Supports OpenAI, Ollama, and any OpenAI-compatible endpoint. Uses stdlib `urllib.request` — no new runtime deps.
+Supports OpenAI, Ollama, and any OpenAI-compatible endpoint (e.g., local models via vLLM or LiteLLM).
 
-**Built-in hybrid scoring** — on PostgreSQL, when `query_embedding` is provided, search automatically combines keyword (tsvector) and cosine similarity using reciprocal rank fusion.
+**3. Built-in hybrid scoring** — on PostgreSQL, when both keyword and embedding results are available, search automatically combines them using reciprocal rank fusion.
 
 ## Configuration
 
-All settings via environment variables. No config files required.
+All settings via environment variables. Nothing required for SQLite — it works with zero config.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `GNOSIS_MCP_DATABASE_URL` | SQLite auto | PostgreSQL URL or SQLite path |
+| `GNOSIS_MCP_DATABASE_URL` | SQLite auto | PostgreSQL URL or SQLite file path |
 | `GNOSIS_MCP_BACKEND` | `auto` | Force `sqlite` or `postgres` |
-| `GNOSIS_MCP_SCHEMA` | `public` | Database schema (PostgreSQL) |
-| `GNOSIS_MCP_CHUNKS_TABLE` | `documentation_chunks` | Chunks table name |
-| `GNOSIS_MCP_SEARCH_FUNCTION` | — | Custom search function (PostgreSQL) |
+| `GNOSIS_MCP_WRITABLE` | `false` | Enable write tools (`upsert_doc`, `delete_doc`, `update_metadata`) |
+| `GNOSIS_MCP_TRANSPORT` | `stdio` | Server transport: `stdio` or `sse` |
+| `GNOSIS_MCP_SCHEMA` | `public` | Database schema (PostgreSQL only) |
+| `GNOSIS_MCP_CHUNKS_TABLE` | `documentation_chunks` | Table name for chunks |
+| `GNOSIS_MCP_SEARCH_FUNCTION` | — | Custom search function (PostgreSQL only) |
 | `GNOSIS_MCP_EMBEDDING_DIM` | `1536` | Vector dimension for init-db |
-| `GNOSIS_MCP_WRITABLE` | `false` | Enable write tools |
-| `GNOSIS_MCP_TRANSPORT` | `stdio` | Transport: `stdio` or `sse` |
 
 <details>
 <summary>All variables</summary>
@@ -237,11 +289,11 @@ All settings via environment variables. No config files required.
 
 **Connection pool (PostgreSQL):** `GNOSIS_MCP_POOL_MIN` (1), `GNOSIS_MCP_POOL_MAX` (3).
 
-**Webhooks:** `GNOSIS_MCP_WEBHOOK_URL`, `GNOSIS_MCP_WEBHOOK_TIMEOUT` (5s).
+**Webhooks:** `GNOSIS_MCP_WEBHOOK_URL`, `GNOSIS_MCP_WEBHOOK_TIMEOUT` (5s). Set a URL to receive POST notifications when documents are created, updated, or deleted.
 
-**Embeddings:** `GNOSIS_MCP_EMBED_PROVIDER` (openai/ollama/custom), `GNOSIS_MCP_EMBED_MODEL`, `GNOSIS_MCP_EMBED_API_KEY`, `GNOSIS_MCP_EMBED_URL`, `GNOSIS_MCP_EMBED_BATCH_SIZE` (50).
+**Embeddings:** `GNOSIS_MCP_EMBED_PROVIDER` (openai/ollama/custom), `GNOSIS_MCP_EMBED_MODEL` (text-embedding-3-small), `GNOSIS_MCP_EMBED_API_KEY`, `GNOSIS_MCP_EMBED_URL` (custom endpoint), `GNOSIS_MCP_EMBED_BATCH_SIZE` (50).
 
-**Column overrides** (for existing tables with non-standard names): `GNOSIS_MCP_COL_FILE_PATH`, `GNOSIS_MCP_COL_TITLE`, `GNOSIS_MCP_COL_CONTENT`, `GNOSIS_MCP_COL_CHUNK_INDEX`, `GNOSIS_MCP_COL_CATEGORY`, `GNOSIS_MCP_COL_AUDIENCE`, `GNOSIS_MCP_COL_TAGS`, `GNOSIS_MCP_COL_EMBEDDING`, `GNOSIS_MCP_COL_TSV`, `GNOSIS_MCP_COL_SOURCE_PATH`, `GNOSIS_MCP_COL_TARGET_PATH`, `GNOSIS_MCP_COL_RELATION_TYPE`.
+**Column overrides** (for connecting to existing tables with non-standard column names): `GNOSIS_MCP_COL_FILE_PATH`, `GNOSIS_MCP_COL_TITLE`, `GNOSIS_MCP_COL_CONTENT`, `GNOSIS_MCP_COL_CHUNK_INDEX`, `GNOSIS_MCP_COL_CATEGORY`, `GNOSIS_MCP_COL_AUDIENCE`, `GNOSIS_MCP_COL_TAGS`, `GNOSIS_MCP_COL_EMBEDDING`, `GNOSIS_MCP_COL_TSV`, `GNOSIS_MCP_COL_SOURCE_PATH`, `GNOSIS_MCP_COL_TARGET_PATH`, `GNOSIS_MCP_COL_RELATION_TYPE`.
 
 **Links table:** `GNOSIS_MCP_LINKS_TABLE` (documentation_links).
 
@@ -287,15 +339,56 @@ All tables must share the same schema. Reads use `UNION ALL`. Writes target the 
 ## CLI Reference
 
 ```
-gnosis-mcp serve [--transport stdio|sse] [--ingest PATH]   Start MCP server
-gnosis-mcp init-db [--dry-run]                             Create tables + indexes
-gnosis-mcp ingest <path> [--dry-run]                       Load markdown files
-gnosis-mcp search <query> [-n LIMIT] [-c CAT] [--embed]    Search docs
+gnosis-mcp ingest <path> [--dry-run]                       Load markdown files into the database
+gnosis-mcp serve [--transport stdio|sse] [--ingest PATH]   Start MCP server (optionally ingest first)
+gnosis-mcp search <query> [-n LIMIT] [-c CAT] [--embed]    Search from the command line
+gnosis-mcp stats                                           Show document and chunk counts
+gnosis-mcp check                                           Verify database connection
 gnosis-mcp embed [--provider P] [--model M] [--dry-run]    Backfill embeddings
-gnosis-mcp stats                                           Document/chunk counts
+gnosis-mcp init-db [--dry-run]                             Create tables + indexes manually
 gnosis-mcp export [-f json|markdown] [-c CAT]              Export documents
-gnosis-mcp check                                           Verify DB connection
 ```
+
+## How ingestion works
+
+`gnosis-mcp ingest` scans a directory for `.md` files and loads them into the database:
+
+- **Smart chunking** — splits by H2 headings, keeping sections together (not arbitrary character limits)
+- **Frontmatter support** — extracts `title`, `category`, `audience`, `tags` from YAML frontmatter
+- **Auto-categorization** — infers category from the parent directory name
+- **Incremental updates** — content hashing skips unchanged files on re-run
+- **Dry run** — preview what would be indexed with `--dry-run`
+
+## Available on
+
+Gnosis MCP is listed on the [Official MCP Registry](https://registry.modelcontextprotocol.io), [PyPI](https://pypi.org/project/gnosis-mcp/), and major MCP directories. It works with any MCP-compatible client today, with more editor integrations coming as the MCP ecosystem grows.
+
+## Architecture
+
+```
+src/gnosis_mcp/
+├── backend.py         DocBackend protocol + create_backend() factory
+├── pg_backend.py      PostgreSQL — asyncpg, tsvector, pgvector
+├── sqlite_backend.py  SQLite — aiosqlite, FTS5
+├── sqlite_schema.py   SQLite DDL — tables, FTS5, triggers
+├── config.py          Config from env vars, backend auto-detection
+├── db.py              Backend lifecycle + FastMCP lifespan
+├── server.py          FastMCP server — 6 tools, 3 resources
+├── ingest.py          Markdown scanner — H2 chunking, frontmatter
+├── schema.py          PostgreSQL DDL — tables, indexes, search functions
+├── embed.py           Embedding providers — OpenAI, Ollama, custom
+└── cli.py             CLI — serve, ingest, search, embed, stats, check
+```
+
+## AI-Friendly Docs
+
+These files are optimized for AI agents to consume:
+
+| File | Purpose |
+|------|---------|
+| [`llms.txt`](llms.txt) | Quick overview — what it does, tools, config |
+| [`llms-full.txt`](llms-full.txt) | Complete reference in one file |
+| [`llms-install.md`](llms-install.md) | Step-by-step installation guide |
 
 ## Development
 
@@ -306,41 +399,6 @@ python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 pytest                    # 176 tests, no database needed
 ruff check src/ tests/
-```
-
-## Architecture
-
-```
-src/gnosis_mcp/
-├── backend.py         DocBackend protocol + create_backend() factory
-├── pg_backend.py      PostgreSQL backend — asyncpg, tsvector, pgvector
-├── sqlite_backend.py  SQLite backend — aiosqlite, FTS5
-├── sqlite_schema.py   SQLite DDL — tables, FTS5, triggers
-├── config.py          Frozen dataclass, env vars, backend auto-detection
-├── db.py              Backend lifecycle + FastMCP lifespan
-├── server.py          FastMCP server — 6 tools, 3 resources, webhooks
-├── ingest.py          Markdown scanner — H2 chunking, frontmatter, content hashing
-├── schema.py          PostgreSQL DDL — tables, indexes, search functions
-├── embed.py           Embedding sidecar — provider abstraction, batch backfill
-└── cli.py             CLI — serve, init-db, ingest, search, embed, stats, export, check
-```
-
-**Zero config by default.** Install and run — SQLite handles everything. Set a `DATABASE_URL` to upgrade to PostgreSQL + pgvector for hybrid search and multi-table support. Backend protocol keeps the abstraction clean: PostgreSQL and SQLite each use natural SQL in their own dialect.
-
-## AI-Friendly Docs
-
-| File | For |
-|------|-----|
-| [`llms.txt`](llms.txt) | Quick overview — tools, config, schema |
-| [`llms-full.txt`](llms-full.txt) | Complete reference in one file |
-| [`llms-install.md`](llms-install.md) | Step-by-step install guide |
-
-## Contributing
-
-```bash
-git clone https://github.com/nicholasglazer/gnosis-mcp.git && cd gnosis-mcp
-python -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]" && pytest
 ```
 
 All tests run without a database. Keep it that way.
