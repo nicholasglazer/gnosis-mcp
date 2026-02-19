@@ -122,13 +122,40 @@ Add to `~/.codeium/windsurf/mcp_config.json`:
 }
 ```
 
+### VS Code (GitHub Copilot)
+
+Add to `.vscode/mcp.json` in your workspace:
+
+```json
+{
+  "servers": {
+    "docs": {
+      "command": "gnosis-mcp",
+      "args": ["serve"]
+    }
+  }
+}
+```
+
+Also discoverable via the VS Code MCP gallery — search `@mcp gnosis` in the Extensions view.
+
+> **Enterprise:** Your org admin needs the "MCP servers in Copilot" policy enabled. Free/Pro/Pro+ plans work without this.
+
+### JetBrains (IntelliJ, PyCharm, WebStorm)
+
+Go to **Settings > Tools > AI Assistant > MCP Servers**, click **+**, and add:
+
+- **Name:** `docs`
+- **Command:** `gnosis-mcp`
+- **Arguments:** `serve`
+
 ### Cline
 
 Open Cline MCP settings panel and add the same server config.
 
 ### Other MCP clients
 
-Any tool that supports the [Model Context Protocol](https://modelcontextprotocol.io/) works. The server communicates over stdio by default, or SSE with `--transport sse`.
+Any tool that supports the [Model Context Protocol](https://modelcontextprotocol.io/) works — including Zed, Neovim (via plugins), and custom agents. The server communicates over stdio by default, or SSE with `--transport sse`.
 
 ## Choose Your Backend
 
@@ -361,7 +388,7 @@ gnosis-mcp export [-f json|markdown] [-c CAT]              Export documents
 
 ## Available on
 
-Gnosis MCP is listed on the [Official MCP Registry](https://registry.modelcontextprotocol.io), [PyPI](https://pypi.org/project/gnosis-mcp/), and major MCP directories. It works with any MCP-compatible client today, with more editor integrations coming as the MCP ecosystem grows.
+Gnosis MCP is listed on the [Official MCP Registry](https://registry.modelcontextprotocol.io) (which feeds the VS Code MCP gallery and GitHub Copilot), [PyPI](https://pypi.org/project/gnosis-mcp/), and major MCP directories including [mcp.so](https://mcp.so), [Glama](https://glama.ai), and [cursor.directory](https://cursor.directory).
 
 ## Architecture
 

@@ -7,12 +7,12 @@
     "url": "https://github.com/nicholasglazer/gnosis-mcp",
     "source": "github"
   },
-  "version": "0.6.2",
+  "version": "0.6.3",
   "packages": [
     {
       "registryType": "pypi",
       "identifier": "gnosis-mcp",
-      "version": "0.6.2",
+      "version": "0.6.3",
       "transport": {
         "type": "stdio"
       }

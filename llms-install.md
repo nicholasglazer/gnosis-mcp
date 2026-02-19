@@ -100,6 +100,23 @@ Add the MCP server config to your editor so your AI agent can search your docs.
 }
 ```
 
+**VS Code (GitHub Copilot)** — add to `.vscode/mcp.json` in your workspace:
+
+```json
+{
+  "servers": {
+    "docs": {
+      "command": "gnosis-mcp",
+      "args": ["serve"]
+    }
+  }
+}
+```
+
+Also discoverable via VS Code MCP gallery — search `@mcp gnosis` in Extensions view.
+
+**JetBrains (IntelliJ, PyCharm, WebStorm)** — go to Settings > Tools > AI Assistant > MCP Servers, click +, set command to `gnosis-mcp` and arguments to `serve`.
+
 **Cline** — open the Cline MCP settings panel and add the same server config.
 
 For PostgreSQL, add an env block to any of the above:

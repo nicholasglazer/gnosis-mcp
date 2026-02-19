@@ -93,7 +93,9 @@ Tables are auto-created on first `ingest`. Run `gnosis-mcp init-db` to create th
 |--------|------------|
 | Claude Code | `.claude/mcp.json` |
 | Cursor | `.cursor/mcp.json` |
+| VS Code (Copilot) | `.vscode/mcp.json` (uses `"servers"` key, not `"mcpServers"`) |
 | Windsurf | `~/.codeium/windsurf/mcp_config.json` |
+| JetBrains | Settings > Tools > AI Assistant > MCP Servers |
 | Cline | Cline MCP settings panel |
 
 ## Documentation

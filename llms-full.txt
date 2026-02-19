@@ -37,7 +37,9 @@ The same JSON structure works in every editor. Add it to the appropriate config 
 |--------|------------|
 | Claude Code | `.claude/mcp.json` |
 | Cursor | `.cursor/mcp.json` |
+| VS Code (Copilot) | `.vscode/mcp.json` (note: uses `"servers"` not `"mcpServers"`) |
 | Windsurf | `~/.codeium/windsurf/mcp_config.json` |
+| JetBrains | Settings > Tools > AI Assistant > MCP Servers |
 | Cline | Cline MCP settings panel |
 
 SQLite (no env needed):
