@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS {schema}.{chunks_table} (
     category text,
     audience text DEFAULT 'all',
     tags text[],
+    content_hash text,
     embedding vector({embedding_dim}),
     tsv tsvector GENERATED ALWAYS AS (
         to_tsvector('english', coalesce(title, '') || ' ' || content)

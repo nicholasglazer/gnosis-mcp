@@ -1,6 +1,6 @@
 """Tests for server helpers (no DB required)."""
 
-from gnosis_mcp.pg_backend import _row_count
+from gnosis_mcp.pg_backend import _row_count, _to_or_query
 from gnosis_mcp.server import _split_chunks
 
 
@@ -39,6 +39,23 @@ class TestSplitChunks:
         # No paragraph breaks means it falls through to single chunk
         assert len(result) == 1
         assert result[0] == content
+
+
+class TestToOrQuery:
+    def test_single_word_unchanged(self):
+        assert _to_or_query("payment") == "payment"
+
+    def test_multi_word_or_joined(self):
+        assert _to_or_query("payment docker") == "payment or docker"
+
+    def test_three_words(self):
+        assert _to_or_query("a b c") == "a or b or c"
+
+    def test_empty_string(self):
+        assert _to_or_query("") == ""
+
+    def test_whitespace_only(self):
+        assert _to_or_query("   ") == "   "
 
 
 class TestRowCount:

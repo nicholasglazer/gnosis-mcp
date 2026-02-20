@@ -18,11 +18,14 @@ from gnosis_mcp.ingest import (
     _split_paragraphs_safe,
     chunk_by_headings,
     content_hash,
+    diff_path,
     extract_relates_to,
     extract_title,
+    ingest_path,
     parse_frontmatter,
     scan_files,
 )
+from gnosis_mcp.config import GnosisMcpConfig
 
 
 # ---------------------------------------------------------------------------
@@ -612,3 +615,119 @@ class TestSupportedExts:
             assert ".pdf" in _SUPPORTED_EXTS
         except ImportError:
             assert ".pdf" not in _SUPPORTED_EXTS
+
+
+# ---------------------------------------------------------------------------
+# ingest_path (async integration)
+# ---------------------------------------------------------------------------
+
+
+class TestIngestPath:
+    @pytest.fixture
+    def tmp_docs(self, tmp_path):
+        """Create a temp directory with test docs (>50 chars each to pass min size)."""
+        (tmp_path / "guide.md").write_text(
+            "# Guide\n\nInstallation instructions for gnosis-mcp documentation server setup and configuration."
+        )
+        (tmp_path / "billing.md").write_text(
+            "# Billing\n\nStripe integration for payment processing, invoices, and subscription management."
+        )
+        return tmp_path
+
+    async def test_ingest_basic(self, tmp_docs):
+        cfg = GnosisMcpConfig(database_url=":memory:", backend="sqlite")
+        results = await ingest_path(cfg, str(tmp_docs))
+        ingested = [r for r in results if r.action == "ingested"]
+        assert len(ingested) == 2
+
+    async def test_reingest_unchanged(self, tmp_path):
+        """Re-ingest should skip unchanged files."""
+        # Must use file-backed DB so state persists across calls
+        db = str(tmp_path / "test.db")
+        (tmp_path / "docs").mkdir()
+        (tmp_path / "docs" / "a.md").write_text(
+            "# Guide\n\nInstallation instructions for gnosis-mcp documentation server configuration."
+        )
+        cfg = GnosisMcpConfig(database_url=db, backend="sqlite")
+
+        r1 = await ingest_path(cfg, str(tmp_path / "docs"))
+        assert any(r.action == "ingested" for r in r1)
+
+        r2 = await ingest_path(cfg, str(tmp_path / "docs"))
+        assert all(r.action == "unchanged" for r in r2)
+
+    async def test_force_reingest(self, tmp_path):
+        """--force flag re-ingests even unchanged files."""
+        db = str(tmp_path / "test.db")
+        (tmp_path / "docs").mkdir()
+        (tmp_path / "docs" / "a.md").write_text(
+            "# Guide\n\nInstallation instructions for gnosis-mcp documentation server configuration."
+        )
+        cfg = GnosisMcpConfig(database_url=db, backend="sqlite")
+
+        await ingest_path(cfg, str(tmp_path / "docs"))
+        r2 = await ingest_path(cfg, str(tmp_path / "docs"), force=True)
+        assert any(r.action == "ingested" for r in r2)
+
+    async def test_dry_run(self, tmp_docs):
+        cfg = GnosisMcpConfig(database_url=":memory:", backend="sqlite")
+        results = await ingest_path(cfg, str(tmp_docs), dry_run=True)
+        dry = [r for r in results if r.action == "dry-run"]
+        assert len(dry) >= 2
+
+
+# ---------------------------------------------------------------------------
+# diff_path (async integration)
+# ---------------------------------------------------------------------------
+
+
+class TestDiffPath:
+    async def test_diff_all_new(self, tmp_path):
+        """diff_path with empty DB (schema initialized) should show all files as new."""
+        db = str(tmp_path / "test.db")
+        (tmp_path / "docs").mkdir()
+        (tmp_path / "docs" / "a.md").write_text(
+            "# Guide\n\nInstallation instructions for gnosis-mcp documentation server configuration."
+        )
+        cfg = GnosisMcpConfig(database_url=db, backend="sqlite")
+        # Init schema so diff_path has tables to query
+        from gnosis_mcp.backend import create_backend
+        b = create_backend(cfg)
+        await b.startup()
+        await b.init_schema()
+        await b.shutdown()
+
+        diff = await diff_path(cfg, str(tmp_path / "docs"))
+        assert len(diff["new"]) == 1
+        assert len(diff["unchanged"]) == 0
+
+    async def test_diff_all_unchanged(self, tmp_path):
+        """After ingest, diff should show all unchanged."""
+        db = str(tmp_path / "test.db")
+        (tmp_path / "docs").mkdir()
+        (tmp_path / "docs" / "a.md").write_text(
+            "# Guide\n\nInstallation instructions for gnosis-mcp documentation server configuration."
+        )
+        cfg = GnosisMcpConfig(database_url=db, backend="sqlite")
+
+        await ingest_path(cfg, str(tmp_path / "docs"))
+        diff = await diff_path(cfg, str(tmp_path / "docs"))
+        assert len(diff["unchanged"]) == 1
+        assert len(diff["new"]) == 0
+
+    async def test_diff_modified(self, tmp_path):
+        """Modified file detected after content change."""
+        db = str(tmp_path / "test.db")
+        (tmp_path / "docs").mkdir()
+        doc = tmp_path / "docs" / "a.md"
+        doc.write_text(
+            "# Guide\n\nOriginal installation instructions for gnosis-mcp documentation server."
+        )
+        cfg = GnosisMcpConfig(database_url=db, backend="sqlite")
+
+        await ingest_path(cfg, str(tmp_path / "docs"))
+        doc.write_text(
+            "# Guide\n\nModified installation instructions for gnosis-mcp documentation server."
+        )
+        diff = await diff_path(cfg, str(tmp_path / "docs"))
+        assert len(diff["modified"]) == 1

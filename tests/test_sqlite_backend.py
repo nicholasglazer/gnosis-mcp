@@ -230,6 +230,47 @@ class TestSqliteBackendLifecycle:
         results = await backend.search("pandas web")
         assert len(results) == 2
 
+    async def test_insert_links_and_get_related(self, backend):
+        """insert_links + get_related returns bidirectional links."""
+        await backend.upsert_doc("a.md", ["A content"], title="A", category="test")
+        await backend.upsert_doc("b.md", ["B content"], title="B", category="test")
+        await backend.upsert_doc("c.md", ["C content"], title="C", category="test")
+
+        inserted = await backend.insert_links("a.md", ["b.md", "c.md"])
+        assert inserted == 2
+
+        # Outgoing from a.md
+        related = await backend.get_related("a.md")
+        outgoing = [r for r in related if r["direction"] == "outgoing"]
+        paths = {r["related_path"] for r in outgoing}
+        assert paths == {"b.md", "c.md"}
+
+        # Incoming to b.md (should find a.md)
+        related_b = await backend.get_related("b.md")
+        incoming = [r for r in related_b if r["direction"] == "incoming"]
+        assert any(r["related_path"] == "a.md" for r in incoming)
+
+    async def test_search_has_highlight(self, backend):
+        """Search results include a highlight field."""
+        await backend.upsert_doc(
+            "a.md", ["Installation guide for gnosis-mcp"], title="Install", category="test"
+        )
+        results = await backend.search("installation")
+        assert len(results) >= 1
+        assert results[0].get("highlight") is not None
+
+    async def test_update_metadata_with_tags(self, backend):
+        """Tags JSON roundtrip: update_metadata stores JSON, get_doc returns list."""
+        await backend.upsert_doc("a.md", ["Content"], title="A", category="test")
+        await backend.update_metadata("a.md", tags=["python", "backend"])
+        chunks = await backend.get_doc("a.md")
+        tags = chunks[0].get("tags")
+        # Tags are stored as JSON string in SQLite, should be parsed back
+        if isinstance(tags, str):
+            import json
+            tags = json.loads(tags)
+        assert tags == ["python", "backend"]
+
     async def test_upsert_replaces_existing(self, backend):
         await backend.upsert_doc("a.md", ["V1"], title="V1", category="test")
         await backend.upsert_doc("a.md", ["V2a", "V2b"], title="V2", category="test")

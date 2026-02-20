@@ -77,7 +77,7 @@ Default install: `mcp>=1.20` + `aiosqlite>=0.20`. Optional extras: `[postgres]` 
 ## Testing
 
 ```bash
-pytest tests/               # Unit tests (273+ tests, no DB required)
+pytest tests/               # Unit tests (300+ tests, no DB required)
 gnosis-mcp check            # Integration check against live DB
 ```
 

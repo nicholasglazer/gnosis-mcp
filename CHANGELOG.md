@@ -5,6 +5,17 @@ All notable changes to gnosis-mcp are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 Versioning follows [Semantic Versioning](https://semver.org/) (pre-1.0).
 
+## [0.7.13] - 2026-02-20
+
+### Fixed
+- PostgreSQL multi-word search now uses OR (was AND) — parity with SQLite v0.7.9 fix
+- Added `content_hash` column to PostgreSQL DDL for new installations
+
+### Added
+- E2E comparison test script for SQLite vs PostgreSQL backend parity
+- 21 new unit tests: `ingest_path`, `diff_path`, links, highlights, config defaults, PG OR query
+- Test suite now at 300+ tests
+
 ## [0.7.12] - 2026-02-20
 
 ### Added

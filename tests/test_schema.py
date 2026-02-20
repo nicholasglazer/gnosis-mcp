@@ -35,6 +35,11 @@ class TestGetInitSql:
         assert "vector(768)" in sql
         assert "vector(1536)" not in sql
 
+    def test_content_hash_column(self):
+        cfg = GnosisMcpConfig(database_url="postgresql://localhost/db")
+        sql = get_init_sql(cfg)
+        assert "content_hash text" in sql
+
     def test_idempotent_statements(self):
         cfg = GnosisMcpConfig(database_url="postgresql://localhost/db")
         sql = get_init_sql(cfg)
@@ -72,7 +77,7 @@ class TestGetInitSql:
     def test_hybrid_function_scoring_weights(self):
         cfg = GnosisMcpConfig(database_url="postgresql://localhost/db")
         sql = get_init_sql(cfg)
-        # RRF scoring: 0.4 keyword + 0.6 semantic
+        # Linear blending: 0.4 keyword + 0.6 semantic (PG uses linear, SQLite uses RRF)
         assert "* 0.4" in sql
         assert "* 0.6" in sql
         # Cosine similarity threshold for semantic-only matches

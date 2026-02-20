@@ -338,6 +338,38 @@ class TestEmbedConfig:
         assert cfg.embed_api_key is None
         assert cfg.embed_url is None
         assert cfg.embed_batch_size == 50
+        assert cfg.embed_dim == 384
+
+    def test_embed_provider_local(self, monkeypatch):
+        monkeypatch.setenv("GNOSIS_MCP_DATABASE_URL", "postgresql://localhost/db")
+        monkeypatch.setenv("GNOSIS_MCP_EMBED_PROVIDER", "local")
+        cfg = GnosisMcpConfig.from_env()
+        assert cfg.embed_provider == "local"
+
+    def test_embed_dim_default(self, monkeypatch):
+        monkeypatch.setenv("GNOSIS_MCP_DATABASE_URL", "postgresql://localhost/db")
+        cfg = GnosisMcpConfig.from_env()
+        assert cfg.embed_dim == 384
+
+    def test_custom_embed_dim(self, monkeypatch):
+        monkeypatch.setenv("GNOSIS_MCP_DATABASE_URL", "postgresql://localhost/db")
+        monkeypatch.setenv("GNOSIS_MCP_EMBED_DIM", "768")
+        cfg = GnosisMcpConfig.from_env()
+        assert cfg.embed_dim == 768
+
+    def test_host_port_defaults(self, monkeypatch):
+        monkeypatch.setenv("GNOSIS_MCP_DATABASE_URL", "postgresql://localhost/db")
+        cfg = GnosisMcpConfig.from_env()
+        assert cfg.host == "127.0.0.1"
+        assert cfg.port == 8000
+
+    def test_custom_host_port(self, monkeypatch):
+        monkeypatch.setenv("GNOSIS_MCP_DATABASE_URL", "postgresql://localhost/db")
+        monkeypatch.setenv("GNOSIS_MCP_HOST", "0.0.0.0")
+        monkeypatch.setenv("GNOSIS_MCP_PORT", "9000")
+        cfg = GnosisMcpConfig.from_env()
+        assert cfg.host == "0.0.0.0"
+        assert cfg.port == 9000
 
     def test_embed_provider_openai(self, monkeypatch):
         monkeypatch.setenv("GNOSIS_MCP_DATABASE_URL", "postgresql://localhost/db")

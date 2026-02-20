@@ -10,6 +10,18 @@ __all__ = ["PostgresBackend"]
 log = logging.getLogger("gnosis_mcp")
 
 
+def _to_or_query(text: str) -> str:
+    """Convert multi-word query to websearch_to_tsquery OR format.
+
+    'payment docker' → 'payment or docker'
+    websearch_to_tsquery treats bare 'or' as the OR operator.
+    """
+    words = text.split()
+    if len(words) <= 1:
+        return text
+    return " or ".join(words)
+
+
 def _row_count(status: str) -> int:
     """Extract row count from asyncpg status string (e.g. 'DELETE 5' -> 5)."""
     try:
@@ -198,13 +210,14 @@ class PostgresBackend:
     ) -> list[dict[str, Any]]:
         cfg = self._cfg
 
+        or_query = _to_or_query(query)
         async with await self._acquire() as conn:
             if cfg.search_function:
-                return await self._search_custom(conn, query, category, limit, query_embedding)
+                return await self._search_custom(conn, or_query, category, limit, query_embedding)
             elif query_embedding:
-                return await self._search_hybrid(conn, query, category, limit, query_embedding)
+                return await self._search_hybrid(conn, or_query, category, limit, query_embedding)
             else:
-                return await self._search_keyword(conn, query, category, limit)
+                return await self._search_keyword(conn, or_query, category, limit)
 
     async def _search_custom(self, conn, query, category, limit, query_embedding):
         cfg = self._cfg
