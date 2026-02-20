@@ -524,7 +524,7 @@ def _convert_rst(text: str, file_path: Path) -> str:
     try:
         from docutils.core import publish_parts
 
-        parts = publish_parts(text, writer_name="html")
+        parts = publish_parts(text, writer="html")
         html = parts["html_body"]
         # Convert HTML headings to markdown
         clean = re.sub(
