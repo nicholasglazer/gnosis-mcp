@@ -12,7 +12,7 @@ Gnosis MCP loads markdown files into a database, chunks them by headings (H2/H3/
 ```bash
 pip install gnosis-mcp
 gnosis-mcp ingest ./docs/       # auto-creates SQLite database + loads markdown
-gnosis-mcp serve                # start MCP server
+gnosis-mcp serve                # start MCP server (stdio default, or --transport streamable-http)
 ```
 
 Add to your editor's MCP config (e.g. `.claude/mcp.json` for Claude Code):
@@ -83,7 +83,7 @@ Local embeddings (`[embeddings]` extra): ONNX Runtime + tokenizers + sqlite-vec.
 
 ## Configuration
 
-Set `GNOSIS_MCP_DATABASE_URL` (or `DATABASE_URL`) for PostgreSQL. Leave unset for SQLite. Optional: `GNOSIS_MCP_BACKEND`, `GNOSIS_MCP_SCHEMA`, `GNOSIS_MCP_CHUNKS_TABLE` (comma-separated for multi-table on PG), `GNOSIS_MCP_LINKS_TABLE`, `GNOSIS_MCP_SEARCH_FUNCTION`, `GNOSIS_MCP_EMBEDDING_DIM`, `GNOSIS_MCP_WRITABLE`, `GNOSIS_MCP_WEBHOOK_URL`, `GNOSIS_MCP_COL_*` for column names. Embedding: `GNOSIS_MCP_EMBED_PROVIDER` (openai/ollama/custom/local), `GNOSIS_MCP_EMBED_MODEL`, `GNOSIS_MCP_EMBED_DIM` (384, for local Matryoshka truncation), `GNOSIS_MCP_EMBED_API_KEY`, `GNOSIS_MCP_EMBED_URL`, `GNOSIS_MCP_EMBED_BATCH_SIZE`. Tuning: `GNOSIS_MCP_CONTENT_PREVIEW_CHARS`, `GNOSIS_MCP_CHUNK_SIZE`, `GNOSIS_MCP_SEARCH_LIMIT_MAX`, `GNOSIS_MCP_WEBHOOK_TIMEOUT`, `GNOSIS_MCP_TRANSPORT`, `GNOSIS_MCP_LOG_LEVEL`.
+Set `GNOSIS_MCP_DATABASE_URL` (or `DATABASE_URL`) for PostgreSQL. Leave unset for SQLite. Optional: `GNOSIS_MCP_BACKEND`, `GNOSIS_MCP_SCHEMA`, `GNOSIS_MCP_CHUNKS_TABLE` (comma-separated for multi-table on PG), `GNOSIS_MCP_LINKS_TABLE`, `GNOSIS_MCP_SEARCH_FUNCTION`, `GNOSIS_MCP_EMBEDDING_DIM`, `GNOSIS_MCP_WRITABLE`, `GNOSIS_MCP_WEBHOOK_URL`, `GNOSIS_MCP_COL_*` for column names. Embedding: `GNOSIS_MCP_EMBED_PROVIDER` (openai/ollama/custom/local), `GNOSIS_MCP_EMBED_MODEL`, `GNOSIS_MCP_EMBED_DIM` (384, for local Matryoshka truncation), `GNOSIS_MCP_EMBED_API_KEY`, `GNOSIS_MCP_EMBED_URL`, `GNOSIS_MCP_EMBED_BATCH_SIZE`. Tuning: `GNOSIS_MCP_CONTENT_PREVIEW_CHARS`, `GNOSIS_MCP_CHUNK_SIZE`, `GNOSIS_MCP_SEARCH_LIMIT_MAX`, `GNOSIS_MCP_WEBHOOK_TIMEOUT`, `GNOSIS_MCP_TRANSPORT` (stdio/sse/streamable-http), `GNOSIS_MCP_HOST`, `GNOSIS_MCP_PORT`, `GNOSIS_MCP_LOG_LEVEL`.
 
 ## Database Schema
 

@@ -164,7 +164,12 @@ Open Cline MCP settings panel and add the same server config.
 
 ### Other MCP clients
 
-Any tool that supports the [Model Context Protocol](https://modelcontextprotocol.io/) works — including Zed, Neovim (via plugins), and custom agents. The server communicates over stdio by default, or SSE with `--transport sse`.
+Any tool that supports the [Model Context Protocol](https://modelcontextprotocol.io/) works — including Zed, Neovim (via plugins), and custom agents. The server communicates over stdio by default, or Streamable HTTP for remote deployment:
+
+```bash
+gnosis-mcp serve --transport streamable-http --host 0.0.0.0 --port 8000
+# Remote clients connect to http://your-server:8000/mcp
+```
 
 ## Choose Your Backend
 

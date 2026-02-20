@@ -56,6 +56,7 @@ Default install: `mcp>=1.20` + `aiosqlite>=0.20`. Optional: `pip install gnosis-
 
 - **Backend Protocol pattern**: High-level Protocol (not connection wrapper) — PG and SQLite SQL differ too much for a thin wrapper
 - **FastMCP lifespan pattern**: Backend created once via `app_lifespan()`, shared across tool calls
+- **Streamable HTTP transport**: `gnosis-mcp serve --transport streamable-http` exposes `/mcp` endpoint via uvicorn. Supports remote deployment. Configure with `--host` / `--port` or `GNOSIS_MCP_HOST` / `GNOSIS_MCP_PORT`
 - **SQL injection prevention**: All identifiers validated via regex in `GnosisMcpConfig.__post_init__()`
 - **Multi-table support**: PostgreSQL only — `GNOSIS_MCP_CHUNKS_TABLE` accepts comma-separated tables, queries use `UNION ALL`
 - **Write gating**: Write tools check `cfg.writable` and return error if disabled

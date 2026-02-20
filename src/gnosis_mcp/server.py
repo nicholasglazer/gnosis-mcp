@@ -14,7 +14,7 @@ __all__ = ["mcp"]
 
 log = logging.getLogger("gnosis_mcp")
 
-mcp = FastMCP("gnosis-mcp", lifespan=app_lifespan)
+mcp = FastMCP("gnosis-mcp", lifespan=app_lifespan, streamable_http_path="/mcp")
 
 
 # ---------------------------------------------------------------------------

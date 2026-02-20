@@ -13,7 +13,7 @@ __all__ = ["GnosisMcpConfig"]
 _IDENT_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)*$")
 
 _VALID_LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
-_VALID_TRANSPORTS = ("stdio", "sse")
+_VALID_TRANSPORTS = ("stdio", "sse", "streamable-http")
 _VALID_EMBED_PROVIDERS = ("openai", "ollama", "custom", "local")
 _VALID_BACKENDS = ("auto", "sqlite", "postgres")
 
@@ -102,6 +102,8 @@ class GnosisMcpConfig:
 
     # Server defaults
     transport: str = "stdio"
+    host: str = "127.0.0.1"
+    port: int = 8000
     log_level: str = "INFO"
 
     def __post_init__(self) -> None:
@@ -282,5 +284,7 @@ class GnosisMcpConfig:
             embed_url=env("EMBED_URL"),
             embed_batch_size=env_int("EMBED_BATCH_SIZE", 50),
             transport=env("TRANSPORT", "stdio"),
+            host=env("HOST", "127.0.0.1"),
+            port=env_int("PORT", 8000),
             log_level=env("LOG_LEVEL", "INFO").upper(),
         )

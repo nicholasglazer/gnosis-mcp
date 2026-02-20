@@ -47,6 +47,14 @@ def cmd_serve(args: argparse.Namespace) -> None:
         start_watcher(args.watch, config, embed=True)
 
     transport = args.transport or config.transport
+    host = getattr(args, "host", None) or config.host
+    port = getattr(args, "port", None) or config.port
+
+    # Pass host/port to FastMCP settings for HTTP transports
+    if transport in ("sse", "streamable-http"):
+        mcp.settings.host = host
+        mcp.settings.port = port
+
     mcp.run(transport=transport)
 
 
@@ -452,9 +460,17 @@ def main() -> None:
     p_serve = sub.add_parser("serve", help="Start the MCP server")
     p_serve.add_argument(
         "--transport",
-        choices=["stdio", "sse"],
+        choices=["stdio", "sse", "streamable-http"],
         default=None,
         help="Transport protocol (default: from GNOSIS_MCP_TRANSPORT or stdio)",
+    )
+    p_serve.add_argument(
+        "--host", default=None,
+        help="Host to bind HTTP server (default: 127.0.0.1, env: GNOSIS_MCP_HOST)",
+    )
+    p_serve.add_argument(
+        "--port", type=int, default=None,
+        help="Port for HTTP server (default: 8000, env: GNOSIS_MCP_PORT)",
     )
     p_serve.add_argument(
         "--ingest",

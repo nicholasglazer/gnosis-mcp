@@ -155,7 +155,9 @@ All settings via GNOSIS_MCP_* environment variables. Nothing required for SQLite
 - GNOSIS_MCP_CHUNK_SIZE — Max chars per chunk, min 500 (default: 4000)
 - GNOSIS_MCP_SEARCH_LIMIT_MAX — Max search result limit, min 1 (default: 20)
 - GNOSIS_MCP_WEBHOOK_TIMEOUT — Webhook timeout seconds, min 1 (default: 5)
-- GNOSIS_MCP_TRANSPORT — Server transport: stdio or sse (default: stdio)
+- GNOSIS_MCP_TRANSPORT — Server transport: stdio, sse, or streamable-http (default: stdio)
+- GNOSIS_MCP_HOST — Bind address for HTTP transports (default: 127.0.0.1)
+- GNOSIS_MCP_PORT — Port for HTTP transports (default: 8000)
 - GNOSIS_MCP_LOG_LEVEL — Logging: DEBUG/INFO/WARNING/ERROR/CRITICAL (default: INFO)
 
 ### Column Overrides (for existing tables with non-standard names)
@@ -187,7 +189,7 @@ Optionally, your function can also accept `p_embedding vector(N)` for hybrid sea
 
 ```
 gnosis-mcp ingest <path> [--dry-run] [--embed]             # Load markdown files (--embed to generate embeddings)
-gnosis-mcp serve [--transport stdio|sse] [--ingest PATH] [--watch PATH]   # Start MCP server (--watch for live reload)
+gnosis-mcp serve [--transport stdio|sse|streamable-http] [--host H] [--port P] [--ingest PATH] [--watch PATH]   # Start MCP server
 gnosis-mcp search <query> [-n LIMIT] [-c CAT] [--embed]    # Search (--embed for hybrid semantic+keyword)
 gnosis-mcp stats                                           # Show document/chunk/embedding counts
 gnosis-mcp check                                           # Verify connection + sqlite-vec status

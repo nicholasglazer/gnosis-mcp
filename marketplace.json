@@ -9,7 +9,7 @@
       "name": "gnosis",
       "source": ".",
       "description": "Zero-config knowledge base MCP server — search, manage, and embed documentation",
-      "version": "0.7.4"
+      "version": "0.7.5"
     }
   ]
 }
