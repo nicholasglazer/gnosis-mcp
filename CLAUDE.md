@@ -13,7 +13,7 @@ src/gnosis_mcp/
 ├── config.py          # GnosisMcpConfig frozen dataclass, backend auto-detection, GNOSIS_MCP_* env vars
 ├── db.py              # Backend lifecycle + FastMCP lifespan context manager
 ├── server.py          # FastMCP server: 6 tools + 3 resources + auto-embed queries
-├── ingest.py          # File ingestion: smart chunking (H2/H3/H4, code block + table protection), frontmatter, hashing
+├── ingest.py          # File ingestion + converters: multi-format (.md/.txt/.ipynb/.toml/.csv/.json), smart chunking, hashing
 ├── watch.py           # File watcher: mtime polling, debounce, auto-re-ingest + auto-embed on changes
 ├── schema.py          # PostgreSQL DDL — tables, indexes, HNSW, hybrid search functions
 ├── embed.py           # Embedding providers: openai/ollama/custom/local, batch backfill
@@ -77,7 +77,7 @@ Default install: `mcp>=1.20` + `aiosqlite>=0.20`. Optional: `pip install gnosis-
 ## Testing
 
 ```bash
-pytest tests/               # Unit tests (220+ tests, no DB required)
+pytest tests/               # Unit tests (260+ tests, no DB required)
 gnosis-mcp check            # Integration check against live DB
 ```
 

@@ -1,4 +1,4 @@
-"""File watcher for auto-ingestion of changed markdown files."""
+"""File watcher for auto-ingestion of changed files."""
 
 from __future__ import annotations
 
@@ -7,6 +7,8 @@ import logging
 from pathlib import Path
 from threading import Event, Thread
 from typing import TYPE_CHECKING
+
+from gnosis_mcp.ingest import _SUPPORTED_EXTS
 
 if TYPE_CHECKING:
     from gnosis_mcp.config import GnosisMcpConfig
@@ -20,21 +22,22 @@ _DEBOUNCE = 0.5
 
 
 def scan_mtimes(root: Path) -> dict[Path, float]:
-    """Get mtime for all .md files under root."""
+    """Get mtime for all supported files under root."""
     mtimes: dict[Path, float] = {}
     if not root.exists():
         return mtimes
-    if root.is_file() and root.suffix == ".md":
+    if root.is_file() and root.suffix.lower() in _SUPPORTED_EXTS:
         try:
             mtimes[root] = root.stat().st_mtime
         except OSError:
             pass
         return mtimes
-    for f in root.rglob("*.md"):
-        try:
-            mtimes[f] = f.stat().st_mtime
-        except OSError:
-            pass
+    for ext in _SUPPORTED_EXTS:
+        for f in root.rglob(f"*{ext}"):
+            try:
+                mtimes[f] = f.stat().st_mtime
+            except OSError:
+                pass
     return mtimes
 
 
@@ -144,7 +147,7 @@ def start_watcher(
 ) -> Thread:
     """Start a background file watcher thread.
 
-    Monitors ``root`` for ``.md`` file changes and auto-re-ingests (and optionally
+    Monitors ``root`` for file changes and auto-re-ingests (and optionally
     auto-embeds) when changes are detected.  Uses polling with mtime comparison.
 
     Args:

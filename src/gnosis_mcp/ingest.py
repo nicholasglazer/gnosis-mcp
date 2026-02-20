@@ -1,10 +1,23 @@
-"""File ingestion: scan markdown files, chunk by headings, load into database."""
+"""File ingestion: scan files, convert to markdown, chunk by headings, load into database.
+
+Supported formats (zero third-party dependencies):
+- .md  — Markdown (native, pass-through)
+- .txt — Plain text (wrapped with H1 title)
+- .ipynb — Jupyter notebooks (stdlib json, markdown + code cells)
+- .toml — TOML config files (stdlib tomllib, sections per top-level key)
+- .csv  — CSV data (stdlib csv, rendered as markdown table)
+- .json — JSON documents (stdlib json, top-level keys as H2 sections)
+"""
 
 from __future__ import annotations
 
+import csv
 import hashlib
+import io
+import json
 import logging
 import re
+import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -20,6 +33,8 @@ __all__ = [
 ]
 
 log = logging.getLogger("gnosis_mcp")
+
+_SUPPORTED_EXTS = frozenset({".md", ".txt", ".ipynb", ".toml", ".csv", ".json"})
 
 # Frontmatter key: value parser (no yaml dependency)
 _FM_KV_RE = re.compile(r"^(\w+)\s*:\s*(.+)$", re.MULTILINE)
@@ -344,11 +359,148 @@ def chunk_by_headings(markdown: str, file_path: str, max_chunk_size: int = 4000)
     return chunks or [{"title": doc_title, "content": markdown.strip(), "section_path": doc_title}]
 
 
+def _convert_to_markdown(text: str, file_path: Path) -> str:
+    """Convert supported file formats to markdown for chunking.  No-op for .md."""
+    ext = file_path.suffix.lower()
+    if ext == ".md":
+        return text
+    if ext == ".txt":
+        return _convert_txt(text, file_path)
+    if ext == ".ipynb":
+        return _convert_ipynb(text, file_path)
+    if ext == ".toml":
+        return _convert_toml(text, file_path)
+    if ext == ".csv":
+        return _convert_csv(text, file_path)
+    if ext == ".json":
+        return _convert_json(text, file_path)
+    return text
+
+
+def _convert_txt(text: str, file_path: Path) -> str:
+    """Plain text: add H1 title from filename."""
+    title = file_path.stem.replace("-", " ").replace("_", " ").title()
+    return f"# {title}\n\n{text}"
+
+
+def _convert_ipynb(text: str, file_path: Path) -> str:
+    """Jupyter notebook: extract markdown + code cells."""
+    try:
+        nb = json.loads(text)
+    except (ValueError, KeyError):
+        return text
+
+    cells = nb.get("cells", [])
+    if not cells:
+        return text
+
+    # Detect kernel language for code fences
+    meta = nb.get("metadata", {})
+    lang = meta.get("kernelspec", {}).get("language", "") or meta.get(
+        "language_info", {}
+    ).get("name", "")
+
+    parts: list[str] = []
+    for cell in cells:
+        cell_type = cell.get("cell_type", "")
+        source = cell.get("source", [])
+        if isinstance(source, list):
+            source = "".join(source)
+        source = source.strip()
+        if not source:
+            continue
+
+        if cell_type == "markdown":
+            parts.append(source)
+        elif cell_type == "code":
+            parts.append(f"```{lang}\n{source}\n```")
+        elif cell_type == "raw":
+            parts.append(source)
+
+    return "\n\n".join(parts) if parts else text
+
+
+def _convert_toml(text: str, file_path: Path) -> str:
+    """TOML: render top-level keys as H2 sections."""
+    try:
+        data = tomllib.loads(text)
+    except Exception:
+        return f"# {file_path.name}\n\n```toml\n{text}\n```"
+
+    parts: list[str] = [f"# {file_path.name}"]
+
+    for key, value in data.items():
+        if isinstance(value, dict):
+            parts.append(f"## {key}")
+            for k, v in value.items():
+                if isinstance(v, (dict, list)):
+                    parts.append(f"**{k}**:\n```\n{json.dumps(v, indent=2)}\n```")
+                else:
+                    parts.append(f"- **{k}**: {v}")
+        elif isinstance(value, list):
+            parts.append(f"## {key}")
+            for item in value:
+                if isinstance(item, dict):
+                    line = ", ".join(f"{k}={v}" for k, v in item.items())
+                    parts.append(f"- {line}")
+                else:
+                    parts.append(f"- {item}")
+        else:
+            parts.append(f"- **{key}**: {value}")
+
+    return "\n\n".join(parts)
+
+
+def _convert_csv(text: str, file_path: Path) -> str:
+    """CSV: render as markdown table."""
+    reader = csv.reader(io.StringIO(text))
+    rows = list(reader)
+    if len(rows) < 2:
+        return text
+
+    header = rows[0]
+    ncols = len(header)
+    lines = [
+        f"# {file_path.stem}",
+        "",
+        "| " + " | ".join(header) + " |",
+        "| " + " | ".join("---" for _ in header) + " |",
+    ]
+    for row in rows[1:]:
+        padded = (row + [""] * ncols)[:ncols]
+        lines.append("| " + " | ".join(padded) + " |")
+
+    return "\n".join(lines)
+
+
+def _convert_json(text: str, file_path: Path) -> str:
+    """JSON: top-level dict keys as H2 sections, arrays as code block."""
+    try:
+        data = json.loads(text)
+    except ValueError:
+        return text
+
+    if isinstance(data, dict) and data:
+        parts: list[str] = [f"# {file_path.name}"]
+        for key, value in data.items():
+            if isinstance(value, (dict, list)):
+                rendered = json.dumps(value, indent=2)
+                parts.append(f"## {key}\n\n```json\n{rendered}\n```")
+            else:
+                parts.append(f"- **{key}**: {value}")
+        return "\n\n".join(parts)
+
+    return f"# {file_path.name}\n\n```json\n{json.dumps(data, indent=2)}\n```"
+
+
 def scan_files(root: Path) -> list[Path]:
-    """Recursively find all .md files under root, sorted."""
-    if root.is_file() and root.suffix == ".md":
+    """Recursively find all supported files under root, sorted."""
+    if root.is_file() and root.suffix.lower() in _SUPPORTED_EXTS:
         return [root]
-    return sorted(root.rglob("*.md"))
+    found: list[Path] = []
+    for ext in _SUPPORTED_EXTS:
+        found.extend(root.rglob(f"*{ext}"))
+    return sorted(set(found))
 
 
 async def ingest_path(
@@ -373,7 +525,7 @@ async def ingest_path(
 
     files = scan_files(root_path)
     if not files:
-        return [IngestResult(path=root, chunks=0, action="skipped", detail="No .md files found")]
+        return [IngestResult(path=root, chunks=0, action="skipped", detail="No supported files found")]
 
     # Determine base for relative paths
     base = root_path.parent if root_path.is_file() else root_path
@@ -386,7 +538,8 @@ async def ingest_path(
             if len(text.strip()) < 50:
                 results.append(IngestResult(path=str(f.relative_to(base)), chunks=0, action="skipped", detail="Too small (<50 chars)"))
                 continue
-            _, body = parse_frontmatter(text)
+            md_text = _convert_to_markdown(text, f)
+            _, body = parse_frontmatter(md_text)
             chunks = chunk_by_headings(body, str(f.relative_to(base)))
             results.append(IngestResult(path=str(f.relative_to(base)), chunks=len(chunks), action="dry-run"))
         return results
@@ -419,9 +572,12 @@ async def ingest_path(
                 results.append(IngestResult(path=rel, chunks=0, action="skipped", detail="Too small"))
                 continue
 
-            # Parse frontmatter
-            frontmatter, body = parse_frontmatter(text)
+            # Hash original text for change detection, then convert format
             digest = content_hash(text)
+            md_text = _convert_to_markdown(text, f)
+
+            # Parse frontmatter
+            frontmatter, body = parse_frontmatter(md_text)
 
             # Skip unchanged files
             if has_hash:

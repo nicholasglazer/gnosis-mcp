@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "gnosis-mcp"
-version = "0.7.5"
+version = "0.7.6"
 description = "Zero-config MCP server for searchable documentation (SQLite default, PostgreSQL optional)"
 readme = "README.md"
 license = "MIT"

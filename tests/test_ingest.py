@@ -5,6 +5,12 @@ from pathlib import Path
 import pytest
 
 from gnosis_mcp.ingest import (
+    _convert_csv,
+    _convert_ipynb,
+    _convert_json,
+    _convert_to_markdown,
+    _convert_toml,
+    _convert_txt,
     _find_protected_ranges,
     _split_paragraphs_safe,
     chunk_by_headings,
@@ -339,10 +345,12 @@ class TestScanFiles:
     def test_directory(self, tmp_path):
         (tmp_path / "a.md").write_text("# A")
         (tmp_path / "b.md").write_text("# B")
-        (tmp_path / "ignore.txt").write_text("not markdown")
+        (tmp_path / "c.txt").write_text("plain text")
+        (tmp_path / "ignore.py").write_text("# not docs")
         results = scan_files(tmp_path)
-        assert len(results) == 2
-        assert all(f.suffix == ".md" for f in results)
+        assert len(results) == 3  # .md + .txt are supported
+        assert {f.suffix for f in results} == {".md", ".txt"}
+        assert not any(f.suffix == ".py" for f in results)
 
     def test_recursive(self, tmp_path):
         sub = tmp_path / "sub"
@@ -365,3 +373,149 @@ class TestScanFiles:
         fake = tmp_path / "nope"
         # scan_files on a nonexistent path returns empty (Path.rglob on nonexistent)
         assert scan_files(fake) == []
+
+    def test_finds_all_supported_extensions(self, tmp_path):
+        for ext in (".md", ".txt", ".ipynb", ".toml", ".csv", ".json"):
+            (tmp_path / f"doc{ext}").write_text("content")
+        (tmp_path / "skip.py").write_text("python")
+        (tmp_path / "skip.html").write_text("<p>html</p>")
+        results = scan_files(tmp_path)
+        exts = {f.suffix for f in results}
+        assert exts == {".md", ".txt", ".ipynb", ".toml", ".csv", ".json"}
+
+
+# ---------------------------------------------------------------------------
+# Converters
+# ---------------------------------------------------------------------------
+
+
+class TestConvertTxt:
+    def test_adds_title(self):
+        result = _convert_txt("Hello world", Path("my-notes.txt"))
+        assert result.startswith("# My Notes\n\n")
+        assert "Hello world" in result
+
+    def test_title_from_underscores(self):
+        result = _convert_txt("content", Path("api_reference.txt"))
+        assert "# Api Reference" in result
+
+
+class TestConvertIpynb:
+    def test_basic_notebook(self):
+        import json
+        nb = {
+            "metadata": {"kernelspec": {"language": "python"}},
+            "nbformat": 4,
+            "cells": [
+                {"cell_type": "markdown", "source": ["# Title\n", "Some text"]},
+                {"cell_type": "code", "source": ["print('hello')"], "outputs": []},
+                {"cell_type": "markdown", "source": ["## Section 2"]},
+            ],
+        }
+        result = _convert_ipynb(json.dumps(nb), Path("nb.ipynb"))
+        assert "# Title" in result
+        assert "```python\nprint('hello')\n```" in result
+        assert "## Section 2" in result
+
+    def test_empty_cells_skipped(self):
+        import json
+        nb = {
+            "metadata": {},
+            "cells": [
+                {"cell_type": "code", "source": [], "outputs": []},
+                {"cell_type": "markdown", "source": ["# Only this"]},
+            ],
+        }
+        result = _convert_ipynb(json.dumps(nb), Path("nb.ipynb"))
+        assert "# Only this" in result
+        assert "```" not in result
+
+    def test_invalid_json_passthrough(self):
+        result = _convert_ipynb("not json{", Path("bad.ipynb"))
+        assert result == "not json{"
+
+    def test_source_as_string(self):
+        import json
+        nb = {
+            "metadata": {},
+            "cells": [{"cell_type": "markdown", "source": "# Hello"}],
+        }
+        result = _convert_ipynb(json.dumps(nb), Path("nb.ipynb"))
+        assert "# Hello" in result
+
+
+class TestConvertToml:
+    def test_pyproject(self):
+        toml = '[project]\nname = "foo"\nversion = "1.0"\n\n[tool.ruff]\nline-length = 99\n'
+        result = _convert_toml(toml, Path("pyproject.toml"))
+        assert "# pyproject.toml" in result
+        assert "## project" in result
+        assert "**name**" in result
+        assert "## tool" in result
+
+    def test_invalid_toml_fallback(self):
+        result = _convert_toml("not valid [[[toml", Path("bad.toml"))
+        assert "```toml" in result
+
+    def test_top_level_scalars(self):
+        result = _convert_toml('title = "My Config"\nversion = 2\n', Path("config.toml"))
+        assert "**title**" in result
+        assert "**version**" in result
+
+    def test_list_values(self):
+        toml = '[project]\nkeywords = ["a", "b", "c"]\n'
+        result = _convert_toml(toml, Path("p.toml"))
+        assert "keywords" in result
+        assert '"a"' in result
+
+
+class TestConvertCsv:
+    def test_basic_csv(self):
+        csv_text = "name,age,city\nAlice,30,NYC\nBob,25,LA\n"
+        result = _convert_csv(csv_text, Path("people.csv"))
+        assert "| name | age | city |" in result
+        assert "| --- | --- | --- |" in result
+        assert "| Alice | 30 | NYC |" in result
+        assert "| Bob | 25 | LA |" in result
+
+    def test_single_row_passthrough(self):
+        result = _convert_csv("just,a,header\n", Path("empty.csv"))
+        assert result == "just,a,header\n"
+
+    def test_short_row_padded(self):
+        csv_text = "a,b,c\n1\n"
+        result = _convert_csv(csv_text, Path("short.csv"))
+        assert "| 1 |  |  |" in result
+
+
+class TestConvertJson:
+    def test_dict_with_sections(self):
+        import json
+        data = {"name": "foo", "config": {"key": "val"}, "items": [1, 2, 3]}
+        result = _convert_json(json.dumps(data), Path("data.json"))
+        assert "## config" in result
+        assert "## items" in result
+        assert "**name**" in result
+
+    def test_array_as_code_block(self):
+        import json
+        result = _convert_json(json.dumps([1, 2, 3]), Path("arr.json"))
+        assert "```json" in result
+
+    def test_invalid_json_passthrough(self):
+        result = _convert_json("{bad json", Path("bad.json"))
+        assert result == "{bad json"
+
+
+class TestConvertToMarkdownDispatch:
+    def test_md_passthrough(self):
+        text = "# Hello\n\nWorld"
+        assert _convert_to_markdown(text, Path("doc.md")) == text
+
+    def test_txt_converts(self):
+        result = _convert_to_markdown("hello", Path("readme.txt"))
+        assert "# Readme" in result
+
+    def test_unknown_ext_passthrough(self):
+        text = "some content"
+        assert _convert_to_markdown(text, Path("file.xyz")) == text

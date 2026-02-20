@@ -139,7 +139,7 @@ def cmd_check(args: argparse.Namespace) -> None:
 
 
 def cmd_ingest(args: argparse.Namespace) -> None:
-    """Ingest markdown files into the database."""
+    """Ingest files into the database."""
     from gnosis_mcp.config import GnosisMcpConfig
     from gnosis_mcp.ingest import ingest_path
 
@@ -476,13 +476,13 @@ def main() -> None:
         "--ingest",
         metavar="PATH",
         default=None,
-        help="Ingest markdown files from PATH before starting the server",
+        help="Ingest files from PATH before starting the server",
     )
     p_serve.add_argument(
         "--watch",
         metavar="PATH",
         default=None,
-        help="Watch PATH for .md file changes and auto-re-ingest (implies --ingest)",
+        help="Watch PATH for file changes and auto-re-ingest (implies --ingest)",
     )
 
     # init-db
@@ -490,7 +490,7 @@ def main() -> None:
     p_init.add_argument("--dry-run", action="store_true", help="Print SQL without executing")
 
     # ingest
-    p_ingest = sub.add_parser("ingest", help="Ingest markdown files")
+    p_ingest = sub.add_parser("ingest", help="Ingest files (.md, .txt, .ipynb, .toml, .csv, .json)")
     p_ingest.add_argument("path", help="File or directory to ingest")
     p_ingest.add_argument("--dry-run", action="store_true", help="Show what would be ingested")
     p_ingest.add_argument(

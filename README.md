@@ -30,7 +30,7 @@
 
 AI coding agents can read your source code but not your documentation. They guess at architecture, miss established patterns, and hallucinate details they could have looked up.
 
-Gnosis MCP fixes this. Point it at a folder of markdown files and it creates a searchable knowledge base that any [MCP](https://modelcontextprotocol.io/)-compatible AI agent can query — Claude Code, Cursor, Windsurf, Cline, and any tool that supports the Model Context Protocol.
+Gnosis MCP fixes this. Point it at a folder of docs and it creates a searchable knowledge base that any [MCP](https://modelcontextprotocol.io/)-compatible AI agent can query — Claude Code, Cursor, Windsurf, Cline, and any tool that supports the Model Context Protocol.
 
 **No database server.** SQLite works out of the box with keyword search, or add `[embeddings]` for local semantic search. Scale to PostgreSQL + pgvector when needed.
 
@@ -42,13 +42,13 @@ Gnosis MCP fixes this. Point it at a folder of markdown files and it creates a s
 
 **Docs that stay current.** Add a new markdown file, run `ingest`, it's searchable immediately. Or use `--watch` to auto-re-ingest on file changes. No routing tables to maintain, no hardcoded paths to update.
 
-**Works with what you have.** Your docs are already markdown files in a folder. Gnosis MCP indexes them as-is — no format conversion, no special syntax needed.
+**Works with what you have.** Gnosis MCP ingests `.md`, `.txt`, `.ipynb`, `.toml`, `.csv`, and `.json` files. Non-markdown formats are auto-converted for chunking — zero extra dependencies.
 
 ## Quick Start
 
 ```bash
 pip install gnosis-mcp
-gnosis-mcp ingest ./docs/       # loads markdown, auto-creates SQLite database
+gnosis-mcp ingest ./docs/       # loads docs, auto-creates SQLite database
 gnosis-mcp serve                # starts MCP server
 ```
 
@@ -389,7 +389,7 @@ All tables must share the same schema. Reads use `UNION ALL`. Writes target the 
 ## CLI Reference
 
 ```
-gnosis-mcp ingest <path> [--dry-run] [--embed]             Load markdown files (--embed to generate embeddings)
+gnosis-mcp ingest <path> [--dry-run] [--embed]             Load files (--embed to generate embeddings)
 gnosis-mcp serve [--transport stdio|sse] [--ingest PATH] [--watch PATH]   Start MCP server (--watch for live reload)
 gnosis-mcp search <query> [-n LIMIT] [-c CAT] [--embed]    Search (--embed for hybrid semantic+keyword)
 gnosis-mcp stats                                           Show document, chunk, and embedding counts
@@ -401,8 +401,9 @@ gnosis-mcp export [-f json|markdown] [-c CAT]              Export documents
 
 ## How ingestion works
 
-`gnosis-mcp ingest` scans a directory for `.md` files and loads them into the database:
+`gnosis-mcp ingest` scans a directory for supported files (`.md`, `.txt`, `.ipynb`, `.toml`, `.csv`, `.json`) and loads them into the database:
 
+- **Multi-format** — Markdown native; `.txt`, `.ipynb`, `.toml`, `.csv`, `.json` auto-converted (stdlib only, zero extra deps)
 - **Smart chunking** — splits by H2 headings (H3/H4 for oversized sections), never splits inside fenced code blocks or tables
 - **Frontmatter support** — extracts `title`, `category`, `audience`, `tags` from YAML frontmatter
 - **Auto-linking** — `relates_to` in frontmatter creates bidirectional links (queryable via `get_related`)
@@ -426,7 +427,7 @@ src/gnosis_mcp/
 ├── config.py          Config from env vars, backend auto-detection
 ├── db.py              Backend lifecycle + FastMCP lifespan
 ├── server.py          FastMCP server — 6 tools, 3 resources, auto-embed queries
-├── ingest.py          Markdown scanner — smart chunking (H2/H3/H4), code block protection
+├── ingest.py          File scanner + converters — multi-format, smart chunking (H2/H3/H4)
 ├── watch.py           File watcher — mtime polling, auto-re-ingest on changes
 ├── schema.py          PostgreSQL DDL — tables, indexes, search functions
 ├── embed.py           Embedding providers — OpenAI, Ollama, custom, local ONNX
@@ -457,7 +458,7 @@ ruff check src/ tests/
 
 All tests run without a database. Keep it that way.
 
-Good first contributions: new embedding providers, export formats, ingestion for RST/AsciiDoc/HTML. Open an issue first for larger changes.
+Good first contributions: new embedding providers, export formats, ingestion for RST/HTML/PDF (via optional extras). Open an issue first for larger changes.
 
 ## Sponsors
 

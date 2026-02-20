@@ -188,7 +188,7 @@ Optionally, your function can also accept `p_embedding vector(N)` for hybrid sea
 ## CLI
 
 ```
-gnosis-mcp ingest <path> [--dry-run] [--embed]             # Load markdown files (--embed to generate embeddings)
+gnosis-mcp ingest <path> [--dry-run] [--embed]             # Load files (.md/.txt/.ipynb/.toml/.csv/.json)
 gnosis-mcp serve [--transport stdio|sse|streamable-http] [--host H] [--port P] [--ingest PATH] [--watch PATH]   # Start MCP server
 gnosis-mcp search <query> [-n LIMIT] [-c CAT] [--embed]    # Search (--embed for hybrid semantic+keyword)
 gnosis-mcp stats                                           # Show document/chunk/embedding counts
@@ -201,7 +201,7 @@ gnosis-mcp --version                                       # Show version
 
 ## Ingest
 
-`gnosis-mcp ingest <path>` scans a file or directory for markdown files and loads them into the database.
+`gnosis-mcp ingest <path>` scans a file or directory for supported files (`.md`, `.txt`, `.ipynb`, `.toml`, `.csv`, `.json`) and loads them into the database. Non-markdown formats are auto-converted using Python stdlib only — zero extra dependencies.
 
 - Chunks by H2 headers (H3/H4 for oversized sections). Never splits inside fenced code blocks or tables
 - Parses YAML-like frontmatter for title, category, audience, tags
@@ -224,7 +224,7 @@ src/gnosis_mcp/
 ├── config.py          # GnosisMcpConfig frozen dataclass, backend auto-detection
 ├── db.py              # Backend lifecycle + FastMCP lifespan
 ├── server.py          # FastMCP server: 6 tools + 3 resources + webhook helper
-├── ingest.py          # File scanner: smart chunking (H2/H3/H4, code-aware), frontmatter, hashing
+├── ingest.py          # File scanner + converters: multi-format, smart chunking (H2/H3/H4), hashing
 ├── watch.py           # File watcher: mtime polling, auto-re-ingest on changes
 ├── schema.py          # PostgreSQL DDL — tables, indexes, HNSW, hybrid search functions
 ├── embed.py           # Embedding sidecar: provider abstraction (openai/ollama/custom/local)

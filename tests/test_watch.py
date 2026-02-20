@@ -17,13 +17,14 @@ class TestScanMtimes:
     def test_empty_dir(self, tmp_path):
         assert scan_mtimes(tmp_path) == {}
 
-    def test_finds_md_files(self, tmp_path):
+    def test_finds_supported_files(self, tmp_path):
         (tmp_path / "a.md").write_text("# A")
         (tmp_path / "b.md").write_text("# B")
-        (tmp_path / "c.txt").write_text("not markdown")
+        (tmp_path / "c.txt").write_text("plain text")
+        (tmp_path / "d.py").write_text("# not docs")
         result = scan_mtimes(tmp_path)
-        assert len(result) == 2
-        assert all(p.suffix == ".md" for p in result)
+        assert len(result) == 3  # .md + .txt are supported
+        assert not any(p.suffix == ".py" for p in result)
 
     def test_recursive(self, tmp_path):
         sub = tmp_path / "sub"
@@ -40,9 +41,15 @@ class TestScanMtimes:
         assert len(result) == 1
         assert f in result
 
-    def test_single_non_md_file(self, tmp_path):
+    def test_single_txt_file(self, tmp_path):
         f = tmp_path / "doc.txt"
-        f.write_text("not markdown")
+        f.write_text("plain text")
+        result = scan_mtimes(f)
+        assert len(result) == 1  # .txt is now supported
+
+    def test_single_unsupported_file(self, tmp_path):
+        f = tmp_path / "doc.py"
+        f.write_text("# python")
         result = scan_mtimes(f)
         assert len(result) == 0
 
