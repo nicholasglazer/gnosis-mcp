@@ -396,7 +396,8 @@ gnosis-mcp stats                                           Show document, chunk,
 gnosis-mcp check                                           Verify database connection + sqlite-vec status
 gnosis-mcp embed [--provider P] [--model M] [--dry-run]    Backfill embeddings (auto-detects local provider)
 gnosis-mcp init-db [--dry-run]                             Create tables + indexes manually
-gnosis-mcp export [-f json|markdown] [-c CAT]              Export documents
+gnosis-mcp export [-f json|markdown|csv] [-c CAT]          Export documents
+gnosis-mcp diff <path>                                     Show what would change on re-ingest
 ```
 
 ## How ingestion works

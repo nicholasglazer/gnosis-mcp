@@ -18,7 +18,7 @@ src/gnosis_mcp/
 ├── schema.py          # PostgreSQL DDL — tables, indexes, HNSW, hybrid search functions
 ├── embed.py           # Embedding providers: openai/ollama/custom/local, batch backfill
 ├── local_embed.py     # Local ONNX embedding engine — stdlib urllib model download, CPU inference
-└── cli.py             # argparse CLI: serve, init-db, ingest, search, embed, stats, export, check
+└── cli.py             # argparse CLI: serve, init-db, ingest, search, embed, stats, export, diff, check
 ```
 
 ## Backend Protocol

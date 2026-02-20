@@ -404,6 +404,15 @@ def cmd_export(args: argparse.Namespace) -> None:
             if fmt == "json":
                 json.dump(docs, sys.stdout, indent=2)
                 sys.stdout.write("\n")
+            elif fmt == "csv":
+                import csv as csv_mod
+                import io
+
+                writer = csv_mod.writer(sys.stdout)
+                writer.writerow(["file_path", "title", "category", "chunks"])
+                for d in docs:
+                    chunk_count = d["content"].count("\n\n") + 1 if d["content"] else 0
+                    writer.writerow([d["file_path"], d["title"], d["category"], chunk_count])
             else:
                 for d in docs:
                     sys.stdout.write(f"---\nfile_path: {d['file_path']}\n")
@@ -415,6 +424,33 @@ def cmd_export(args: argparse.Namespace) -> None:
             log.info("Exported %d document(s)", len(docs))
         finally:
             await backend.shutdown()
+
+    asyncio.run(_run())
+
+
+def cmd_diff(args: argparse.Namespace) -> None:
+    """Show what would change on re-ingest."""
+    from gnosis_mcp.config import GnosisMcpConfig
+    from gnosis_mcp.ingest import diff_path
+
+    config = GnosisMcpConfig.from_env()
+
+    async def _run() -> None:
+        result = await diff_path(config, args.path)
+
+        for p in result["new"]:
+            log.info("[+] %s  (new)", p)
+        for p in result["modified"]:
+            log.info("[~] %s  (modified)", p)
+        for p in result["deleted"]:
+            log.info("[-] %s  (deleted from disk)", p)
+
+        sys.stdout.write(
+            f"\n  {len(result['new'])} new, "
+            f"{len(result['modified'])} modified, "
+            f"{len(result['deleted'])} deleted, "
+            f"{len(result['unchanged'])} unchanged\n"
+        )
 
     asyncio.run(_run())
 
@@ -519,7 +555,7 @@ def main() -> None:
     # export
     p_export = sub.add_parser("export", help="Export documents as JSON or markdown")
     p_export.add_argument(
-        "-f", "--format", choices=["json", "markdown"], default="json", help="Output format (default: json)"
+        "-f", "--format", choices=["json", "markdown", "csv"], default="json", help="Output format (default: json)"
     )
     p_export.add_argument("-c", "--category", default=None, help="Filter by category")
 
@@ -534,6 +570,10 @@ def main() -> None:
         "--batch-size", type=int, default=None, help="Chunks per batch (default: 50)"
     )
     p_embed.add_argument("--dry-run", action="store_true", help="Count NULL embeddings only")
+
+    # diff
+    p_diff = sub.add_parser("diff", help="Show what would change on re-ingest")
+    p_diff.add_argument("path", help="File or directory to compare")
 
     # check
     sub.add_parser("check", help="Verify database connection and schema")
@@ -551,6 +591,7 @@ def main() -> None:
         "embed": cmd_embed,
         "stats": cmd_stats,
         "export": cmd_export,
+        "diff": cmd_diff,
         "check": cmd_check,
     }
     commands[args.command](args)

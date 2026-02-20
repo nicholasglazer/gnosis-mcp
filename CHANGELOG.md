@@ -5,6 +5,12 @@ All notable changes to gnosis-mcp are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 Versioning follows [Semantic Versioning](https://semver.org/) (pre-1.0).
 
+## [0.7.10] - 2026-02-20
+
+### Added
+- CSV export format: `gnosis-mcp export -f csv`
+- `gnosis-mcp diff` command: show new/modified/deleted files vs database state
+
 ## [0.7.9] - 2026-02-20
 
 ### Changed

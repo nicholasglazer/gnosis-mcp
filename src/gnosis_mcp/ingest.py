@@ -30,6 +30,7 @@ __all__ = [
     "chunk_by_headings",
     "scan_files",
     "ingest_path",
+    "diff_path",
 ]
 
 log = logging.getLogger("gnosis_mcp")
@@ -628,3 +629,72 @@ async def ingest_path(
         await backend.shutdown()
 
     return results
+
+
+async def diff_path(config, root: str) -> dict[str, list[str]]:
+    """Compare filesystem files with database state.
+
+    Returns {"new": [...], "modified": [...], "deleted": [...], "unchanged": [...]}.
+    """
+    root_path = Path(root).resolve()
+    if not root_path.exists():
+        return {"new": [], "modified": [], "deleted": [], "unchanged": []}
+
+    files = scan_files(root_path)
+    base = root_path.parent if root_path.is_file() else root_path
+
+    from gnosis_mcp.backend import create_backend
+
+    backend = create_backend(config)
+    await backend.startup()
+
+    try:
+        # Check if table exists
+        table_name = config.chunks_tables[0]
+        has_hash = await backend.has_column(table_name, "content_hash")
+
+        # Get all stored file paths and hashes
+        docs = await backend.list_docs()
+        db_paths = {d["file_path"] for d in docs}
+
+        # Build hash map from DB
+        db_hashes: dict[str, str | None] = {}
+        if has_hash:
+            for d in docs:
+                h = await backend.get_content_hash(d["file_path"])
+                db_hashes[d["file_path"]] = h
+
+        # Classify files
+        new: list[str] = []
+        modified: list[str] = []
+        unchanged: list[str] = []
+
+        disk_paths: set[str] = set()
+        for f in files:
+            rel = str(f.relative_to(base))
+            disk_paths.add(rel)
+
+            if rel not in db_paths:
+                new.append(rel)
+            elif has_hash:
+                text = f.read_text(encoding="utf-8", errors="replace")
+                digest = content_hash(text)
+                if db_hashes.get(rel) != digest:
+                    modified.append(rel)
+                else:
+                    unchanged.append(rel)
+            else:
+                # No hash column — can't detect modifications, treat as unchanged
+                unchanged.append(rel)
+
+        # Files in DB but not on disk
+        deleted = sorted(db_paths - disk_paths)
+
+        return {
+            "new": sorted(new),
+            "modified": sorted(modified),
+            "deleted": sorted(deleted),
+            "unchanged": sorted(unchanged),
+        }
+    finally:
+        await backend.shutdown()
