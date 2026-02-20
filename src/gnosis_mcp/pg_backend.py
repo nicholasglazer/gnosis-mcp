@@ -213,7 +213,10 @@ class PostgresBackend:
         or_query = _to_or_query(query)
         async with await self._acquire() as conn:
             if cfg.search_function:
-                return await self._search_custom(conn, or_query, category, limit, query_embedding)
+                # Pass raw query — custom functions do their own query parsing.
+                # _to_or_query breaks custom functions' ILIKE fallback and
+                # causes websearch_to_tsquery to treat "or" as boolean OR.
+                return await self._search_custom(conn, query, category, limit, query_embedding)
             elif query_embedding:
                 return await self._search_hybrid(conn, or_query, category, limit, query_embedding)
             else:
@@ -265,12 +268,14 @@ class PostgresBackend:
     async def _search_hybrid(self, conn, query, category, limit, query_embedding):
         cfg = self._cfg
         embedding_str = "[" + ",".join(str(f) for f in query_embedding) + "]"
+        # Always use $3 for embedding, $4 for category (when present).
+        # This avoids parameter numbering gaps when category is None.
         select = (
             f"{cfg.col_file_path}, {cfg.col_title}, {cfg.col_content}, "
             f"{cfg.col_category}, "
             f"CASE WHEN {cfg.col_embedding} IS NOT NULL THEN "
             f"  (ts_rank({cfg.col_tsv}, websearch_to_tsquery('english', $1))::float * 0.4 "
-            f"  + (1.0 - ({cfg.col_embedding} <=> $4::vector))::float * 0.6) "
+            f"  + (1.0 - ({cfg.col_embedding} <=> $3::vector))::float * 0.6) "
             f"ELSE ts_rank({cfg.col_tsv}, websearch_to_tsquery('english', $1))::float "
             f"END AS score, "
             f"ts_headline('english', {cfg.col_content}, websearch_to_tsquery('english', $1), "
@@ -279,18 +284,15 @@ class PostgresBackend:
         where = (
             f"({cfg.col_tsv} @@ websearch_to_tsquery('english', $1) "
             f"OR ({cfg.col_embedding} IS NOT NULL "
-            f"AND ({cfg.col_embedding} <=> $4::vector) < 0.8))"
+            f"AND ({cfg.col_embedding} <=> $3::vector) < 0.8))"
         )
         if category:
-            where += f" AND {cfg.col_category} = $3"
+            where += f" AND {cfg.col_category} = $4"
         sql = self._union_select(select, where, "ORDER BY score DESC LIMIT $2")
-        rows = await conn.fetch(
-            sql,
-            query,
-            limit,
-            *([category] if category else []),
-            embedding_str,
-        )
+        params = [query, limit, embedding_str]
+        if category:
+            params.append(category)
+        rows = await conn.fetch(sql, *params)
         return [
             {
                 "file_path": r[cfg.col_file_path],
