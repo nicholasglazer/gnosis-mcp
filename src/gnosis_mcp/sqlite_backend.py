@@ -24,7 +24,8 @@ def _to_fts5_query(text: str) -> str:
     """Convert natural language text to a safe FTS5 query.
 
     Wraps each word in quotes to prevent FTS5 syntax errors from special chars.
-    Joins with implicit AND (FTS5 default).
+    Multi-word queries use OR for broader matching — BM25 ranking still puts
+    multi-match results first. Single-word queries return the bare quoted term.
     """
     words = text.split()
     if not words:
@@ -35,7 +36,9 @@ def _to_fts5_query(text: str) -> str:
         cleaned = _FTS5_SPECIAL.sub("", w)
         if cleaned:
             safe.append(f'"{cleaned}"')
-    return " ".join(safe) if safe else '""'
+    if not safe:
+        return '""'
+    return " OR ".join(safe) if len(safe) > 1 else safe[0]
 
 
 class SqliteBackend:

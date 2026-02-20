@@ -13,8 +13,15 @@ def _make_backend() -> SqliteBackend:
 
 
 class TestFts5Query:
-    def test_simple_words(self):
-        assert _to_fts5_query("billing guide") == '"billing" "guide"'
+    def test_multi_word_uses_or(self):
+        """Multi-word queries use OR for broader matching."""
+        result = _to_fts5_query("billing guide")
+        assert result == '"billing" OR "guide"'
+        assert "OR" in result
+
+    def test_three_words(self):
+        result = _to_fts5_query("pandas data analysis")
+        assert result == '"pandas" OR "data" OR "analysis"'
 
     def test_strips_special_chars(self):
         assert _to_fts5_query('test*') == '"test"'
@@ -26,6 +33,10 @@ class TestFts5Query:
 
     def test_single_word(self):
         assert _to_fts5_query("search") == '"search"'
+
+    def test_all_special_chars(self):
+        """If all chars are special, return empty quoted string."""
+        assert _to_fts5_query("*+-") == '""'
 
 
 class TestSqliteBackendLifecycle:
@@ -205,6 +216,19 @@ class TestSqliteBackendLifecycle:
         pending = await backend.get_pending_embeddings(10)
         assert len(pending) == 1
         assert pending[0]["content"] == "Content"
+
+    async def test_search_multi_word_or(self, backend):
+        """Multi-word search uses OR — should match docs with any term."""
+        await backend.upsert_doc(
+            "a.md", ["Pandas is a data analysis library"], title="A", category="test"
+        )
+        await backend.upsert_doc(
+            "b.md", ["Flask is a web framework"], title="B", category="test"
+        )
+
+        # "pandas web" — one word in each doc, OR should find both
+        results = await backend.search("pandas web")
+        assert len(results) == 2
 
     async def test_upsert_replaces_existing(self, backend):
         await backend.upsert_doc("a.md", ["V1"], title="V1", category="test")
