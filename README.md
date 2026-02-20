@@ -398,7 +398,7 @@ gnosis-mcp export [-f json|markdown] [-c CAT]              Export documents
 
 `gnosis-mcp ingest` scans a directory for `.md` files and loads them into the database:
 
-- **Smart chunking** — splits by H2 headings, keeping sections together (not arbitrary character limits)
+- **Smart chunking** — splits by H2 headings (H3/H4 for oversized sections), never splits inside fenced code blocks or tables
 - **Frontmatter support** — extracts `title`, `category`, `audience`, `tags` from YAML frontmatter
 - **Auto-linking** — `relates_to` in frontmatter creates bidirectional links (queryable via `get_related`)
 - **Auto-categorization** — infers category from the parent directory name
@@ -421,7 +421,7 @@ src/gnosis_mcp/
 ├── config.py          Config from env vars, backend auto-detection
 ├── db.py              Backend lifecycle + FastMCP lifespan
 ├── server.py          FastMCP server — 6 tools, 3 resources, auto-embed queries
-├── ingest.py          Markdown scanner — H2 chunking, frontmatter
+├── ingest.py          Markdown scanner — smart chunking (H2/H3/H4), code block protection
 ├── watch.py           File watcher — mtime polling, auto-re-ingest on changes
 ├── schema.py          PostgreSQL DDL — tables, indexes, search functions
 ├── embed.py           Embedding providers — OpenAI, Ollama, custom, local ONNX
@@ -446,13 +446,13 @@ git clone https://github.com/nicholasglazer/gnosis-mcp.git
 cd gnosis-mcp
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
-pytest                    # 220+ tests, no database needed
+pytest                    # 240+ tests, no database needed
 ruff check src/ tests/
 ```
 
 All tests run without a database. Keep it that way.
 
-Good first contributions: new embedding providers, export formats, ingestion for RST/AsciiDoc/HTML, search highlighting. Open an issue first for larger changes.
+Good first contributions: new embedding providers, export formats, ingestion for RST/AsciiDoc/HTML. Open an issue first for larger changes.
 
 ## Sponsors
 

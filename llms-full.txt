@@ -201,7 +201,7 @@ gnosis-mcp --version                                       # Show version
 
 `gnosis-mcp ingest <path>` scans a file or directory for markdown files and loads them into the database.
 
-- Chunks by H2 headers (keeps sections together, not arbitrary character limits)
+- Chunks by H2 headers (H3/H4 for oversized sections). Never splits inside fenced code blocks or tables
 - Parses YAML-like frontmatter for title, category, audience, tags
 - Auto-linking: `relates_to` in frontmatter populates the links table (supports comma-separated and YAML list, skips glob patterns)
 - Content hashing: skips unchanged files on re-run
@@ -222,7 +222,7 @@ src/gnosis_mcp/
 ├── config.py          # GnosisMcpConfig frozen dataclass, backend auto-detection
 ├── db.py              # Backend lifecycle + FastMCP lifespan
 ├── server.py          # FastMCP server: 6 tools + 3 resources + webhook helper
-├── ingest.py          # File scanner: markdown chunking, frontmatter, content hashing
+├── ingest.py          # File scanner: smart chunking (H2/H3/H4, code-aware), frontmatter, hashing
 ├── watch.py           # File watcher: mtime polling, auto-re-ingest on changes
 ├── schema.py          # PostgreSQL DDL — tables, indexes, HNSW, hybrid search functions
 ├── embed.py           # Embedding sidecar: provider abstraction (openai/ollama/custom/local)

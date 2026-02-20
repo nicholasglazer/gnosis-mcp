@@ -13,7 +13,7 @@ src/gnosis_mcp/
 ├── config.py          # GnosisMcpConfig frozen dataclass, backend auto-detection, GNOSIS_MCP_* env vars
 ├── db.py              # Backend lifecycle + FastMCP lifespan context manager
 ├── server.py          # FastMCP server: 6 tools + 3 resources + auto-embed queries
-├── ingest.py          # File ingestion: scan markdown, chunk by H2, frontmatter, content hashing
+├── ingest.py          # File ingestion: smart chunking (H2/H3/H4, code block + table protection), frontmatter, hashing
 ├── watch.py           # File watcher: mtime polling, debounce, auto-re-ingest + auto-embed on changes
 ├── schema.py          # PostgreSQL DDL — tables, indexes, HNSW, hybrid search functions
 ├── embed.py           # Embedding providers: openai/ollama/custom/local, batch backfill
@@ -63,7 +63,7 @@ Default install: `mcp>=1.20` + `aiosqlite>=0.20`. Optional: `pip install gnosis-
 - **Custom search delegation**: Set `GNOSIS_MCP_SEARCH_FUNCTION` to use your own hybrid search (PostgreSQL only)
 - **Column overrides**: `GNOSIS_MCP_COL_*` are for connecting to existing tables with non-standard names
 - **Frontmatter link extraction**: `ingest` parses `relates_to` from frontmatter (comma-separated or YAML list), inserts into links table for `get_related` queries. Glob patterns are skipped.
-- **H2-based chunking**: `ingest` splits markdown by H2 headers (smarter than paragraph boundaries)
+- **Smart recursive chunking**: `ingest` splits by H2 (primary), H3/H4 (for oversized sections), then paragraphs. Never splits inside fenced code blocks or tables
 - **Content hashing**: `ingest` skips unchanged files using SHA-256 hash comparison
 - **4-tier embedding support**: (1) Local ONNX via `[embeddings]` extra, (2) pre-computed embeddings via tools, (3) backfill with `gnosis-mcp embed`, (4) built-in hybrid search when `query_embedding` is provided
 - **Local ONNX embedder**: `local_embed.py` — HuggingFace model auto-download, ONNX Runtime CPU inference, mean pooling, L2 normalization, Matryoshka dimension truncation

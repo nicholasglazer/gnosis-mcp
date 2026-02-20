@@ -398,27 +398,13 @@ async def update_metadata(
 
 
 def _split_chunks(content: str, max_size: int = 4000) -> list[str]:
-    """Split content into chunks at paragraph boundaries."""
+    """Split content into chunks at paragraph boundaries.
+
+    Protects fenced code blocks and tables from being split mid-block.
+    """
     if len(content) <= max_size:
         return [content]
 
-    chunks: list[str] = []
-    parts: list[str] = []
-    current_len = 0
+    from gnosis_mcp.ingest import _split_paragraphs_safe
 
-    for para in content.split("\n\n"):
-        added_len = len(para) + (2 if parts else 0)
-        if parts and current_len + added_len > max_size:
-            chunks.append("\n\n".join(parts).strip())
-            parts = [para]
-            current_len = len(para)
-        else:
-            parts.append(para)
-            current_len += added_len
-
-    if parts:
-        tail = "\n\n".join(parts).strip()
-        if tail:
-            chunks.append(tail)
-
-    return chunks if chunks else [content]
+    return _split_paragraphs_safe(content, max_size) or [content]

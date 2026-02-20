@@ -5,6 +5,8 @@ from pathlib import Path
 import pytest
 
 from gnosis_mcp.ingest import (
+    _find_protected_ranges,
+    _split_paragraphs_safe,
     chunk_by_headings,
     content_hash,
     extract_relates_to,
@@ -184,6 +186,143 @@ class TestChunkByHeadings:
         md = "# Doc\n\n## Code Example\n\n```python\ndef hello():\n    pass\n```\n\nMore text."
         chunks = chunk_by_headings(md, "test.md")
         assert "```python" in chunks[0]["content"]
+
+    def test_oversized_h2_splits_by_h3(self):
+        """An oversized H2 section should split at H3 boundaries."""
+        h3a = "### Sub A\n\n" + "A " * 100
+        h3b = "### Sub B\n\n" + "B " * 100
+        md = f"# Doc\n\n## Big Section\n\n{h3a}\n\n{h3b}"
+        chunks = chunk_by_headings(md, "test.md", max_chunk_size=300)
+        assert len(chunks) >= 2
+        assert any("Sub A" in c["title"] for c in chunks)
+        assert any("Sub B" in c["title"] for c in chunks)
+
+    def test_oversized_no_headings_splits_paragraphs(self):
+        """Large doc with no headings should split at paragraph boundaries."""
+        paras = ["Paragraph " + str(i) + " " + "x" * 80 for i in range(10)]
+        md = "\n\n".join(paras)
+        chunks = chunk_by_headings(md, "test.md", max_chunk_size=200)
+        assert len(chunks) > 1
+        # All content should be preserved
+        rejoined = "\n\n".join(c["content"] for c in chunks)
+        for i in range(10):
+            assert f"Paragraph {i}" in rejoined
+
+    def test_code_block_not_split(self):
+        """Code blocks should never be split across chunks."""
+        code = "```python\n" + "\n".join(f"line_{i} = {i}" for i in range(30)) + "\n```"
+        md = f"# Doc\n\n## Section\n\nBefore code.\n\n{code}\n\nAfter code."
+        chunks = chunk_by_headings(md, "test.md", max_chunk_size=200)
+        # Find the chunk(s) containing the code block
+        code_chunks = [c for c in chunks if "```python" in c["content"]]
+        assert len(code_chunks) >= 1
+        for cc in code_chunks:
+            # Code block must be complete (has opening AND closing)
+            if "```python" in cc["content"]:
+                assert cc["content"].count("```") >= 2
+
+    def test_table_not_split(self):
+        """Tables should never be split across chunks."""
+        rows = "\n".join(f"| col{i}a | col{i}b |" for i in range(20))
+        table = f"| Header A | Header B |\n| --- | --- |\n{rows}"
+        md = f"# Doc\n\nBefore table.\n\n{table}\n\nAfter table."
+        chunks = chunk_by_headings(md, "test.md", max_chunk_size=200)
+        table_chunks = [c for c in chunks if "Header A" in c["content"]]
+        assert len(table_chunks) >= 1
+        # Table header and last row should be in the same chunk
+        for tc in table_chunks:
+            if "Header A" in tc["content"]:
+                assert "col19a" in tc["content"]
+
+    def test_h4_split_for_deeply_nested(self):
+        """H4 should be used as a split point for oversized H3 sections."""
+        h4a = "#### Detail A\n\n" + "A " * 100
+        h4b = "#### Detail B\n\n" + "B " * 100
+        h3 = f"### Subsection\n\n{h4a}\n\n{h4b}"
+        md = f"# Doc\n\n## Section\n\n{h3}"
+        chunks = chunk_by_headings(md, "test.md", max_chunk_size=250)
+        assert len(chunks) >= 2
+        assert any("Detail A" in c["title"] for c in chunks)
+        assert any("Detail B" in c["title"] for c in chunks)
+
+    def test_cont_suffix_on_paragraph_splits(self):
+        """Paragraph-split chunks get (cont.) suffix."""
+        md = "# Doc\n\n" + "\n\n".join(f"Para {i} " + "x" * 80 for i in range(10))
+        chunks = chunk_by_headings(md, "test.md", max_chunk_size=200)
+        if len(chunks) > 1:
+            assert any("(cont.)" in c["title"] for c in chunks[1:])
+
+    def test_max_chunk_size_default(self):
+        """Default max_chunk_size is 4000."""
+        md = "# Doc\n\n## Section\n\n" + "x " * 1500
+        chunks = chunk_by_headings(md, "test.md")
+        assert len(chunks) == 1  # 3000 chars < 4000 default
+
+
+# ---------------------------------------------------------------------------
+# Protected ranges and safe splitting
+# ---------------------------------------------------------------------------
+
+
+class TestProtectedRanges:
+    def test_fenced_code_block(self):
+        text = "Before\n\n```python\ncode here\n```\n\nAfter"
+        ranges = _find_protected_ranges(text)
+        assert len(ranges) >= 1
+        # The code block range should contain "code here"
+        code_range = ranges[0]
+        assert "code here" in text[code_range[0]:code_range[1]]
+
+    def test_tilde_fence(self):
+        text = "Before\n\n~~~\ncode\n~~~\n\nAfter"
+        ranges = _find_protected_ranges(text)
+        assert len(ranges) >= 1
+
+    def test_unclosed_fence(self):
+        text = "Before\n\n```python\nunclosed code"
+        ranges = _find_protected_ranges(text)
+        assert len(ranges) == 1
+        assert ranges[0][1] == len(text)
+
+    def test_table_detection(self):
+        text = "Before\n\n| A | B |\n| --- | --- |\n| 1 | 2 |\n\nAfter"
+        ranges = _find_protected_ranges(text)
+        table_ranges = [r for r in ranges if "| A |" in text[r[0]:r[1]]]
+        assert len(table_ranges) == 1
+
+    def test_no_protected(self):
+        text = "Just plain text\n\nWith paragraphs"
+        assert _find_protected_ranges(text) == []
+
+
+class TestSplitParagraphsSafe:
+    def test_short_text(self):
+        assert _split_paragraphs_safe("short", 100) == ["short"]
+
+    def test_splits_at_paragraph(self):
+        text = "A" * 50 + "\n\n" + "B" * 50
+        result = _split_paragraphs_safe(text, 60)
+        assert len(result) == 2
+
+    def test_preserves_code_blocks(self):
+        code = "```\n" + "x\n" * 40 + "```"
+        text = "Before\n\n" + code + "\n\nAfter"
+        result = _split_paragraphs_safe(text, 50)
+        # Code block should be in one chunk
+        code_chunks = [c for c in result if "```" in c]
+        for cc in code_chunks:
+            assert cc.count("```") >= 2 or cc.endswith("```")
+
+    def test_no_split_points(self):
+        text = "A" * 200
+        result = _split_paragraphs_safe(text, 100)
+        assert result == [text]
+
+    def test_multiple_splits(self):
+        parts = [f"P{i} " + "x" * 30 for i in range(5)]
+        text = "\n\n".join(parts)
+        result = _split_paragraphs_safe(text, 50)
+        assert len(result) >= 3
 
 
 # ---------------------------------------------------------------------------
