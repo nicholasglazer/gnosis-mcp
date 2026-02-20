@@ -17,7 +17,7 @@ src/gnosis_mcp/
 ├── watch.py           # File watcher: mtime polling, debounce, auto-re-ingest + auto-embed on changes
 ├── schema.py          # PostgreSQL DDL — tables, indexes, HNSW, hybrid search functions
 ├── embed.py           # Embedding providers: openai/ollama/custom/local, batch backfill
-├── local_embed.py     # Local ONNX embedding engine — HuggingFace model auto-download, CPU inference
+├── local_embed.py     # Local ONNX embedding engine — stdlib urllib model download, CPU inference
 └── cli.py             # argparse CLI: serve, init-db, ingest, search, embed, stats, export, check
 ```
 
@@ -32,7 +32,7 @@ All database operations go through `DocBackend` (a `typing.Protocol` in `backend
 
 ## Dependencies
 
-Default install: `mcp>=1.20` + `aiosqlite>=0.20`. Optional: `pip install gnosis-mcp[postgres]` adds `asyncpg>=0.29`. Optional: `pip install gnosis-mcp[embeddings]` adds `onnxruntime`, `tokenizers`, `numpy`, `huggingface-hub`, `sqlite-vec`.
+Default install: `mcp>=1.20` + `aiosqlite>=0.20`. Optional: `pip install gnosis-mcp[postgres]` adds `asyncpg>=0.29`. Optional: `pip install gnosis-mcp[embeddings]` adds `onnxruntime`, `tokenizers`, `numpy`, `sqlite-vec`. Model download uses stdlib `urllib` (no `huggingface-hub` dependency).
 
 ## Tools
 
@@ -89,7 +89,7 @@ Version lives in **4 files** — all must match:
 3. `server.json` → `"version": "X.Y.Z"` (2 places)
 4. `marketplace.json` → `"version": "X.Y.Z"`
 
-**Pipeline**: push to main with changed `pyproject.toml` → `auto-tag.yml` creates `vX.Y.Z` tag → `publish.yml` builds + publishes to PyPI + MCP Registry. No manual tagging needed.
+**Pipeline**: push to main with changed `pyproject.toml` → `release.yml` builds, publishes to PyPI + MCP Registry, then creates `vX.Y.Z` tag. No manual tagging needed. `publish.yml` still exists as fallback for manual `v*` tag pushes.
 
 **Also update docs**: `README.md`, `llms.txt`, `llms-full.txt`, `CLAUDE.md` when adding features.
 

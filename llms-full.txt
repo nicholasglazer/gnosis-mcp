@@ -92,7 +92,7 @@ PostgreSQL:
 
 Auto-detection: `DATABASE_URL` set to `postgresql://...` -> PostgreSQL. Not set -> SQLite. Override: `GNOSIS_MCP_BACKEND=sqlite|postgres`.
 
-The `[embeddings]` extra installs: onnxruntime, tokenizers, numpy, huggingface-hub, sqlite-vec. Default model: MongoDB/mdbr-leaf-ir (23M params, 23MB quantized). Model auto-downloads from HuggingFace Hub on first use. Customize with `GNOSIS_MCP_EMBED_MODEL`.
+The `[embeddings]` extra installs: onnxruntime, tokenizers, numpy, sqlite-vec. Default model: MongoDB/mdbr-leaf-ir (23M params, 23MB quantized). Model auto-downloads from HuggingFace via stdlib urllib on first use. Customize with `GNOSIS_MCP_EMBED_MODEL`.
 
 ## Tools (6)
 
@@ -228,11 +228,11 @@ src/gnosis_mcp/
 ├── watch.py           # File watcher: mtime polling, auto-re-ingest on changes
 ├── schema.py          # PostgreSQL DDL — tables, indexes, HNSW, hybrid search functions
 ├── embed.py           # Embedding sidecar: provider abstraction (openai/ollama/custom/local)
-├── local_embed.py     # Local ONNX embedding engine — HuggingFace model auto-download
+├── local_embed.py     # Local ONNX embedding engine — stdlib urllib model download
 └── cli.py             # argparse CLI: serve, init-db, ingest, search, embed, stats, export, check
 ```
 
-Default install deps: mcp + aiosqlite. Optional: asyncpg (via `[postgres]` extra), onnxruntime + tokenizers + numpy + huggingface-hub + sqlite-vec (via `[embeddings]` extra).
+Default install deps: mcp + aiosqlite. Optional: asyncpg (via `[postgres]` extra), onnxruntime + tokenizers + numpy + sqlite-vec (via `[embeddings]` extra). Model download uses stdlib urllib (no huggingface-hub dependency).
 
 ## License
 

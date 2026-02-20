@@ -1,13 +1,15 @@
 """Local ONNX-based embedding engine.
 
 Uses onnxruntime + tokenizers for CPU inference.
-Model auto-downloads from HuggingFace Hub on first use.
+Model auto-downloads from HuggingFace via stdlib urllib (no huggingface-hub dep).
 Default: MongoDB/mdbr-leaf-ir (23M params, 23MB quantized, Apache 2.0).
 """
 
 from __future__ import annotations
 
 import logging
+import os
+import urllib.request
 from pathlib import Path
 
 __all__ = ["LocalEmbedder", "get_embedder"]
@@ -17,6 +19,17 @@ log = logging.getLogger("gnosis_mcp")
 _DEFAULT_MODEL = "MongoDB/mdbr-leaf-ir"
 _DEFAULT_DIM = 384
 
+# Files required for ONNX inference
+_MODEL_FILES = [
+    "onnx/model_quantized.onnx",
+    "onnx/model_quantized.onnx_data",
+    "tokenizer.json",
+    "tokenizer_config.json",
+    "special_tokens_map.json",
+]
+
+_HF_BASE = "https://huggingface.co"
+
 # Module-level singleton — loaded once, reused across calls
 _embedder: LocalEmbedder | None = None
 _embedder_model: str | None = None
@@ -24,11 +37,39 @@ _embedder_model: str | None = None
 
 def _get_cache_dir() -> Path:
     """Resolve model cache directory using XDG conventions."""
-    import os
-
     xdg = os.environ.get("XDG_DATA_HOME")
     base = Path(xdg) if xdg else Path.home() / ".local" / "share"
     return base / "gnosis-mcp" / "models"
+
+
+def _download_model(model_id: str, cache_dir: Path) -> Path:
+    """Download model files from HuggingFace using stdlib urllib.
+
+    Downloads each required file individually via the HF resolve endpoint.
+    Skips files that already exist in cache. Returns the model directory.
+    """
+    # Sanitize model_id for filesystem: "MongoDB/mdbr-leaf-ir" -> "MongoDB--mdbr-leaf-ir"
+    safe_name = model_id.replace("/", "--")
+    model_dir = cache_dir / safe_name
+    model_dir.mkdir(parents=True, exist_ok=True)
+
+    for rel_path in _MODEL_FILES:
+        local_path = model_dir / rel_path
+        if local_path.exists():
+            continue
+
+        local_path.parent.mkdir(parents=True, exist_ok=True)
+        url = f"{_HF_BASE}/{model_id}/resolve/main/{rel_path}"
+        log.info("Downloading %s ...", url)
+
+        try:
+            urllib.request.urlretrieve(url, str(local_path))
+        except Exception as exc:
+            # Clean up partial download
+            local_path.unlink(missing_ok=True)
+            raise RuntimeError(f"Failed to download {url}: {exc}") from exc
+
+    return model_dir
 
 
 class LocalEmbedder:
@@ -48,22 +89,10 @@ class LocalEmbedder:
         if self._session is not None:
             return
 
-        from huggingface_hub import snapshot_download
         from tokenizers import Tokenizer
         import onnxruntime as ort
 
-        # Download only the files we need
-        model_dir = Path(snapshot_download(
-            self._model_id,
-            cache_dir=str(self._cache_dir),
-            allow_patterns=[
-                "onnx/model_quantized.onnx",
-                "onnx/model_quantized.onnx_data",
-                "tokenizer.json",
-                "tokenizer_config.json",
-                "special_tokens_map.json",
-            ],
-        ))
+        model_dir = _download_model(self._model_id, self._cache_dir)
 
         # Load tokenizer
         tokenizer_path = model_dir / "tokenizer.json"
