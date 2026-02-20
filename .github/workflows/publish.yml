@@ -2,11 +2,52 @@ name: Publish to PyPI & MCP Registry
 
 on:
   push:
+    branches:
+      - main
+    paths:
+      - "pyproject.toml"
     tags:
       - "v*"
 
 jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      should_release: ${{ steps.decide.outputs.should_release }}
+      version: ${{ steps.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get version from pyproject.toml
+        id: version
+        run: |
+          VERSION=$(grep '^version' pyproject.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Found version: v$VERSION"
+
+      - name: Decide whether to release
+        id: decide
+        run: |
+          # If triggered by a tag push, always release
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
+            echo "Tag push trigger — releasing"
+            exit 0
+          fi
+          # If triggered by pyproject.toml change, check if tag exists
+          if git rev-parse "${{ steps.version.outputs.tag }}" >/dev/null 2>&1; then
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+            echo "Tag ${{ steps.version.outputs.tag }} already exists, skipping"
+          else
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
+            echo "New version ${{ steps.version.outputs.tag }}, will release"
+          fi
+
   build:
+    needs: check
+    if: needs.check.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -48,3 +89,26 @@ jobs:
         run: mcp-publisher login github-oidc
       - name: Publish to MCP Registry
         run: mcp-publisher publish
+
+  tag:
+    needs: [check, publish-pypi]
+    if: github.ref != 'refs/tags/*'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create and push tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          TAG="${{ needs.check.outputs.version }}"
+          if ! git rev-parse "$TAG" >/dev/null 2>&1; then
+            git tag "$TAG"
+            git push origin "$TAG"
+            echo "Created tag $TAG"
+          else
+            echo "Tag $TAG already exists, skipping"
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

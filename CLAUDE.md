@@ -89,7 +89,7 @@ Version lives in **4 files** — all must match:
 3. `server.json` → `"version": "X.Y.Z"` (2 places)
 4. `marketplace.json` → `"version": "X.Y.Z"`
 
-**Pipeline**: push to main with changed `pyproject.toml` → `release.yml` builds, publishes to PyPI + MCP Registry, then creates `vX.Y.Z` tag. No manual tagging needed. `publish.yml` still exists as fallback for manual `v*` tag pushes.
+**Pipeline**: push to main with changed `pyproject.toml` → `publish.yml` builds, publishes to PyPI + MCP Registry, then creates `vX.Y.Z` tag. Also triggers on manual `v*` tag pushes. No manual tagging needed.
 
 **Also update docs**: `README.md`, `llms.txt`, `llms-full.txt`, `CLAUDE.md` when adding features.
 
