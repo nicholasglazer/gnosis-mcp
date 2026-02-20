@@ -1,10 +1,19 @@
-"""Tests for CLI utilities."""
+"""Tests for CLI utilities and command handlers."""
 
+import argparse
 import sys
+import types
 
 import pytest
 
-from gnosis_mcp.cli import _format_bytes, _mask_url, main
+from gnosis_mcp.cli import (
+    _detect_local_provider,
+    _format_bytes,
+    _mask_url,
+    cmd_init_db,
+    cmd_stats,
+    main,
+)
 
 
 class TestMaskUrl:
@@ -63,3 +72,65 @@ class TestMainNoArgs:
         out = capsys.readouterr().out
         from gnosis_mcp import __version__
         assert f"gnosis-mcp {__version__}" in out
+
+
+class TestDetectLocalProvider:
+    def test_returns_true_when_available(self, monkeypatch):
+        mock_ort = types.ModuleType("onnxruntime")
+        mock_tok = types.ModuleType("tokenizers")
+        monkeypatch.setitem(sys.modules, "onnxruntime", mock_ort)
+        monkeypatch.setitem(sys.modules, "tokenizers", mock_tok)
+        assert _detect_local_provider() is True
+
+    def test_returns_false_when_onnxruntime_missing(self, monkeypatch):
+        # Setting a module to None in sys.modules causes ImportError
+        monkeypatch.setitem(sys.modules, "onnxruntime", None)
+        assert _detect_local_provider() is False
+
+    def test_returns_false_when_tokenizers_missing(self, monkeypatch):
+        mock_ort = types.ModuleType("onnxruntime")
+        monkeypatch.setitem(sys.modules, "onnxruntime", mock_ort)
+        monkeypatch.setitem(sys.modules, "tokenizers", None)
+        assert _detect_local_provider() is False
+
+
+class TestCmdInitDbDryRun:
+    def test_sqlite_dry_run(self, monkeypatch, capsys):
+        """--dry-run prints SQLite DDL without executing."""
+        monkeypatch.delenv("GNOSIS_MCP_DATABASE_URL", raising=False)
+        monkeypatch.delenv("DATABASE_URL", raising=False)
+
+        args = argparse.Namespace(dry_run=True)
+        cmd_init_db(args)
+        out = capsys.readouterr().out
+        assert "CREATE TABLE" in out
+        assert "documentation_chunks" in out
+        assert "CREATE VIRTUAL TABLE" in out  # FTS5
+
+    def test_postgres_dry_run(self, monkeypatch, capsys):
+        """--dry-run with PostgreSQL prints PG-specific DDL."""
+        monkeypatch.setenv("GNOSIS_MCP_DATABASE_URL", "postgresql://localhost/test")
+
+        args = argparse.Namespace(dry_run=True)
+        cmd_init_db(args)
+        out = capsys.readouterr().out
+        assert "CREATE TABLE" in out
+        assert "tsvector" in out
+
+
+class TestCmdStats:
+    def test_stats_sqlite(self, monkeypatch, tmp_path, capsys):
+        """cmd_stats runs against an empty SQLite database."""
+        db_path = str(tmp_path / "stats.db")
+        monkeypatch.setenv("GNOSIS_MCP_DATABASE_URL", db_path)
+        monkeypatch.setenv("GNOSIS_MCP_BACKEND", "sqlite")
+
+        # Initialize schema first
+        init_args = argparse.Namespace(dry_run=False)
+        cmd_init_db(init_args)
+
+        args = argparse.Namespace()
+        cmd_stats(args)
+        out = capsys.readouterr().out
+        assert "Documents:" in out
+        assert "Chunks:" in out

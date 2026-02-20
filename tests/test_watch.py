@@ -5,7 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from gnosis_mcp.watch import detect_changes, scan_mtimes, start_watcher
+from gnosis_mcp.config import GnosisMcpConfig
+from gnosis_mcp.watch import _process_changes, detect_changes, scan_mtimes, start_watcher
 
 
 # ---------------------------------------------------------------------------
@@ -146,3 +147,52 @@ class TestStartWatcher:
         assert thread.name == "gnosis-watcher"
         thread.stop_event.set()
         thread.join(timeout=3)
+
+
+# ---------------------------------------------------------------------------
+# _process_changes
+# ---------------------------------------------------------------------------
+
+
+class TestProcessChanges:
+    @pytest.mark.asyncio
+    async def test_re_ingests_files(self, tmp_path):
+        """_process_changes re-ingests changed files."""
+        doc = tmp_path / "test.md"
+        doc.write_text("# Test\n\nThis is test content for the watcher re-ingest test case.")
+
+        config = GnosisMcpConfig(
+            database_url=str(tmp_path / "watch.db"),
+            backend="sqlite",
+        )
+
+        count = await _process_changes(str(tmp_path), config, embed=False)
+        assert count >= 1
+
+    @pytest.mark.asyncio
+    async def test_empty_dir_zero_ingested(self, tmp_path):
+        """Empty directory yields 0 ingested."""
+        config = GnosisMcpConfig(
+            database_url=str(tmp_path / "watch.db"),
+            backend="sqlite",
+        )
+
+        count = await _process_changes(str(tmp_path), config, embed=False)
+        assert count == 0
+
+    @pytest.mark.asyncio
+    async def test_second_run_unchanged(self, tmp_path):
+        """Second run with same content returns 0 (content hashing skips unchanged)."""
+        doc = tmp_path / "test.md"
+        doc.write_text("# Test\n\nThis is test content for the watcher unchanged test case.")
+
+        config = GnosisMcpConfig(
+            database_url=str(tmp_path / "watch.db"),
+            backend="sqlite",
+        )
+
+        first = await _process_changes(str(tmp_path), config, embed=False)
+        assert first >= 1
+
+        second = await _process_changes(str(tmp_path), config, embed=False)
+        assert second == 0

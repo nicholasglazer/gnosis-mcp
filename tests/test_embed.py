@@ -2,14 +2,18 @@
 
 import json
 import urllib.request
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from gnosis_mcp.config import GnosisMcpConfig
 from gnosis_mcp.embed import (
+    EmbedResult,
     _build_request_ollama,
     _build_request_openai,
     _parse_response_ollama,
     _parse_response_openai,
+    embed_pending,
     embed_texts,
     get_provider_url,
 )
@@ -272,3 +276,119 @@ class TestEmbedTexts:
         assert result[0] == [0.0]
         assert result[1] == [1.0]
         assert result[2] == [2.0]
+
+    def test_local_provider_delegates(self, monkeypatch):
+        """local provider delegates to LocalEmbedder via get_embedder."""
+        mock_embedder = MagicMock()
+        mock_embedder.embed.return_value = [[0.1, 0.2, 0.3]]
+
+        monkeypatch.setattr(
+            "gnosis_mcp.local_embed.get_embedder",
+            lambda model=None, dim=None: mock_embedder,
+        )
+
+        # Clear cached module reference so re-import picks up monkeypatched version
+        import gnosis_mcp.local_embed as le_mod
+        monkeypatch.setattr(le_mod, "get_embedder", lambda model=None, dim=None: mock_embedder)
+
+        result = embed_texts(["test"], "local", "test-model", dim=384)
+        assert result == [[0.1, 0.2, 0.3]]
+        mock_embedder.embed.assert_called_once_with(["test"])
+
+
+class TestEmbedResult:
+    def test_fields(self):
+        r = EmbedResult(embedded=10, total_null=15, errors=2)
+        assert r.embedded == 10
+        assert r.total_null == 15
+        assert r.errors == 2
+
+
+class TestEmbedPending:
+    @pytest.mark.asyncio
+    async def test_dry_run_counts_pending(self, monkeypatch):
+        """dry_run returns count without actually embedding."""
+        mock_backend = AsyncMock()
+        mock_backend.count_pending_embeddings.return_value = 42
+        monkeypatch.setattr("gnosis_mcp.backend.create_backend", lambda cfg: mock_backend)
+
+        config = GnosisMcpConfig(database_url=":memory:", backend="sqlite")
+        result = await embed_pending(config=config, dry_run=True)
+
+        assert result.total_null == 42
+        assert result.embedded == 0
+        assert result.errors == 0
+        mock_backend.get_pending_embeddings.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_zero_pending_returns_early(self, monkeypatch):
+        """When no chunks have NULL embeddings, skip batch loop."""
+        mock_backend = AsyncMock()
+        mock_backend.count_pending_embeddings.return_value = 0
+        monkeypatch.setattr("gnosis_mcp.backend.create_backend", lambda cfg: mock_backend)
+
+        config = GnosisMcpConfig(database_url=":memory:", backend="sqlite")
+        result = await embed_pending(config=config, provider="openai")
+
+        assert result.total_null == 0
+        assert result.embedded == 0
+        mock_backend.get_pending_embeddings.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_batch_loop_embeds_all(self, monkeypatch):
+        """Batch loop processes all pending chunks."""
+        mock_backend = AsyncMock()
+        mock_backend.count_pending_embeddings.return_value = 2
+        mock_backend.get_pending_embeddings.side_effect = [
+            [{"id": 1, "content": "hello"}, {"id": 2, "content": "world"}],
+            [],  # second call returns empty → loop ends
+        ]
+        monkeypatch.setattr("gnosis_mcp.backend.create_backend", lambda cfg: mock_backend)
+        monkeypatch.setattr(
+            "gnosis_mcp.embed.embed_texts",
+            lambda texts, provider, model, api_key, url, dim=None: [[0.1]] * len(texts),
+        )
+
+        config = GnosisMcpConfig(database_url=":memory:", backend="sqlite")
+        result = await embed_pending(config=config, provider="openai", model="test")
+
+        assert result.embedded == 2
+        assert result.total_null == 2
+        assert result.errors == 0
+        assert mock_backend.set_embedding.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_batch_error_records_errors(self, monkeypatch):
+        """When embed_texts raises, errors are counted and loop stops."""
+        mock_backend = AsyncMock()
+        mock_backend.count_pending_embeddings.return_value = 3
+        mock_backend.get_pending_embeddings.return_value = [
+            {"id": 1, "content": "a"},
+            {"id": 2, "content": "b"},
+            {"id": 3, "content": "c"},
+        ]
+        monkeypatch.setattr("gnosis_mcp.backend.create_backend", lambda cfg: mock_backend)
+
+        def failing_embed(*args, **kwargs):
+            raise RuntimeError("API error")
+        monkeypatch.setattr("gnosis_mcp.embed.embed_texts", failing_embed)
+
+        config = GnosisMcpConfig(database_url=":memory:", backend="sqlite")
+        result = await embed_pending(config=config, provider="openai", model="test")
+
+        assert result.embedded == 0
+        assert result.errors == 3
+        mock_backend.set_embedding.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_shutdown_always_called(self, monkeypatch):
+        """Backend shutdown is called even if an error occurs."""
+        mock_backend = AsyncMock()
+        mock_backend.count_pending_embeddings.side_effect = RuntimeError("DB down")
+        monkeypatch.setattr("gnosis_mcp.backend.create_backend", lambda cfg: mock_backend)
+
+        config = GnosisMcpConfig(database_url=":memory:", backend="sqlite")
+        with pytest.raises(RuntimeError, match="DB down"):
+            await embed_pending(config=config, provider="openai")
+
+        mock_backend.shutdown.assert_awaited_once()

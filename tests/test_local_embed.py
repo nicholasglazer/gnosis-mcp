@@ -1,10 +1,20 @@
 """Tests for local ONNX embedding engine (mocked — no model download needed)."""
 
+import urllib.request
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
 
-from gnosis_mcp.local_embed import LocalEmbedder, get_embedder, _DEFAULT_DIM, _DEFAULT_MODEL
+from gnosis_mcp.local_embed import (
+    LocalEmbedder,
+    _DEFAULT_DIM,
+    _DEFAULT_MODEL,
+    _MODEL_FILES,
+    _download_model,
+    _get_cache_dir,
+    get_embedder,
+)
 
 try:
     import numpy as np
@@ -141,3 +151,73 @@ class TestGetEmbedder:
         e1 = get_embedder("model-a")
         e2 = get_embedder("model-b")
         assert e1 is not e2
+
+
+class TestGetCacheDir:
+    def test_with_xdg_data_home(self, monkeypatch):
+        monkeypatch.setenv("XDG_DATA_HOME", "/custom/data")
+        result = _get_cache_dir()
+        assert result == Path("/custom/data/gnosis-mcp/models")
+
+    def test_default_without_xdg(self, monkeypatch):
+        monkeypatch.delenv("XDG_DATA_HOME", raising=False)
+        result = _get_cache_dir()
+        assert result == Path.home() / ".local" / "share" / "gnosis-mcp" / "models"
+
+
+class TestDownloadModel:
+    def test_downloads_all_files(self, tmp_path, monkeypatch):
+        downloaded_urls = []
+
+        def mock_urlretrieve(url, path):
+            downloaded_urls.append(url)
+            Path(path).write_text("mock")
+
+        monkeypatch.setattr(urllib.request, "urlretrieve", mock_urlretrieve)
+
+        result = _download_model("test/model", tmp_path)
+        assert result == tmp_path / "test--model"
+        assert len(downloaded_urls) == len(_MODEL_FILES)
+        for url in downloaded_urls:
+            assert "test/model" in url
+
+    def test_skips_existing_files(self, tmp_path, monkeypatch):
+        model_dir = tmp_path / "test--model"
+        model_dir.mkdir(parents=True)
+        for rel in _MODEL_FILES:
+            f = model_dir / rel
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_text("cached")
+
+        downloaded_urls = []
+
+        def mock_urlretrieve(url, path):
+            downloaded_urls.append(url)
+
+        monkeypatch.setattr(urllib.request, "urlretrieve", mock_urlretrieve)
+
+        _download_model("test/model", tmp_path)
+        assert len(downloaded_urls) == 0  # all cached
+
+    def test_cleans_up_partial_on_error(self, tmp_path, monkeypatch):
+        def mock_urlretrieve(url, path):
+            Path(path).write_text("partial")
+            raise OSError("network error")
+
+        monkeypatch.setattr(urllib.request, "urlretrieve", mock_urlretrieve)
+
+        with pytest.raises(RuntimeError, match="Failed to download"):
+            _download_model("test/model", tmp_path)
+
+        first_file = tmp_path / "test--model" / _MODEL_FILES[0]
+        assert not first_file.exists()  # partial cleaned up
+
+    def test_sanitizes_model_id(self, tmp_path, monkeypatch):
+        """Model ID slashes become double-dashes in directory name."""
+        def mock_urlretrieve(url, path):
+            Path(path).write_text("mock")
+
+        monkeypatch.setattr(urllib.request, "urlretrieve", mock_urlretrieve)
+
+        result = _download_model("org/sub/model", tmp_path)
+        assert result.name == "org--sub--model"
