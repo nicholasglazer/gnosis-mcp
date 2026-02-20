@@ -80,6 +80,20 @@ pytest tests/               # Unit tests (220+ tests, no DB required)
 gnosis-mcp check            # Integration check against live DB
 ```
 
+## Releases
+
+Version lives in **4 files** — all must match:
+1. `pyproject.toml` → `version = "X.Y.Z"`
+2. `src/gnosis_mcp/__init__.py` → `__version__ = "X.Y.Z"`
+3. `server.json` → `"version": "X.Y.Z"` (2 places)
+4. `marketplace.json` → `"version": "X.Y.Z"`
+
+**Pipeline**: push to main with changed `pyproject.toml` → `auto-tag.yml` creates `vX.Y.Z` tag → `publish.yml` builds + publishes to PyPI + MCP Registry. No manual tagging needed.
+
+**Also update docs**: `README.md`, `llms.txt`, `llms-full.txt`, `CLAUDE.md` when adding features.
+
+**Remotes**: push to `selify` + `codeberg` + `github` (open-source project).
+
 ## Rules
 
 - No pydantic, no click, no ORM
