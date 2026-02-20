@@ -562,7 +562,8 @@ async def ingest_path(
         has_hash = await backend.has_column(table_name, "content_hash")
         has_tags = await backend.has_column(table_name, "tags")
 
-        for f in files:
+        total_files = len(files)
+        for idx, f in enumerate(files, 1):
             rel = str(f.relative_to(base))
             try:
                 text = f.read_text(encoding="utf-8", errors="replace")
@@ -623,7 +624,7 @@ async def ingest_path(
                     log.debug("insert_links failed for %s (links table may not exist)", rel)
 
             results.append(IngestResult(path=rel, chunks=count, action="ingested"))
-            log.info("ingested: %s (%d chunks)", rel, count)
+            log.info("[%d/%d] ingested: %s (%d chunks)", idx, total_files, rel, count)
 
     finally:
         await backend.shutdown()

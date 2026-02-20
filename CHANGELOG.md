@@ -5,6 +5,12 @@ All notable changes to gnosis-mcp are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 Versioning follows [Semantic Versioning](https://semver.org/) (pre-1.0).
 
+## [0.7.11] - 2026-02-20
+
+### Added
+- GitHub Releases: CI now creates GitHub releases with auto-generated notes
+- Ingest progress: `[1/N]` counter in log output during file ingestion
+
 ## [0.7.10] - 2026-02-20
 
 ### Added

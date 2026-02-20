@@ -112,3 +112,26 @@ jobs:
           fi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  github-release:
+    needs: [check, tag]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ needs.check.outputs.version }}"
+          # Only create if release doesn't already exist
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" \
+              --title "$TAG" \
+              --generate-notes \
+              --latest
+            echo "Created release $TAG"
+          else
+            echo "Release $TAG already exists, skipping"
+          fi
