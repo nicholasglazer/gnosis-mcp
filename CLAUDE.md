@@ -77,9 +77,17 @@ Default install: `mcp>=1.20` + `aiosqlite>=0.20`. Optional: `pip install gnosis-
 ## Testing
 
 ```bash
-pytest tests/               # Unit tests (260+ tests, no DB required)
+pytest tests/               # Unit tests (273+ tests, no DB required)
 gnosis-mcp check            # Integration check against live DB
 ```
+
+## Versioning
+
+Semantic versioning (pre-1.0). Patch numbers have no upper limit (0.7.99 is valid).
+
+- **Patch (0.7.x → 0.7.y)**: Bug fixes, small features, no new required deps
+- **Minor (0.7.x → 0.8.0)**: Breaking CLI/tool API changes, or significant architectural shift
+- **Major (→ 1.0.0)**: Stable tool/resource API, 300+ tests, all planned formats working
 
 ## Releases
 
@@ -89,9 +97,13 @@ Version lives in **4 files** — all must match:
 3. `server.json` → `"version": "X.Y.Z"` (2 places)
 4. `marketplace.json` → `"version": "X.Y.Z"`
 
-**Pipeline**: push to main with changed `pyproject.toml` → `publish.yml` builds, publishes to PyPI + MCP Registry, then creates `vX.Y.Z` tag. Also triggers on manual `v*` tag pushes. No manual tagging needed.
+Every version commit MUST:
+1. Bump all 4 version files
+2. Update `CHANGELOG.md`
+3. Update relevant docs (`README.md`, `llms.txt`, `llms-full.txt`, `CLAUDE.md`) when adding features
+4. All tests passing
 
-**Also update docs**: `README.md`, `llms.txt`, `llms-full.txt`, `CLAUDE.md` when adding features.
+**Pipeline**: push to main with changed `pyproject.toml` → `publish.yml` builds, publishes to PyPI + MCP Registry, then creates `vX.Y.Z` tag. Also triggers on manual `v*` tag pushes. No manual tagging needed.
 
 **Remotes**: push to `selify` + `codeberg` + `github` (open-source project).
 
