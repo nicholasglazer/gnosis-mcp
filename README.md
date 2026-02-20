@@ -389,7 +389,7 @@ All tables must share the same schema. Reads use `UNION ALL`. Writes target the 
 ## CLI Reference
 
 ```
-gnosis-mcp ingest <path> [--dry-run] [--embed]             Load files (--embed to generate embeddings)
+gnosis-mcp ingest <path> [--dry-run] [--force] [--embed]    Load files (--force to re-ingest unchanged)
 gnosis-mcp serve [--transport stdio|sse] [--ingest PATH] [--watch PATH]   Start MCP server (--watch for live reload)
 gnosis-mcp search <query> [-n LIMIT] [-c CAT] [--embed]    Search (--embed for hybrid semantic+keyword)
 gnosis-mcp stats                                           Show document, chunk, and embedding counts
@@ -408,7 +408,7 @@ gnosis-mcp export [-f json|markdown] [-c CAT]              Export documents
 - **Frontmatter support** — extracts `title`, `category`, `audience`, `tags` from YAML frontmatter
 - **Auto-linking** — `relates_to` in frontmatter creates bidirectional links (queryable via `get_related`)
 - **Auto-categorization** — infers category from the parent directory name
-- **Incremental updates** — content hashing skips unchanged files on re-run
+- **Incremental updates** — content hashing skips unchanged files on re-run (`--force` to override)
 - **Watch mode** — `gnosis-mcp serve --watch ./docs/` auto-re-ingests on file changes
 - **Dry run** — preview what would be indexed with `--dry-run`
 

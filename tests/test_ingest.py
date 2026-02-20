@@ -519,3 +519,24 @@ class TestConvertToMarkdownDispatch:
     def test_unknown_ext_passthrough(self):
         text = "some content"
         assert _convert_to_markdown(text, Path("file.xyz")) == text
+
+
+# ---------------------------------------------------------------------------
+# chunk_size wiring (config.chunk_size → chunk_by_headings)
+# ---------------------------------------------------------------------------
+
+
+class TestChunkSizeWiring:
+    def test_small_chunk_size_produces_more_chunks(self):
+        """Tiny chunk_size should produce more chunks than the default."""
+        md = "# Big\n\n## A\n\n" + "word " * 200 + "\n\n## B\n\n" + "word " * 200
+        default = chunk_by_headings(md, "big.md")
+        small = chunk_by_headings(md, "big.md", max_chunk_size=100)
+        assert len(small) > len(default)
+
+    def test_large_chunk_size_fewer_chunks(self):
+        """Very large chunk_size should keep more content together."""
+        md = "# Doc\n\n" + "\n\n".join(f"## S{i}\n\n" + "x " * 50 for i in range(5))
+        normal = chunk_by_headings(md, "doc.md", max_chunk_size=200)
+        large = chunk_by_headings(md, "doc.md", max_chunk_size=10000)
+        assert len(large) <= len(normal)

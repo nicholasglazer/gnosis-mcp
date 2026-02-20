@@ -150,6 +150,7 @@ def cmd_ingest(args: argparse.Namespace) -> None:
             config=config,
             root=args.path,
             dry_run=args.dry_run,
+            force=getattr(args, "force", False),
         )
 
         # Print results
@@ -493,6 +494,10 @@ def main() -> None:
     p_ingest = sub.add_parser("ingest", help="Ingest files (.md, .txt, .ipynb, .toml, .csv, .json)")
     p_ingest.add_argument("path", help="File or directory to ingest")
     p_ingest.add_argument("--dry-run", action="store_true", help="Show what would be ingested")
+    p_ingest.add_argument(
+        "--force", action="store_true",
+        help="Re-ingest all files, ignoring content hash (skip-if-unchanged)",
+    )
     p_ingest.add_argument(
         "--embed", action="store_true",
         help="Embed all chunks after ingestion (auto-detects local provider if installed)",

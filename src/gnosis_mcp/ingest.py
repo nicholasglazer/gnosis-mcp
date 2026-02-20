@@ -508,6 +508,7 @@ async def ingest_path(
     root: str,
     *,
     dry_run: bool = False,
+    force: bool = False,
 ) -> list[IngestResult]:
     """Scan a path for markdown files and load them into the database.
 
@@ -540,7 +541,7 @@ async def ingest_path(
                 continue
             md_text = _convert_to_markdown(text, f)
             _, body = parse_frontmatter(md_text)
-            chunks = chunk_by_headings(body, str(f.relative_to(base)))
+            chunks = chunk_by_headings(body, str(f.relative_to(base)), max_chunk_size=config.chunk_size)
             results.append(IngestResult(path=str(f.relative_to(base)), chunks=len(chunks), action="dry-run"))
         return results
 
@@ -579,8 +580,8 @@ async def ingest_path(
             # Parse frontmatter
             frontmatter, body = parse_frontmatter(md_text)
 
-            # Skip unchanged files
-            if has_hash:
+            # Skip unchanged files (unless force re-ingest)
+            if has_hash and not force:
                 existing = await backend.get_content_hash(rel)
                 if existing == digest:
                     # Count existing chunks — use get_doc for chunk count
@@ -596,7 +597,7 @@ async def ingest_path(
             tags = [t.strip() for t in tags_str.split(",") if t.strip()] if tags_str else None
 
             # Chunk
-            chunks = chunk_by_headings(body, rel)
+            chunks = chunk_by_headings(body, rel, max_chunk_size=config.chunk_size)
 
             # Write via backend
             count = await backend.ingest_file(
