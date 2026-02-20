@@ -5,7 +5,7 @@
 
 ## What it does
 
-Gnosis MCP loads documentation files into a database, chunks them by headings (H2/H3/H4, never splitting code blocks or tables), and exposes them as MCP tools and resources. AI agents call `search_docs` to find relevant documentation instead of guessing or reading entire files. Supports `.md`, `.txt`, `.ipynb`, `.toml`, `.csv`, `.json` — non-markdown formats auto-converted using Python stdlib only. Use `--watch` to auto-re-ingest when files change.
+Gnosis MCP loads documentation files into a database, chunks them by headings (H2/H3/H4, never splitting code blocks or tables), and exposes them as MCP tools and resources. AI agents call `search_docs` to find relevant documentation instead of guessing or reading entire files. Supports `.md`, `.txt`, `.ipynb`, `.toml`, `.csv`, `.json` (stdlib only) + optional `.rst` (`[rst]` extra) and `.pdf` (`[pdf]` extra). Use `--watch` to auto-re-ingest when files change.
 
 ## Quick Start
 

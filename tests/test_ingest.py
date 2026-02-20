@@ -5,9 +5,12 @@ from pathlib import Path
 import pytest
 
 from gnosis_mcp.ingest import (
+    _BASE_EXTS,
+    _SUPPORTED_EXTS,
     _convert_csv,
     _convert_ipynb,
     _convert_json,
+    _convert_rst,
     _convert_to_markdown,
     _convert_toml,
     _convert_txt,
@@ -540,3 +543,72 @@ class TestChunkSizeWiring:
         normal = chunk_by_headings(md, "doc.md", max_chunk_size=200)
         large = chunk_by_headings(md, "doc.md", max_chunk_size=10000)
         assert len(large) <= len(normal)
+
+
+# ---------------------------------------------------------------------------
+# Optional format extras (RST, PDF)
+# ---------------------------------------------------------------------------
+
+
+class TestConvertRst:
+    def test_rst_produces_output(self):
+        """RST conversion should produce non-empty output regardless of docutils."""
+        result = _convert_rst("Title\n=====\n\nParagraph text.", Path("doc.rst"))
+        assert "Title" in result or "doc" in result
+        assert len(result) > 10
+
+    def test_rst_without_docutils(self):
+        """Without docutils, RST treated as plain text with H1 title."""
+        import importlib
+        import sys
+
+        # Temporarily hide docutils if present
+        saved = sys.modules.get("docutils")
+        saved_core = sys.modules.get("docutils.core")
+        sys.modules["docutils"] = None  # type: ignore
+        sys.modules["docutils.core"] = None  # type: ignore
+        try:
+            result = _convert_rst("Title\n=====\n\nText.", Path("doc.rst"))
+            assert "# doc" in result
+            assert "Text." in result
+        finally:
+            if saved is not None:
+                sys.modules["docutils"] = saved
+            else:
+                sys.modules.pop("docutils", None)
+            if saved_core is not None:
+                sys.modules["docutils.core"] = saved_core
+            else:
+                sys.modules.pop("docutils.core", None)
+
+
+class TestConvertRstWithDocutils:
+    def test_rst_with_docutils(self):
+        """With docutils, RST converted to markdown-like text."""
+        pytest.importorskip("docutils")
+        result = _convert_rst("Title\n=====\n\nParagraph.", Path("doc.rst"))
+        assert "Title" in result
+        assert "Paragraph" in result
+
+
+class TestSupportedExts:
+    def test_base_exts_always_present(self):
+        """Base extensions are always available."""
+        for ext in (".md", ".txt", ".ipynb", ".toml", ".csv", ".json"):
+            assert ext in _SUPPORTED_EXTS
+
+    def test_rst_ext_if_docutils(self):
+        """RST extension present only if docutils installed."""
+        try:
+            import docutils  # noqa: F401
+            assert ".rst" in _SUPPORTED_EXTS
+        except ImportError:
+            assert ".rst" not in _SUPPORTED_EXTS
+
+    def test_pdf_ext_if_pypdf(self):
+        """PDF extension present only if pypdf installed."""
+        try:
+            import pypdf  # noqa: F401
+            assert ".pdf" in _SUPPORTED_EXTS
+        except ImportError:
+            assert ".pdf" not in _SUPPORTED_EXTS

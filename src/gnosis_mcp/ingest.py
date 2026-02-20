@@ -7,6 +7,10 @@ Supported formats (zero third-party dependencies):
 - .toml — TOML config files (stdlib tomllib, sections per top-level key)
 - .csv  — CSV data (stdlib csv, rendered as markdown table)
 - .json — JSON documents (stdlib json, top-level keys as H2 sections)
+
+Optional format extras:
+- .rst — reStructuredText (requires pip install gnosis-mcp[rst])
+- .pdf — PDF documents (requires pip install gnosis-mcp[pdf])
 """
 
 from __future__ import annotations
@@ -35,7 +39,26 @@ __all__ = [
 
 log = logging.getLogger("gnosis_mcp")
 
-_SUPPORTED_EXTS = frozenset({".md", ".txt", ".ipynb", ".toml", ".csv", ".json"})
+_BASE_EXTS = frozenset({".md", ".txt", ".ipynb", ".toml", ".csv", ".json"})
+
+
+def _supported_exts() -> frozenset[str]:
+    """Build supported extension set, adding optional formats if deps installed."""
+    exts = set(_BASE_EXTS)
+    try:
+        import docutils  # noqa: F401
+        exts.add(".rst")
+    except ImportError:
+        pass
+    try:
+        import pypdf  # noqa: F401
+        exts.add(".pdf")
+    except ImportError:
+        pass
+    return frozenset(exts)
+
+
+_SUPPORTED_EXTS = _supported_exts()
 
 # Frontmatter key: value parser (no yaml dependency)
 _FM_KV_RE = re.compile(r"^(\w+)\s*:\s*(.+)$", re.MULTILINE)
@@ -375,6 +398,8 @@ def _convert_to_markdown(text: str, file_path: Path) -> str:
         return _convert_csv(text, file_path)
     if ext == ".json":
         return _convert_json(text, file_path)
+    if ext == ".rst":
+        return _convert_rst(text, file_path)
     return text
 
 
@@ -494,6 +519,47 @@ def _convert_json(text: str, file_path: Path) -> str:
     return f"# {file_path.name}\n\n```json\n{json.dumps(data, indent=2)}\n```"
 
 
+def _convert_rst(text: str, file_path: Path) -> str:
+    """reStructuredText: convert to markdown-like text via docutils."""
+    try:
+        from docutils.core import publish_parts
+
+        parts = publish_parts(text, writer_name="html")
+        html = parts["html_body"]
+        # Convert HTML headings to markdown
+        clean = re.sub(
+            r"<h(\d)[^>]*>(.*?)</h\1>",
+            lambda m: "#" * int(m.group(1)) + " " + m.group(2),
+            html,
+        )
+        # Strip remaining HTML tags
+        clean = re.sub(r"<[^>]+>", "", clean)
+        # Clean up whitespace
+        clean = re.sub(r"\n{3,}", "\n\n", clean).strip()
+        return clean if clean else f"# {file_path.stem}\n\n{text}"
+    except ImportError:
+        # docutils not installed — wrap as plain text
+        return f"# {file_path.stem}\n\n{text}"
+
+
+def _convert_pdf(raw_bytes: bytes, file_path: Path) -> str:
+    """PDF: extract text via pypdf."""
+    try:
+        from pypdf import PdfReader
+
+        reader = PdfReader(io.BytesIO(raw_bytes))
+        pages: list[str] = []
+        for i, page in enumerate(reader.pages):
+            content = page.extract_text() or ""
+            if content.strip():
+                pages.append(f"## Page {i + 1}\n\n{content.strip()}")
+        if pages:
+            return f"# {file_path.stem}\n\n" + "\n\n".join(pages)
+        return ""
+    except ImportError:
+        return ""
+
+
 def scan_files(root: Path) -> list[Path]:
     """Recursively find all supported files under root, sorted."""
     if root.is_file() and root.suffix.lower() in _SUPPORTED_EXTS:
@@ -536,14 +602,22 @@ async def ingest_path(
 
     if dry_run:
         for f in files:
-            text = f.read_text(encoding="utf-8", errors="replace")
-            if len(text.strip()) < 50:
-                results.append(IngestResult(path=str(f.relative_to(base)), chunks=0, action="skipped", detail="Too small (<50 chars)"))
-                continue
-            md_text = _convert_to_markdown(text, f)
+            rel = str(f.relative_to(base))
+            if f.suffix.lower() == ".pdf":
+                raw = f.read_bytes()
+                md_text = _convert_pdf(raw, f)
+                if not md_text or len(md_text.strip()) < 50:
+                    results.append(IngestResult(path=rel, chunks=0, action="skipped", detail="PDF empty or too small"))
+                    continue
+            else:
+                text = f.read_text(encoding="utf-8", errors="replace")
+                if len(text.strip()) < 50:
+                    results.append(IngestResult(path=rel, chunks=0, action="skipped", detail="Too small (<50 chars)"))
+                    continue
+                md_text = _convert_to_markdown(text, f)
             _, body = parse_frontmatter(md_text)
-            chunks = chunk_by_headings(body, str(f.relative_to(base)), max_chunk_size=config.chunk_size)
-            results.append(IngestResult(path=str(f.relative_to(base)), chunks=len(chunks), action="dry-run"))
+            chunks = chunk_by_headings(body, rel, max_chunk_size=config.chunk_size)
+            results.append(IngestResult(path=rel, chunks=len(chunks), action="dry-run"))
         return results
 
     from gnosis_mcp.backend import create_backend
@@ -566,18 +640,24 @@ async def ingest_path(
         for idx, f in enumerate(files, 1):
             rel = str(f.relative_to(base))
             try:
-                text = f.read_text(encoding="utf-8", errors="replace")
+                if f.suffix.lower() == ".pdf":
+                    raw = f.read_bytes()
+                    text = raw.hex()[:100]  # Placeholder for hash input
+                    digest = hashlib.sha256(raw).hexdigest()[:16]
+                    md_text = _convert_pdf(raw, f)
+                    if not md_text or len(md_text.strip()) < 50:
+                        results.append(IngestResult(path=rel, chunks=0, action="skipped", detail="PDF empty or too small"))
+                        continue
+                else:
+                    text = f.read_text(encoding="utf-8", errors="replace")
+                    if len(text.strip()) < 50:
+                        results.append(IngestResult(path=rel, chunks=0, action="skipped", detail="Too small"))
+                        continue
+                    digest = content_hash(text)
+                    md_text = _convert_to_markdown(text, f)
             except OSError as e:
                 results.append(IngestResult(path=rel, chunks=0, action="error", detail=str(e)))
                 continue
-
-            if len(text.strip()) < 50:
-                results.append(IngestResult(path=rel, chunks=0, action="skipped", detail="Too small"))
-                continue
-
-            # Hash original text for change detection, then convert format
-            digest = content_hash(text)
-            md_text = _convert_to_markdown(text, f)
 
             # Parse frontmatter
             frontmatter, body = parse_frontmatter(md_text)

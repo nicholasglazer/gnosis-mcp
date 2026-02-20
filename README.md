@@ -404,7 +404,7 @@ gnosis-mcp diff <path>                                     Show what would chang
 
 `gnosis-mcp ingest` scans a directory for supported files (`.md`, `.txt`, `.ipynb`, `.toml`, `.csv`, `.json`) and loads them into the database:
 
-- **Multi-format** — Markdown native; `.txt`, `.ipynb`, `.toml`, `.csv`, `.json` auto-converted (stdlib only, zero extra deps)
+- **Multi-format** — Markdown native; `.txt`, `.ipynb`, `.toml`, `.csv`, `.json` auto-converted (stdlib only). Optional: `.rst` (`pip install gnosis-mcp[rst]`), `.pdf` (`pip install gnosis-mcp[pdf]`)
 - **Smart chunking** — splits by H2 headings (H3/H4 for oversized sections), never splits inside fenced code blocks or tables
 - **Frontmatter support** — extracts `title`, `category`, `audience`, `tags` from YAML frontmatter
 - **Auto-linking** — `relates_to` in frontmatter creates bidirectional links (queryable via `get_related`)

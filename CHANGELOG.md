@@ -5,6 +5,14 @@ All notable changes to gnosis-mcp are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 Versioning follows [Semantic Versioning](https://semver.org/) (pre-1.0).
 
+## [0.7.12] - 2026-02-20
+
+### Added
+- Optional RST support: `pip install gnosis-mcp[rst]` (docutils)
+- Optional PDF support: `pip install gnosis-mcp[pdf]` (pypdf)
+- Combined `[formats]` extra: `pip install gnosis-mcp[formats]`
+- Dynamic extension detection: `.rst` and `.pdf` auto-enabled when deps installed
+
 ## [0.7.11] - 2026-02-20
 
 ### Added

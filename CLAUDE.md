@@ -13,7 +13,7 @@ src/gnosis_mcp/
 ├── config.py          # GnosisMcpConfig frozen dataclass, backend auto-detection, GNOSIS_MCP_* env vars
 ├── db.py              # Backend lifecycle + FastMCP lifespan context manager
 ├── server.py          # FastMCP server: 6 tools + 3 resources + auto-embed queries
-├── ingest.py          # File ingestion + converters: multi-format (.md/.txt/.ipynb/.toml/.csv/.json), smart chunking, hashing
+├── ingest.py          # File ingestion + converters: multi-format (.md/.txt/.ipynb/.toml/.csv/.json + optional .rst/.pdf), smart chunking, hashing
 ├── watch.py           # File watcher: mtime polling, debounce, auto-re-ingest + auto-embed on changes
 ├── schema.py          # PostgreSQL DDL — tables, indexes, HNSW, hybrid search functions
 ├── embed.py           # Embedding providers: openai/ollama/custom/local, batch backfill
@@ -32,7 +32,7 @@ All database operations go through `DocBackend` (a `typing.Protocol` in `backend
 
 ## Dependencies
 
-Default install: `mcp>=1.20` + `aiosqlite>=0.20`. Optional: `pip install gnosis-mcp[postgres]` adds `asyncpg>=0.29`. Optional: `pip install gnosis-mcp[embeddings]` adds `onnxruntime`, `tokenizers`, `numpy`, `sqlite-vec`. Model download uses stdlib `urllib` (no `huggingface-hub` dependency).
+Default install: `mcp>=1.20` + `aiosqlite>=0.20`. Optional extras: `[postgres]` (asyncpg), `[embeddings]` (onnxruntime, tokenizers, numpy, sqlite-vec), `[rst]` (docutils), `[pdf]` (pypdf), `[formats]` (docutils + pypdf). Model download uses stdlib `urllib` (no `huggingface-hub` dependency).
 
 ## Tools
 
