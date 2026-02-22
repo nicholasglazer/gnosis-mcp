@@ -5,6 +5,17 @@ All notable changes to gnosis-mcp are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 Versioning follows [Semantic Versioning](https://semver.org/) (pre-1.0).
 
+## [0.8.4] - 2026-02-22
+
+### Changed
+- README restructure: funnel layout (hook → proof → features → install)
+- Added before/after framing section ("Without a docs server" / "With Gnosis MCP")
+- Replaced prose "Why use this" with scannable feature bullets
+- Wrapped CLI reference, ingestion details, architecture in collapsible sections
+- Added PyPI monthly downloads badge
+- Improved tagline: "Turn your docs into a searchable knowledge base for AI agents"
+- Trimmed visible content from 334 to 290 lines while preserving all information
+
 ## [0.8.3] - 2026-02-22
 
 ### Fixed
