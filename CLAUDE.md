@@ -110,6 +110,8 @@ Every version commit MUST:
 
 **Pipeline**: push to main with changed `pyproject.toml` → `publish.yml` builds, publishes to PyPI + MCP Registry, then creates `vX.Y.Z` tag. Also triggers on manual `v*` tag pushes. No manual tagging needed.
 
+**CRITICAL**: PyPI renders README.md as the package page. Any change to README.md, images, or llms*.txt MUST include a patch version bump — otherwise the changes never reach PyPI. When in doubt, bump the patch version.
+
 **Remotes**: push to `selify` + `codeberg` + `github` (open-source project).
 
 ## Rules

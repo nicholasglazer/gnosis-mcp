@@ -5,6 +5,13 @@ All notable changes to gnosis-mcp are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 Versioning follows [Semantic Versioning](https://semver.org/) (pre-1.0).
 
+## [0.8.3] - 2026-02-22
+
+### Fixed
+- README readability: rewrote intro sections, collapsed editor integrations
+- Factual errors: transport values, DATABASE_URL naming, hybrid search scope
+- llms.txt DATABASE_URL consistency
+
 ## [0.8.2] - 2026-02-22
 
 ### Fixed
