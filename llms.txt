@@ -5,7 +5,7 @@
 
 ## What it does
 
-Gnosis MCP loads documentation files into a database, chunks them by headings (H2/H3/H4, never splitting code blocks or tables), and exposes them as MCP tools and resources. AI agents call `search_docs` to find relevant documentation instead of guessing or reading entire files. Supports `.md`, `.txt`, `.ipynb`, `.toml`, `.csv`, `.json` (stdlib only) + optional `.rst` (`[rst]` extra) and `.pdf` (`[pdf]` extra). Use `--watch` to auto-re-ingest when files change.
+Gnosis MCP loads documentation files into a database, chunks them by headings (H2/H3/H4, never splitting code blocks or tables), and exposes them as MCP tools and resources. AI agents call `search_docs` to find relevant documentation instead of guessing or reading entire files. Supports `.md`, `.txt`, `.ipynb`, `.toml`, `.csv`, `.json` (stdlib only) + optional `.rst` (`[rst]` extra) and `.pdf` (`[pdf]` extra). Use `--watch` to auto-re-ingest when files change. Crawl documentation from any website with `gnosis-mcp crawl <url>` (requires `[web]` extra).
 
 ## Quick Start
 
@@ -13,6 +13,10 @@ Gnosis MCP loads documentation files into a database, chunks them by headings (H
 pip install gnosis-mcp
 gnosis-mcp ingest ./docs/       # auto-creates SQLite database + loads docs
 gnosis-mcp serve                # start MCP server (stdio default, or --transport streamable-http)
+
+# Web crawl (optional)
+pip install gnosis-mcp[web]
+gnosis-mcp crawl https://docs.example.com/ --sitemap   # crawl docs from the web
 ```
 
 Add to your editor's MCP config (e.g. `.claude/mcp.json` for Claude Code):

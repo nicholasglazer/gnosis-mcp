@@ -31,6 +31,12 @@ For PostgreSQL support:
 pip install gnosis-mcp[postgres]
 ```
 
+For web crawling (ingest docs from websites):
+
+```bash
+pip install gnosis-mcp[web]
+```
+
 ## Step 2: Load Your Docs
 
 Point at a folder of markdown files:

@@ -15,6 +15,7 @@
 
 <p>
   <a href="#quick-start">Quick Start</a> &middot;
+  <a href="#crawl-documentation-sites">Web Crawl</a> &middot;
   <a href="#choose-your-backend">Backends</a> &middot;
   <a href="#editor-integrations">Editor Setup</a> &middot;
   <a href="#what-it-does">Tools & Resources</a> &middot;
@@ -22,7 +23,9 @@
   <a href="llms-full.txt">Full Reference</a>
 </p>
 
-<a href="https://miozu.com/products/gnosis-mcp"><img src="https://miozu.com/oss/gnosis-mcp-demo.gif" alt="Gnosis MCP demo — ingest, search, serve" width="700"></a>
+<a href="#quick-start"><img src="demo-hero.gif" alt="Gnosis MCP — ingest docs, search, view stats, serve" width="700"></a>
+<br>
+<sub>Ingest docs &rarr; Search with highlights &rarr; Stats overview &rarr; Serve to AI agents</sub>
 
 </div>
 
@@ -83,6 +86,14 @@ uvx gnosis-mcp serve
 </details>
 
 ## Crawl Documentation Sites
+
+<div align="center">
+<img src="demo-crawl.gif" alt="Gnosis MCP — crawl docs with dry-run, fetch, search, SSRF protection" width="700">
+<br>
+<sub>Dry-run discovery &rarr; Crawl &amp; ingest &rarr; Search crawled docs &rarr; SSRF protection</sub>
+</div>
+
+<br>
 
 Ingest docs from any website — no files needed:
 
@@ -480,7 +491,7 @@ git clone https://github.com/nicholasglazer/gnosis-mcp.git
 cd gnosis-mcp
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
-pytest                    # 370+ tests, no database needed
+pytest                    # 470+ tests, no database needed
 ruff check src/ tests/
 ```
 

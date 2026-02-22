@@ -10,6 +10,7 @@
 pip install gnosis-mcp               # SQLite (default, zero config)
 pip install gnosis-mcp[embeddings]  # + Local ONNX semantic search (no API key)
 pip install gnosis-mcp[postgres]     # + PostgreSQL support
+pip install gnosis-mcp[web]          # + Web crawl (httpx + trafilatura)
 ```
 
 ## Quick Setup (SQLite)
@@ -188,16 +189,39 @@ Optionally, your function can also accept `p_embedding vector(N)` for hybrid sea
 ## CLI
 
 ```
-gnosis-mcp ingest <path> [--dry-run] [--embed]             # Load files (.md/.txt/.ipynb/.toml/.csv/.json)
-gnosis-mcp serve [--transport stdio|sse|streamable-http] [--host H] [--port P] [--ingest PATH] [--watch PATH]   # Start MCP server
+gnosis-mcp ingest <path> [--dry-run] [--force] [--embed]   # Load files (.md/.txt/.ipynb/.toml/.csv/.json)
+gnosis-mcp crawl <url> [--sitemap] [--depth N] [--include] [--exclude] [--dry-run] [--force] [--embed]
+gnosis-mcp serve [--transport stdio|sse|streamable-http] [--host H] [--port P] [--ingest PATH] [--watch PATH]
 gnosis-mcp search <query> [-n LIMIT] [-c CAT] [--embed]    # Search (--embed for hybrid semantic+keyword)
 gnosis-mcp stats                                           # Show document/chunk/embedding counts
 gnosis-mcp check                                           # Verify connection + sqlite-vec status
 gnosis-mcp embed [--provider P] [--model M] [--dry-run]    # Backfill embeddings (auto-detects local provider)
 gnosis-mcp init-db [--dry-run]                             # Create tables (or preview SQL)
-gnosis-mcp export [-f json|markdown] [-c CAT]              # Export documents as JSON or markdown
+gnosis-mcp export [-f json|markdown|csv] [-c CAT]          # Export documents
+gnosis-mcp diff <path>                                     # Show what would change on re-ingest
 gnosis-mcp --version                                       # Show version
 ```
+
+## Web Crawl
+
+`gnosis-mcp crawl <url>` fetches and ingests documentation from any website. Requires the `[web]` extra (`pip install gnosis-mcp[web]`).
+
+```bash
+gnosis-mcp crawl https://docs.stripe.com/ --sitemap           # Crawl via sitemap
+gnosis-mcp crawl https://fastapi.tiangolo.com/ --depth 2      # BFS link crawl with depth limit
+gnosis-mcp crawl https://docs.python.org/ --dry-run            # Preview discovered URLs
+gnosis-mcp crawl https://docs.example.com/ --sitemap --embed   # Crawl + embed for semantic search
+```
+
+- Sitemap.xml discovery (`--sitemap`) and BFS link crawling (`--depth N`)
+- robots.txt compliance — respects `Disallow` rules
+- ETag/Last-Modified HTTP caching for incremental re-crawl (304 Not Modified)
+- Content hashing: skips unchanged pages on re-crawl
+- URL path filtering with `--include` and `--exclude` glob patterns
+- Rate-limited concurrent fetching (5 concurrent, 0.2s delay)
+- SSRF protection: blocks private/internal IPs and checks redirect targets
+- Crawled pages stored with URL as `file_path`, hostname as `category`
+- Force re-crawl with `--force`, dry run with `--dry-run`, embed with `--embed`
 
 ## Ingest
 
@@ -225,6 +249,7 @@ src/gnosis_mcp/
 ├── db.py              # Backend lifecycle + FastMCP lifespan
 ├── server.py          # FastMCP server: 6 tools + 3 resources + webhook helper
 ├── ingest.py          # File scanner + converters: multi-format, smart chunking (H2/H3/H4), hashing
+├── crawl.py           # Web crawler — sitemap/BFS discovery, robots.txt, ETag caching, trafilatura
 ├── watch.py           # File watcher: mtime polling, auto-re-ingest on changes
 ├── schema.py          # PostgreSQL DDL — tables, indexes, HNSW, hybrid search functions
 ├── embed.py           # Embedding sidecar: provider abstraction (openai/ollama/custom/local)
@@ -232,7 +257,7 @@ src/gnosis_mcp/
 └── cli.py             # argparse CLI: serve, init-db, ingest, search, embed, stats, export, check
 ```
 
-Default install deps: mcp + aiosqlite. Optional: asyncpg (via `[postgres]` extra), onnxruntime + tokenizers + numpy + sqlite-vec (via `[embeddings]` extra). Model download uses stdlib urllib (no huggingface-hub dependency).
+Default install deps: mcp + aiosqlite. Optional: asyncpg (via `[postgres]` extra), onnxruntime + tokenizers + numpy + sqlite-vec (via `[embeddings]` extra), httpx + trafilatura (via `[web]` extra). Model download uses stdlib urllib (no huggingface-hub dependency).
 
 ## License
 
