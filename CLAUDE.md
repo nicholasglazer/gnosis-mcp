@@ -14,11 +14,12 @@ src/gnosis_mcp/
 ├── db.py              # Backend lifecycle + FastMCP lifespan context manager
 ├── server.py          # FastMCP server: 6 tools + 3 resources + auto-embed queries
 ├── ingest.py          # File ingestion + converters: multi-format (.md/.txt/.ipynb/.toml/.csv/.json + optional .rst/.pdf), smart chunking, hashing
+├── crawl.py           # Web crawler: sitemap/BFS URL discovery, robots.txt, ETag caching, trafilatura HTML→markdown, rate-limited async fetching
 ├── watch.py           # File watcher: mtime polling, debounce, auto-re-ingest + auto-embed on changes
 ├── schema.py          # PostgreSQL DDL — tables, indexes, HNSW, hybrid search functions
 ├── embed.py           # Embedding providers: openai/ollama/custom/local, batch backfill
 ├── local_embed.py     # Local ONNX embedding engine — stdlib urllib model download, CPU inference
-└── cli.py             # argparse CLI: serve, init-db, ingest, search, embed, stats, export, diff, check
+└── cli.py             # argparse CLI: serve, init-db, ingest, crawl, search, embed, stats, export, diff, check
 ```
 
 ## Backend Protocol
@@ -32,7 +33,7 @@ All database operations go through `DocBackend` (a `typing.Protocol` in `backend
 
 ## Dependencies
 
-Default install: `mcp>=1.20` + `aiosqlite>=0.20`. Optional extras: `[postgres]` (asyncpg), `[embeddings]` (onnxruntime, tokenizers, numpy, sqlite-vec), `[rst]` (docutils), `[pdf]` (pypdf), `[formats]` (docutils + pypdf). Model download uses stdlib `urllib` (no `huggingface-hub` dependency).
+Default install: `mcp>=1.20` + `aiosqlite>=0.20`. Optional extras: `[postgres]` (asyncpg), `[embeddings]` (onnxruntime, tokenizers, numpy, sqlite-vec), `[web]` (httpx, trafilatura), `[rst]` (docutils), `[pdf]` (pypdf), `[formats]` (docutils + pypdf). Model download uses stdlib `urllib` (no `huggingface-hub` dependency).
 
 ## Tools
 
@@ -73,11 +74,15 @@ Default install: `mcp>=1.20` + `aiosqlite>=0.20`. Optional extras: `[postgres]` 
 - **HNSW vector index**: PostgreSQL `init-db` creates an HNSW index for fast cosine similarity search
 - **FTS5 with porter tokenizer**: SQLite uses FTS5 with porter stemming, sync triggers for INSERT/UPDATE/DELETE
 - **XDG-compliant paths**: SQLite default at `~/.local/share/gnosis-mcp/docs.db`, no platformdirs dependency
+- **Web crawl**: `crawl.py` discovers URLs (sitemap.xml or BFS), fetches with httpx, extracts content with trafilatura, reuses `chunk_by_headings()` and `backend.ingest_file()` from ingest pipeline
+- **URL as file_path**: Crawled pages use the full URL as `file_path` — no schema changes, works with existing search/get_doc
+- **Crawl cache**: JSON sidecar at `~/.local/share/gnosis-mcp/crawl-cache.json` for ETag/Last-Modified conditional requests
+- **Deferred web deps**: `[web]` extra (httpx + trafilatura) imported only when `crawl_url()` is called — same pattern as `[rst]`/`[pdf]`
 
 ## Testing
 
 ```bash
-pytest tests/               # Unit tests (300+ tests, no DB required)
+pytest tests/               # Unit tests (470+ tests, no DB required)
 gnosis-mcp check            # Integration check against live DB
 ```
 

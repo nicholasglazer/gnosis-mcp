@@ -1,7 +1,5 @@
 """Tests for backend protocol and factory."""
 
-import pytest
-
 from gnosis_mcp.backend import DocBackend, create_backend
 from gnosis_mcp.config import GnosisMcpConfig
 from gnosis_mcp.sqlite_backend import SqliteBackend

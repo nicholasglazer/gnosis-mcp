@@ -5,6 +5,58 @@ All notable changes to gnosis-mcp are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 Versioning follows [Semantic Versioning](https://semver.org/) (pre-1.0).
 
+## [0.8.2] - 2026-02-22
+
+### Fixed
+- **SECURITY**: SSRF protection — blocks private/internal IPs (127.x, 10.x, 192.168.x, ::1, metadata endpoints) and checks redirect targets
+- **SECURITY**: XML size limit (10 MB) in sitemap parser to prevent billion-laughs-style attacks
+- **SECURITY**: Response size guard (50 MB) in `fetch_page` to prevent memory exhaustion
+- **SECURITY**: Cache file written with 0o600 permissions (owner-only read/write)
+- **BUG**: `asyncio.CancelledError` no longer swallowed in `_crawl_single` — properly re-raised (Python 3.11+ treats it as `Exception` subclass)
+- **BUG**: `save_cache` moved to `finally` block — cache data preserved even on errors or cancellation
+- Atomic cache writes using `tempfile.mkstemp` + `os.replace` — no corruption on crash
+- `asyncio.gather` uses `return_exceptions=True` — single task failure no longer aborts all tasks
+- robots.txt parsed once per crawl session (`RobotFileParser` reused), not re-parsed per URL
+- Nested sitemap index fetches now run in parallel via `asyncio.gather`
+- BFS discovery respects `max_urls` cap on queue size (prevents unbounded memory growth)
+- Crawl depth clamped to max 10 in `CrawlConfig.__post_init__`
+- Debug log on robots.txt fetch failure (was silent `pass`)
+
+### Added
+- `CrawlAction` StrEnum for type-safe action values (`crawled`, `unchanged`, `skipped`, `error`, `blocked`, `dry-run`)
+- `_is_private_host()` SSRF protection function
+- `_parse_robots()` for one-time robots.txt parsing
+- `TYPE_CHECKING` annotations for `httpx.AsyncClient`, `DocBackend`, `GnosisMcpConfig`
+- `Counter` usage in CLI `cmd_crawl` for cleaner action counting
+- 30+ new tests: SSRF, CancelledError, depth clamping, atomic writes, cache permissions, BFS cap, StrEnum, oversized responses
+
+## [0.8.1] - 2026-02-22
+
+### Fixed
+- `extract_content()` now runs trafilatura in a thread pool (`run_in_executor`) to avoid blocking the event loop during CPU-bound HTML extraction
+- BFS discovery uses `collections.deque` instead of `list.pop(0)` — O(1) popleft vs O(n) shift
+- Nested sitemap index detection simplified from fragile double-negative to `len(nested) == len(all)`
+- Silent `except: pass` on link insertion replaced with `log.debug()` for troubleshootability
+
+### Added
+- `--max-urls` flag (default: 5000) caps discovered URLs to prevent runaway memory on large sitemaps
+
+## [0.8.0] - 2026-02-22
+
+### Added
+- **Web crawl for documentation sites**: `gnosis-mcp crawl <url>` ingests docs from the web
+- Sitemap.xml discovery (`--sitemap`) and BFS link crawling (`--depth N`)
+- robots.txt compliance — respects `Disallow` rules automatically
+- ETag/Last-Modified HTTP caching for incremental re-crawl (304 Not Modified)
+- URL path filtering with `--include` and `--exclude` glob patterns
+- Dry run mode (`--dry-run`) to discover URLs without fetching
+- Force re-crawl (`--force`) ignoring cache and content hashes
+- Post-crawl embedding (`--embed`) for hybrid semantic search
+- Rate-limited concurrent fetching (5 concurrent, 0.2s delay by default)
+- New optional dependency extra: `pip install gnosis-mcp[web]` (httpx + trafilatura)
+- Crawl cache at `~/.local/share/gnosis-mcp/crawl-cache.json`
+- Crawled pages stored with URL as `file_path`, hostname as `category`
+
 ## [0.7.13] - 2026-02-20
 
 ### Fixed

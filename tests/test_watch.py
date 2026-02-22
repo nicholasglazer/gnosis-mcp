@@ -1,6 +1,5 @@
 """Tests for gnosis_mcp.watch — file change detection and watcher lifecycle."""
 
-import time
 from pathlib import Path
 
 import pytest

@@ -1,4 +1,4 @@
-"""Command-line interface: serve, init-db, ingest, search, stats, export, check."""
+"""Command-line interface: serve, init-db, ingest, crawl, search, stats, export, check."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ import json
 import logging
 import os
 import sys
+from collections import Counter
 
 from gnosis_mcp import __version__
 
@@ -78,7 +79,7 @@ def cmd_init_db(args: argparse.Namespace) -> None:
         backend = create_backend(config)
         await backend.startup()
         try:
-            sql = await backend.init_schema()
+            await backend.init_schema()
             log.info("Schema initialized (%s backend)", config.backend)
         finally:
             await backend.shutdown()
@@ -406,7 +407,6 @@ def cmd_export(args: argparse.Namespace) -> None:
                 sys.stdout.write("\n")
             elif fmt == "csv":
                 import csv as csv_mod
-                import io
 
                 writer = csv_mod.writer(sys.stdout)
                 writer.writerow(["file_path", "title", "category", "chunks"])
@@ -424,6 +424,55 @@ def cmd_export(args: argparse.Namespace) -> None:
             log.info("Exported %d document(s)", len(docs))
         finally:
             await backend.shutdown()
+
+    asyncio.run(_run())
+
+
+def cmd_crawl(args: argparse.Namespace) -> None:
+    """Crawl a documentation website and ingest into the database."""
+    from gnosis_mcp.config import GnosisMcpConfig
+    from gnosis_mcp.crawl import CrawlConfig, crawl_url
+
+    config = GnosisMcpConfig.from_env()
+
+    crawl_config = CrawlConfig(
+        sitemap=args.sitemap,
+        depth=args.depth,
+        include=getattr(args, "include", None),
+        exclude=getattr(args, "exclude", None),
+        dry_run=args.dry_run,
+        force=getattr(args, "force", False),
+        embed=getattr(args, "embed", False),
+        max_urls=getattr(args, "max_urls", 5000),
+    )
+
+    async def _run() -> None:
+        results = await crawl_url(config, args.url, crawl_config)
+
+        # Print results
+        total_chunks = 0
+        counts: Counter[str] = Counter()
+        for r in results:
+            counts[r.action] += 1
+            total_chunks += r.chunks
+            marker = {
+                "crawled": "+", "unchanged": "=", "skipped": "-",
+                "error": "!", "blocked": "x", "dry-run": "?",
+            }
+            sym = marker.get(r.action, " ")
+            detail = f"  ({r.detail})" if r.detail else ""
+            log.info("[%s] %s  (%d chunks)%s", sym, r.url, r.chunks, detail)
+
+        log.info("")
+        log.info(
+            "Done: %d crawled, %d unchanged, %d skipped, %d errors, %d blocked (%d total chunks)",
+            counts["crawled"],
+            counts["unchanged"],
+            counts["skipped"],
+            counts["error"],
+            counts["blocked"],
+            total_chunks,
+        )
 
     asyncio.run(_run())
 
@@ -571,6 +620,41 @@ def main() -> None:
     )
     p_embed.add_argument("--dry-run", action="store_true", help="Count NULL embeddings only")
 
+    # crawl
+    p_crawl = sub.add_parser(
+        "crawl", help="Crawl a documentation website and ingest pages"
+    )
+    p_crawl.add_argument("url", help="Base URL to crawl (e.g. https://docs.example.com/)")
+    p_crawl.add_argument(
+        "--sitemap", action="store_true",
+        help="Discover URLs from sitemap.xml instead of link crawling",
+    )
+    p_crawl.add_argument(
+        "--depth", type=int, default=1,
+        help="Maximum link-crawl depth (default: 1, ignored with --sitemap)",
+    )
+    p_crawl.add_argument(
+        "--include", default=None,
+        help="Only crawl URLs whose path matches this glob (e.g. '/docs/*')",
+    )
+    p_crawl.add_argument(
+        "--exclude", default=None,
+        help="Skip URLs whose path matches this glob",
+    )
+    p_crawl.add_argument("--dry-run", action="store_true", help="Discover URLs only, don't fetch")
+    p_crawl.add_argument(
+        "--force", action="store_true",
+        help="Re-crawl all pages ignoring cache and content hash",
+    )
+    p_crawl.add_argument(
+        "--embed", action="store_true",
+        help="Embed all chunks after crawling",
+    )
+    p_crawl.add_argument(
+        "--max-urls", type=int, default=5000,
+        help="Maximum number of URLs to crawl (default: 5000)",
+    )
+
     # diff
     p_diff = sub.add_parser("diff", help="Show what would change on re-ingest")
     p_diff.add_argument("path", help="File or directory to compare")
@@ -587,6 +671,7 @@ def main() -> None:
         "serve": cmd_serve,
         "init-db": cmd_init_db,
         "ingest": cmd_ingest,
+        "crawl": cmd_crawl,
         "search": cmd_search,
         "embed": cmd_embed,
         "stats": cmd_stats,

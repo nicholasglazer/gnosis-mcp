@@ -5,7 +5,6 @@ from pathlib import Path
 import pytest
 
 from gnosis_mcp.ingest import (
-    _BASE_EXTS,
     _SUPPORTED_EXTS,
     _convert_csv,
     _convert_ipynb,
@@ -562,7 +561,6 @@ class TestConvertRst:
 
     def test_rst_without_docutils(self):
         """Without docutils, RST treated as plain text with H1 title."""
-        import importlib
         import sys
 
         # Temporarily hide docutils if present

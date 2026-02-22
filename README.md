@@ -44,6 +44,8 @@ Gnosis MCP fixes this. Point it at a folder of docs and it creates a searchable 
 
 **Works with what you have.** Gnosis MCP ingests `.md`, `.txt`, `.ipynb`, `.toml`, `.csv`, and `.json` files. Non-markdown formats are auto-converted for chunking — zero extra dependencies.
 
+**Crawl the web.** Ingest documentation from any website — Docusaurus, MkDocs, ReadTheDocs, GitBook, VitePress. Sitemap discovery, robots.txt compliance, incremental caching. The self-hosted alternative to cloud-only doc ingestion.
+
 ## Quick Start
 
 ```bash
@@ -79,6 +81,28 @@ uvx gnosis-mcp serve
 ```
 
 </details>
+
+## Crawl Documentation Sites
+
+Ingest docs from any website — no files needed:
+
+```bash
+pip install gnosis-mcp[web]
+
+# Crawl via sitemap (best for large doc sites)
+gnosis-mcp crawl https://docs.stripe.com/ --sitemap
+
+# Depth-limited link crawl with URL filter
+gnosis-mcp crawl https://fastapi.tiangolo.com/ --depth 2 --include "/tutorial/*"
+
+# Preview what would be crawled
+gnosis-mcp crawl https://docs.python.org/ --dry-run
+
+# Force re-crawl + embed for semantic search
+gnosis-mcp crawl https://docs.sveltekit.dev/ --sitemap --force --embed
+```
+
+Respects `robots.txt`, caches with ETag/Last-Modified for incremental re-crawl, and rate-limits requests (5 concurrent, 0.2s delay). Crawled pages are stored with the URL as the document path and hostname as the category — searchable like any other doc.
 
 ## Editor Integrations
 
@@ -390,6 +414,7 @@ All tables must share the same schema. Reads use `UNION ALL`. Writes target the 
 
 ```
 gnosis-mcp ingest <path> [--dry-run] [--force] [--embed]    Load files (--force to re-ingest unchanged)
+gnosis-mcp crawl <url> [--sitemap] [--depth N] [--include] [--exclude] [--dry-run] [--force] [--embed]
 gnosis-mcp serve [--transport stdio|sse] [--ingest PATH] [--watch PATH]   Start MCP server (--watch for live reload)
 gnosis-mcp search <query> [-n LIMIT] [-c CAT] [--embed]    Search (--embed for hybrid semantic+keyword)
 gnosis-mcp stats                                           Show document, chunk, and embedding counts
@@ -411,6 +436,7 @@ gnosis-mcp diff <path>                                     Show what would chang
 - **Auto-categorization** — infers category from the parent directory name
 - **Incremental updates** — content hashing skips unchanged files on re-run (`--force` to override)
 - **Watch mode** — `gnosis-mcp serve --watch ./docs/` auto-re-ingests on file changes
+- **Web crawling** — `gnosis-mcp crawl <url>` fetches and ingests documentation from any website
 - **Dry run** — preview what would be indexed with `--dry-run`
 
 ## Available on
@@ -429,6 +455,7 @@ src/gnosis_mcp/
 ├── db.py              Backend lifecycle + FastMCP lifespan
 ├── server.py          FastMCP server — 6 tools, 3 resources, auto-embed queries
 ├── ingest.py          File scanner + converters — multi-format, smart chunking (H2/H3/H4)
+├── crawl.py           Web crawler — sitemap/BFS discovery, robots.txt, ETag caching, trafilatura
 ├── watch.py           File watcher — mtime polling, auto-re-ingest on changes
 ├── schema.py          PostgreSQL DDL — tables, indexes, search functions
 ├── embed.py           Embedding providers — OpenAI, Ollama, custom, local ONNX
@@ -453,7 +480,7 @@ git clone https://github.com/nicholasglazer/gnosis-mcp.git
 cd gnosis-mcp
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
-pytest                    # 240+ tests, no database needed
+pytest                    # 370+ tests, no database needed
 ruff check src/ tests/
 ```
 

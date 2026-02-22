@@ -101,8 +101,6 @@ class PostgresBackend:
         if self._pool:
             return self._pool.acquire()
         # Standalone connection for CLI commands
-        import asyncpg
-
         class _StandaloneCtx:
             def __init__(self, url):
                 self._url = url
