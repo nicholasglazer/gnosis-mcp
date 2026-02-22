@@ -79,7 +79,7 @@ Returns: `{"path", "chunks_updated", "action": "metadata_updated"}`
 | Config | Nothing | Nothing | Set `DATABASE_URL` |
 | Search | FTS5 keyword (BM25) | Hybrid keyword + semantic (RRF) | tsvector + pgvector hybrid |
 
-Auto-detection: `DATABASE_URL` set to `postgresql://...` -> PostgreSQL. Not set -> SQLite at `~/.local/share/gnosis-mcp/docs.db`. Override: `GNOSIS_MCP_BACKEND=sqlite|postgres`.
+Auto-detection: `GNOSIS_MCP_DATABASE_URL` set to `postgresql://...` -> PostgreSQL. Not set -> SQLite at `~/.local/share/gnosis-mcp/docs.db`. Override: `GNOSIS_MCP_BACKEND=sqlite|postgres`.
 
 Ingestion extracts `relates_to` from frontmatter (comma-separated or YAML list) and populates the links table for `get_related` queries.
 
