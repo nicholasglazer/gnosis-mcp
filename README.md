@@ -23,7 +23,7 @@
   <a href="llms-full.txt">Full Reference</a>
 </p>
 
-<a href="#quick-start"><img src="demo-hero.gif" alt="Gnosis MCP — ingest docs, search, view stats, serve" width="700"></a>
+<a href="#quick-start"><img src="https://raw.githubusercontent.com/nicholasglazer/gnosis-mcp/main/demo-hero.gif" alt="Gnosis MCP — ingest docs, search, view stats, serve" width="700"></a>
 <br>
 <sub>Ingest docs &rarr; Search with highlights &rarr; Stats overview &rarr; Serve to AI agents</sub>
 
@@ -88,7 +88,7 @@ uvx gnosis-mcp serve
 ## Crawl Documentation Sites
 
 <div align="center">
-<img src="demo-crawl.gif" alt="Gnosis MCP — crawl docs with dry-run, fetch, search, SSRF protection" width="700">
+<img src="https://raw.githubusercontent.com/nicholasglazer/gnosis-mcp/main/demo-crawl.gif" alt="Gnosis MCP — crawl docs with dry-run, fetch, search, SSRF protection" width="700">
 <br>
 <sub>Dry-run discovery &rarr; Crawl &amp; ingest &rarr; Search crawled docs &rarr; SSRF protection</sub>
 </div>
