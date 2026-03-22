@@ -5,6 +5,11 @@ All notable changes to gnosis-mcp are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 Versioning follows [Semantic Versioning](https://semver.org/) (pre-1.0).
 
+## [0.10.4] - 2026-03-22
+
+### Added
+- Transport guide in README: explains stdio vs HTTP tradeoffs, why stateful servers benefit from HTTP sharing, and how to configure multi-session setups
+
 ## [0.10.3] - 2026-02-23
 
 ### Fixed

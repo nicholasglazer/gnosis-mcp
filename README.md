@@ -180,11 +180,40 @@ Also discoverable via the VS Code MCP gallery — search `@mcp gnosis` in the Ex
 
 </details>
 
-For remote deployment, use Streamable HTTP:
+## Transport: Stdio vs HTTP
+
+Gnosis supports two MCP transports. Which one you pick changes how sessions connect:
+
+| | Stdio (default) | Streamable HTTP |
+|---|---|---|
+| **Start** | `gnosis-mcp serve` | `gnosis-mcp serve --transport streamable-http` |
+| **Connection** | One parent process owns stdin/stdout | Any number of clients connect via HTTP |
+| **Sharing** | 1:1 — each editor/session spawns its own server | N:1 — one server, many sessions |
+| **State** | DB, file watcher, embeddings per-process | Shared across all clients |
+| **Best for** | Single editor, quick start | Multiple terminals, CI/CD, remote access |
+
+**Why this matters:** Gnosis maintains persistent state — a SQLite/PostgreSQL database, an embedding cache, and (with `--watch`) a file system watcher. With stdio, each editor session spawns a separate server process with its own state. With HTTP, you start the server once and every session shares the same database and watcher.
+
+For AI coding tools that open multiple sessions (e.g., Claude Code with agent teams, or parallel terminal tabs), HTTP avoids duplicate processes and keeps all sessions reading from the same index:
+
+```json
+{
+  "mcpServers": {
+    "docs": {
+      "type": "url",
+      "url": "http://127.0.0.1:8000/mcp"
+    }
+  }
+}
+```
+
+Start the server separately (or via systemd/Docker):
 
 ```bash
 gnosis-mcp serve --transport streamable-http --host 0.0.0.0 --port 8000
 ```
+
+Stdio MCP servers like `@modelcontextprotocol/server-postgres` are stateless proxies — they forward a SQL query and return results, so per-session spawning is fine. Gnosis is stateful, which is why HTTP transport is the better choice for multi-session setups.
 
 ## REST API
 
