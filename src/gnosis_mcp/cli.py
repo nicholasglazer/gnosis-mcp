@@ -68,6 +68,35 @@ def cmd_serve(args: argparse.Namespace) -> None:
         app = create_combined_app(mcp, transport, config)
         log.info("REST API enabled at /api/* and /health")
         uvicorn.run(app, host=host, port=int(port))
+    elif transport in ("sse", "streamable-http"):
+        # Always mount /health even without --rest (operational necessity)
+        import uvicorn
+        from starlette.applications import Starlette
+        from starlette.requests import Request
+        from starlette.responses import JSONResponse
+        from starlette.routing import Mount, Route
+
+        async def _health(request: Request) -> JSONResponse:
+            return JSONResponse({
+                "status": "ok",
+                "version": __version__,
+                "transport": transport,
+            })
+
+        if transport == "sse":
+            mcp_app = mcp.sse_app()
+        else:
+            mcp_app = mcp.streamable_http_app()
+
+        app = Starlette(
+            routes=[
+                Route("/health", _health, methods=["GET"]),
+                Mount("/", app=mcp_app),
+            ],
+            lifespan=mcp_app.router.lifespan_context,
+        )
+        log.info("/health endpoint available (use --rest for full REST API)")
+        uvicorn.run(app, host=host, port=int(port))
     else:
         mcp.run(transport=transport)
 

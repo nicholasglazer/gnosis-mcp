@@ -5,6 +5,11 @@ All notable changes to gnosis-mcp are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 Versioning follows [Semantic Versioning](https://semver.org/) (pre-1.0).
 
+## [0.10.5] - 2026-03-23
+
+### Added
+- Always-on `/health` endpoint for HTTP transports (streamable-http, sse) — no longer requires `--rest` flag. Returns `{"status": "ok", "version": "...", "transport": "..."}`. Full REST API (`/api/*`) still requires `--rest`.
+
 ## [0.10.4] - 2026-03-22
 
 ### Added
