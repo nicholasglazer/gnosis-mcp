@@ -46,6 +46,31 @@
 
 ---
 
+## How gnosis-mcp compares
+
+| Feature | gnosis-mcp | Context7 | Grounded Docs | mcp-local-rag |
+|---------|:---------:|:-------:|:------------:|:------------:|
+| **Your own docs** | Yes | No (public libs only) | Yes | Yes |
+| **Zero config** (pip + 2 commands) | Yes | Yes | Yes | Yes |
+| **Local embeddings** (no API key) | ONNX | No | Requires provider | Yes |
+| **Hybrid search** (keyword + semantic) | FTS5/tsvector + vector | No | Optional | Yes |
+| **PostgreSQL backend** | pgvector + HNSW | No | No | No |
+| **Web crawling** | Built-in | No | Yes | No |
+| **Git history indexing** | Yes | No | No | No |
+| **File watching** (auto re-ingest) | Yes | No | No | No |
+| **REST API** | Yes | No | No | No |
+| **Write tools** (upsert/delete) | Yes | No | No | No |
+| **Link graph** (get_related) | Yes | No | No | No |
+| **Smart chunking** (heading-aware) | Yes | N/A | Yes | Yes |
+| **Content hashing** (skip unchanged) | Yes | N/A | No | No |
+| **llms.txt** | Yes | No | No | No |
+| **Test count** | 550+ | Unknown | Unknown | Unknown |
+| **Dependencies** | 2 (mcp + aiosqlite) | npm ecosystem | npm ecosystem | npm ecosystem |
+
+**TL;DR**: Context7 indexes *public library docs*. gnosis-mcp indexes *your own private docs*. They're complementary — use both.
+
+---
+
 ## Features
 
 - **Zero config** — SQLite by default, `pip install` and go

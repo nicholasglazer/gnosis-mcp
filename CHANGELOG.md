@@ -5,6 +5,12 @@ All notable changes to gnosis-mcp are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 Versioning follows [Semantic Versioning](https://semver.org/) (pre-1.0).
 
+## [0.10.7] - 2026-03-24
+
+### Added
+- Comparison table in README: gnosis-mcp vs Context7 vs Grounded Docs vs mcp-local-rag — feature-by-feature positioning
+- Submitted to tolkonepiu/best-of-mcp-servers directory (knowledge-and-memory category)
+
 ## [0.10.6] - 2026-03-23
 
 ### Fixed
