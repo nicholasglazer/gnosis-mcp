@@ -13,10 +13,7 @@
       "registryType": "pypi",
       "identifier": "gnosis-mcp",
       "version": "0.10.5",
-      "transport": [
-        {"type": "stdio"},
-        {"type": "streamable-http"}
-      ]
+      "transport": {"type": "stdio"}
     }
   ]
 }
