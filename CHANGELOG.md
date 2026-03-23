@@ -5,6 +5,11 @@ All notable changes to gnosis-mcp are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 Versioning follows [Semantic Versioning](https://semver.org/) (pre-1.0).
 
+## [0.10.6] - 2026-03-23
+
+### Fixed
+- MCP Registry publish pipeline: `server.json` transport field was an array (invalid) — changed to single object per schema. This fixes 17 consecutive CI failures since v0.7.3 and restores registry updates.
+
 ## [0.10.5] - 2026-03-23
 
 ### Added
