@@ -82,6 +82,10 @@
 - **Watch mode** — auto-re-ingest on file changes
 - **PostgreSQL ready** — pgvector + tsvector when you need scale
 
+## Hosted deployment
+
+A hosted deployment is available on [Fronteir AI](https://fronteir.ai/mcp/nicholasglazer-gnosis-mcp).
+
 ## Quick Start
 
 ```bash
