@@ -5,6 +5,12 @@ All notable changes to gnosis-mcp are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 Versioning follows [Semantic Versioning](https://semver.org/) (pre-1.0).
 
+## [0.10.8] - 2026-04-01
+
+### Fixed
+- `upsert_doc` MCP tool: compute content_hash (SHA-256) on insert, fixing NotNullViolationError on PostgreSQL deployments with NOT NULL constraint on content_hash column
+- SQLite `upsert_doc`: same content_hash fix, with `has_column()` detection for backwards compatibility
+
 ## [0.10.7] - 2026-03-24
 
 ### Added
