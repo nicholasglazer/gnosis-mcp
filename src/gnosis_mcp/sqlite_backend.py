@@ -468,18 +468,32 @@ class SqliteBackend:
         tags: list[str] | None = None,
         embeddings: list[list[float]] | None = None,
     ) -> int:
+        import hashlib
+
         tags_json = json.dumps(tags) if tags else None
+        full_content = "\n".join(chunks)
+        digest = hashlib.sha256(full_content.encode()).hexdigest()[:16]
+
+        has_hash = await self.has_column("documentation_chunks", "content_hash")
 
         await self._db.execute(
             "DELETE FROM documentation_chunks WHERE file_path = ?", (path,)
         )
         for i, chunk in enumerate(chunks):
-            await self._db.execute(
-                "INSERT INTO documentation_chunks "
-                "(file_path, chunk_index, title, content, category, audience, tags) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (path, i, title, chunk, category, audience, tags_json),
-            )
+            if has_hash:
+                await self._db.execute(
+                    "INSERT INTO documentation_chunks "
+                    "(file_path, chunk_index, title, content, category, audience, tags, content_hash) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (path, i, title, chunk, category, audience, tags_json, digest),
+                )
+            else:
+                await self._db.execute(
+                    "INSERT INTO documentation_chunks "
+                    "(file_path, chunk_index, title, content, category, audience, tags) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (path, i, title, chunk, category, audience, tags_json),
+                )
         await self._db.commit()
         return len(chunks)
 

@@ -452,7 +452,13 @@ class PostgresBackend:
         tags: list[str] | None = None,
         embeddings: list[list[float]] | None = None,
     ) -> int:
+        import hashlib
+
         cfg = self._cfg
+        has_hash_col = await self.has_column(cfg.chunks_table, "content_hash")
+        full_content = "\n".join(chunks)
+        digest = hashlib.sha256(full_content.encode()).hexdigest()[:16]
+
         async with await self._acquire() as conn:
             async with conn.transaction():
                 await conn.execute(
@@ -461,24 +467,31 @@ class PostgresBackend:
                     path,
                 )
                 for i, chunk in enumerate(chunks):
-                    if embeddings is not None:
+                    cols = (
+                        f"{cfg.col_file_path}, {cfg.col_chunk_index}, {cfg.col_title}, "
+                        f"{cfg.col_content}, {cfg.col_category}, {cfg.col_audience}, {cfg.col_tags}"
+                    )
+                    vals = "$1, $2, $3, $4, $5, $6, $7"
+                    params: list[Any] = [path, i, title, chunk, category, audience, tags]
+                    idx = 8
+
+                    if has_hash_col:
+                        cols += ", content_hash"
+                        vals += f", ${idx}"
+                        params.append(digest)
+                        idx += 1
+
+                    if embeddings is not None and i < len(embeddings):
                         embedding_str = "[" + ",".join(str(f) for f in embeddings[i]) + "]"
-                        await conn.execute(
-                            f"INSERT INTO {cfg.qualified_chunks_table} "
-                            f"({cfg.col_file_path}, {cfg.col_chunk_index}, {cfg.col_title}, "
-                            f"{cfg.col_content}, {cfg.col_category}, {cfg.col_audience}, "
-                            f"{cfg.col_tags}, {cfg.col_embedding}) "
-                            f"VALUES ($1, $2, $3, $4, $5, $6, $7, $8::vector)",
-                            path, i, title, chunk, category, audience, tags, embedding_str,
-                        )
-                    else:
-                        await conn.execute(
-                            f"INSERT INTO {cfg.qualified_chunks_table} "
-                            f"({cfg.col_file_path}, {cfg.col_chunk_index}, {cfg.col_title}, "
-                            f"{cfg.col_content}, {cfg.col_category}, {cfg.col_audience}, {cfg.col_tags}) "
-                            f"VALUES ($1, $2, $3, $4, $5, $6, $7)",
-                            path, i, title, chunk, category, audience, tags,
-                        )
+                        cols += f", {cfg.col_embedding}"
+                        vals += f", ${idx}::vector"
+                        params.append(embedding_str)
+                        idx += 1
+
+                    await conn.execute(
+                        f"INSERT INTO {cfg.qualified_chunks_table} ({cols}) VALUES ({vals})",
+                        *params,
+                    )
         return len(chunks)
 
     async def delete_doc(self, path: str) -> dict[str, int]:
