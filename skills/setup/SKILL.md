@@ -27,6 +27,9 @@ If not installed:
 ```bash
 pip install gnosis-mcp              # SQLite (zero-config)
 pip install gnosis-mcp[postgres]    # + PostgreSQL support
+pip install gnosis-mcp[embeddings]  # + local ONNX embeddings (CPU, no API key)
+pip install gnosis-mcp[web]         # + web crawling (httpx + trafilatura)
+pip install gnosis-mcp[formats]     # + RST and PDF ingestion
 ```
 
 ### Step 2: Detect Backend
@@ -86,9 +89,23 @@ Next steps:
 - Enable writes: set `GNOSIS_MCP_WRITABLE=true`
 ```
 
+### Optional: Ingest Git History
+
+```bash
+gnosis-mcp ingest-git /path/to/repo --since "6 months ago" --embed
+```
+
+### Optional: Crawl Web Documentation
+
+```bash
+gnosis-mcp crawl https://docs.example.com --embed
+```
+
 ## Notes
 
 - SQLite is the default — no database server needed
 - PostgreSQL requires `pip install gnosis-mcp[postgres]` and a running PG instance
 - Re-running ingest skips unchanged files (content hashing)
 - FTS5 (SQLite) or tsvector (PostgreSQL) powers keyword search out of the box
+- Local embeddings: `pip install gnosis-mcp[embeddings]` enables CPU-based semantic search
+- Web crawling: `gnosis-mcp crawl <url>` indexes external documentation

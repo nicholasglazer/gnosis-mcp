@@ -13,6 +13,7 @@ Search across all indexed documentation using Gnosis MCP.
 /gnosis:search how does authentication work
 /gnosis:search --semantic webhook processing    # Hybrid semantic+keyword
 /gnosis:search --category guides setup          # Filter by category
+/gnosis:search --git fix authentication bug     # Search git commit history
 ```
 
 ## Query: $ARGUMENTS
@@ -72,8 +73,21 @@ Arguments:
   limit: 8
 ```
 
+### `--git`: Search Git Commit History
+
+Search indexed git commit history:
+```
+Tool: mcp__gnosis__search_git_history
+Arguments:
+  query: "$ARGUMENTS"
+  limit: 5
+```
+
+Optional filters: `--author name`, `--since YYYY-MM-DD`, `--until YYYY-MM-DD`, `--file path/to/file`
+
 ## Notes
 
 - Keyword search uses FTS5 (SQLite) or tsvector (PostgreSQL) — no GPU needed
-- Hybrid search available on PostgreSQL with pgvector embeddings + keyword scoring
+- Hybrid search available on PostgreSQL (pgvector) and SQLite (sqlite-vec with RRF)
 - Backend auto-detected: no `DATABASE_URL` → SQLite, `postgresql://` → PostgreSQL
+- Git history requires prior indexing: `gnosis-mcp ingest-git /path/to/repo`

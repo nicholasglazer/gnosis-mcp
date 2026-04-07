@@ -34,6 +34,7 @@ Arguments:
   content: "{file_content}"
   title: "{extracted_title}"
   category: "{category}"
+  audience: "{audience}"
   tags: ["{tag1}", "{tag2}"]
 ```
 
@@ -111,6 +112,7 @@ Arguments:
 
 ## Notes
 
+- 7 tools: search_docs, get_doc, get_related, search_git_history (read) + upsert_doc, delete_doc, update_metadata (write)
 - All write operations require `GNOSIS_MCP_WRITABLE=true`
 - Gnosis auto-chunks documents at H2 boundaries (~4000 chars per chunk)
 - Content hashing prevents re-indexing unchanged files during bulk embed

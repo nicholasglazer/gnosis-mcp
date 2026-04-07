@@ -5,6 +5,23 @@ All notable changes to gnosis-mcp are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 Versioning follows [Semantic Versioning](https://semver.org/) (pre-1.0).
 
+## [0.10.10] - 2026-04-07
+
+### Added
+- Example agents for Claude Code: doc-explorer, doc-keeper, doc-reviewer, context-loader (`agents/` directory)
+- `search_git_history` section in search skill with `--git` flag
+- Git history and web crawl sections in setup skill
+- All optional install extras documented in setup skill (`[embeddings]`, `[web]`, `[formats]`)
+
+### Fixed
+- Skills: updated tool count from 6 to 7 across all skills (search_git_history was missing)
+- Search skill: corrected hybrid search note — SQLite also supports hybrid via sqlite-vec RRF
+- Manage skill: added missing `audience` parameter to upsert_doc and update_metadata examples
+- CLAUDE.md: corrected tool count from 6 to 7 in architecture diagram
+
+### Changed
+- Updated deps: mcp 1.27.0, onnxruntime 1.24.4, numpy 2.4.4, ruff 0.15.9
+
 ## [0.10.9] - 2026-04-07
 
 ### Fixed

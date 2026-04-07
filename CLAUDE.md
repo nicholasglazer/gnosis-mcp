@@ -12,7 +12,7 @@ src/gnosis_mcp/
 ├── sqlite_schema.py   # SQLite DDL — tables, FTS5 virtual table, vec0 virtual table, sync triggers
 ├── config.py          # GnosisMcpConfig frozen dataclass, backend auto-detection, GNOSIS_MCP_* env vars
 ├── db.py              # Backend lifecycle + FastMCP lifespan context manager
-├── server.py          # FastMCP server: 6 tools + 3 resources + auto-embed queries
+├── server.py          # FastMCP server: 7 tools + 3 resources + auto-embed queries
 ├── ingest.py          # File ingestion + converters: multi-format (.md/.txt/.ipynb/.toml/.csv/.json + optional .rst/.pdf), smart chunking, hashing
 ├── crawl.py           # Web crawler: sitemap/BFS URL discovery, robots.txt, ETag caching, trafilatura HTML→markdown, rate-limited async fetching
 ├── parsers/           # Non-file ingest sources
