@@ -1,0 +1,36 @@
+# Maintainer: Nicholas Glazer <nicholasglazer at protonmail dot com>
+pkgname=python-gnosis-mcp-git
+pkgver=r0.0000000
+pkgrel=1
+pkgdesc="Zero-config MCP server for searchable documentation (git)"
+arch=('any')
+url="https://github.com/nicholasglazer/gnosis-mcp"
+license=('MIT')
+depends=('python>=3.11' 'python-mcp>=1.20' 'python-aiosqlite>=0.20')
+optdepends=('python-asyncpg: PostgreSQL backend'
+            'python-onnxruntime: local ONNX embeddings'
+            'python-tokenizers: local ONNX embeddings'
+            'python-numpy: local ONNX embeddings'
+            'python-httpx: web crawling'
+            'python-trafilatura: web crawling')
+makedepends=('python-build' 'python-installer' 'python-hatchling' 'git')
+provides=('python-gnosis-mcp')
+conflicts=('python-gnosis-mcp')
+source=("git+https://github.com/nicholasglazer/gnosis-mcp.git")
+sha256sums=('SKIP')
+
+pkgver() {
+    cd gnosis-mcp
+    printf "r%s.%s" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
+}
+
+build() {
+    cd gnosis-mcp
+    python -m build --wheel --no-isolation
+}
+
+package() {
+    cd gnosis-mcp
+    python -m installer --destdir="$pkgdir" dist/*.whl
+    install -Dm644 LICENSE "$pkgdir/usr/share/licenses/${pkgname%-git}/LICENSE"
+}
