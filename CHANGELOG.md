@@ -5,6 +5,11 @@ All notable changes to gnosis-mcp are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 Versioning follows [Semantic Versioning](https://semver.org/) (pre-1.0).
 
+## [0.10.9] - 2026-04-07
+
+### Fixed
+- `has_column()` on PostgreSQL: switch from `information_schema.columns` to `pg_catalog.pg_attribute` — fixes `upsert_doc` NotNullViolationError on Supabase and other PostgreSQL deployments where role permissions filter information_schema visibility. This was the actual root cause of the content_hash bug that v0.10.8 attempted to fix.
+
 ## [0.10.8] - 2026-04-01
 
 ### Fixed

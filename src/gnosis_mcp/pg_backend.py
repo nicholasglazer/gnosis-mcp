@@ -693,8 +693,12 @@ class PostgresBackend:
         async with await self._acquire() as conn:
             return await conn.fetchval(
                 "SELECT EXISTS ("
-                "  SELECT 1 FROM information_schema.columns"
-                "  WHERE table_schema = $1 AND table_name = $2 AND column_name = $3"
+                "  SELECT 1 FROM pg_catalog.pg_attribute a"
+                "  JOIN pg_catalog.pg_class c ON a.attrelid = c.oid"
+                "  JOIN pg_catalog.pg_namespace n ON c.relnamespace = n.oid"
+                "  WHERE n.nspname = $1 AND c.relname = $2"
+                "    AND a.attname = $3 AND a.attnum > 0"
+                "    AND NOT a.attisdropped"
                 ")",
                 cfg.schema,
                 table,
