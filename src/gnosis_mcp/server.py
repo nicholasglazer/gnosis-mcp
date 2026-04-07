@@ -49,6 +49,19 @@ async def _notify_webhook(ctx: AppContext, action: str, path: str) -> None:
         log.warning("webhook failed for %s (url=%s)", path, url, exc_info=True)
 
 
+async def _log_access(
+    ctx: AppContext, file_paths: list[str], tool: str, query: str | None = None,
+) -> None:
+    """Log document access events. Fire-and-forget, never raises."""
+    if not ctx.config.access_log:
+        return
+    try:
+        for fp in file_paths:
+            await ctx.backend.log_access(fp, tool=tool, query=query)
+    except Exception:
+        log.debug("access log failed", exc_info=True)
+
+
 # ---------------------------------------------------------------------------
 # MCP Resources — browsable document index and content
 # ---------------------------------------------------------------------------
@@ -170,6 +183,10 @@ async def search_docs(
             query, search_mode, len(items), top_path, top_score, category,
         )
 
+        # Log top result paths for access tracking
+        if items:
+            await _log_access(ctx, [it["file_path"] for it in items[:3]], "search_docs", query)
+
         return json.dumps(items, indent=2)
     except Exception:
         log.exception("search_docs failed")
@@ -209,6 +226,7 @@ async def get_doc(path: str, max_length: int | None = None) -> str:
         }
         if truncated:
             result["truncated"] = True
+        await _log_access(ctx, [path], "get_doc")
         return json.dumps(result, indent=2)
     except Exception:
         log.exception("get_doc failed for path=%s", path)
@@ -318,6 +336,87 @@ async def get_related(path: str) -> str:
     except Exception:
         log.exception("get_related failed for path=%s", path)
         return json.dumps({"error": f"Failed to find related documents for: {path}"})
+
+
+@mcp.tool()
+async def get_context(
+    topic: str | None = None,
+    limit: int = 10,
+    category: str | None = None,
+) -> str:
+    """Get the most important documents as a lightweight context primer.
+
+    Returns a compact summary of top documents based on access frequency.
+    Use at the start of a session for quick orientation.
+
+    Args:
+        topic: Optional topic to focus on. Combines search with access data.
+        limit: Maximum documents to return (default 10).
+        category: Optional category filter.
+    """
+    ctx = await _get_ctx()
+    cfg = ctx.config
+    limit = max(1, min(cfg.search_limit_max, limit))
+    preview = cfg.content_preview_chars
+
+    try:
+        docs = []
+
+        if topic:
+            results = await ctx.backend.search(
+                topic, category=category, limit=limit,
+            )
+            top_accessed = await ctx.backend.get_top_accessed(
+                limit=limit, days=30, category=category,
+            )
+            access_map = {r["file_path"]: r["access_count"] for r in top_accessed}
+            for r in results:
+                content = r["content"]
+                docs.append({
+                    "file_path": r["file_path"],
+                    "title": r["title"],
+                    "category": r.get("category"),
+                    "summary": (
+                        content[:preview] + "..."
+                        if len(content) > preview
+                        else content
+                    ),
+                    "access_count": access_map.get(r["file_path"], 0),
+                })
+        else:
+            top_accessed = await ctx.backend.get_top_accessed(
+                limit=limit, days=30, category=category,
+            )
+            for r in top_accessed:
+                chunks = await ctx.backend.get_doc(r["file_path"])
+                summary = ""
+                if chunks:
+                    content = chunks[0]["content"]
+                    summary = (
+                        content[:preview] + "..."
+                        if len(content) > preview
+                        else content
+                    )
+                docs.append({
+                    "file_path": r["file_path"],
+                    "title": r["title"],
+                    "category": r["category"],
+                    "summary": summary,
+                    "access_count": r["access_count"],
+                })
+
+        stats_data = await ctx.backend.stats()
+        stats = {
+            "total_docs": stats_data["docs"],
+            "total_chunks": stats_data["chunks"],
+            "categories": len(stats_data.get("categories", [])),
+        }
+
+        log.info("get_context: topic=%r docs=%d", topic, len(docs))
+        return json.dumps({"docs": docs, "stats": stats}, indent=2)
+    except Exception:
+        log.exception("get_context failed")
+        return json.dumps({"error": "Failed to get context"})
 
 
 # ---------------------------------------------------------------------------

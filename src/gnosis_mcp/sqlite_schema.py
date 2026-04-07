@@ -71,6 +71,17 @@ CREATE TABLE IF NOT EXISTS documentation_links (
 )""",
         "CREATE INDEX IF NOT EXISTS idx_links_source ON documentation_links (source_path)",
         "CREATE INDEX IF NOT EXISTS idx_links_target ON documentation_links (target_path)",
+        # Access log
+        """\
+CREATE TABLE IF NOT EXISTS search_access_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    file_path TEXT NOT NULL,
+    query TEXT,
+    tool TEXT NOT NULL DEFAULT 'search_docs',
+    accessed_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+)""",
+        "CREATE INDEX IF NOT EXISTS idx_search_access_log_file_path ON search_access_log (file_path)",
+        "CREATE INDEX IF NOT EXISTS idx_search_access_log_accessed_at ON search_access_log (accessed_at)",
     ]
 
 

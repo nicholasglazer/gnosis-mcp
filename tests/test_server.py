@@ -13,6 +13,7 @@ from gnosis_mcp.server import (
     _notify_webhook,
     _split_chunks,
     delete_doc,
+    get_context,
     get_doc,
     get_related,
     list_categories,
@@ -255,6 +256,60 @@ class TestGetRelatedTool:
         data = json.loads(result)
         assert isinstance(data, list)
         assert data == []
+
+
+# ---------------------------------------------------------------------------
+# MCP Tool tests — get_context
+# ---------------------------------------------------------------------------
+
+
+class TestGetContextTool:
+    @pytest.mark.asyncio
+    async def test_empty_no_access(self, writable_ctx):
+        result = await get_context()
+        data = json.loads(result)
+        assert data["docs"] == []
+        assert "stats" in data
+        assert "total_docs" in data["stats"]
+
+    @pytest.mark.asyncio
+    async def test_with_topic(self, writable_ctx):
+        await writable_ctx.backend.upsert_doc(
+            "test.md",
+            ["Getting started with gnosis documentation system"],
+            title="Getting Started",
+            category="guides",
+        )
+        result = await get_context(topic="gnosis documentation")
+        data = json.loads(result)
+        assert len(data["docs"]) >= 1
+        assert "summary" in data["docs"][0]
+        assert "file_path" in data["docs"][0]
+
+    @pytest.mark.asyncio
+    async def test_without_topic_uses_access_log(self, writable_ctx):
+        await writable_ctx.backend.upsert_doc(
+            "popular.md",
+            ["Popular document content about billing"],
+            title="Popular",
+            category="guides",
+        )
+        await writable_ctx.backend.log_access("popular.md", tool="get_doc")
+        await writable_ctx.backend.log_access("popular.md", tool="get_doc")
+        result = await get_context()
+        data = json.loads(result)
+        assert len(data["docs"]) >= 1
+        assert data["docs"][0]["file_path"] == "popular.md"
+        assert data["docs"][0]["access_count"] >= 2
+
+    @pytest.mark.asyncio
+    async def test_stats_included(self, writable_ctx):
+        result = await get_context()
+        data = json.loads(result)
+        assert "stats" in data
+        assert "total_docs" in data["stats"]
+        assert "total_chunks" in data["stats"]
+        assert "categories" in data["stats"]
 
 
 # ---------------------------------------------------------------------------

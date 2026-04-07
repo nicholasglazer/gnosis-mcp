@@ -163,6 +163,26 @@ class TestApiKeyAuth:
             assert r.status_code == 200
 
 
+class TestContextEndpoint:
+    def test_context_empty(self, seeded_client):
+        r = seeded_client.get("/api/context")
+        assert r.status_code == 200
+        data = r.json()
+        assert "docs" in data
+        assert "stats" in data
+
+    def test_context_with_topic(self, seeded_client):
+        r = seeded_client.get("/api/context?topic=quickstart")
+        assert r.status_code == 200
+        data = r.json()
+        assert "docs" in data
+
+    def test_context_with_limit(self, seeded_client):
+        r = seeded_client.get("/api/context?limit=1")
+        assert r.status_code == 200
+        assert len(r.json()["docs"]) <= 1
+
+
 class TestCombinedApp:
     def test_create_combined_app(self, monkeypatch, tmp_path):
         """Verify combined app mounts both MCP and REST."""

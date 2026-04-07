@@ -102,6 +102,9 @@ class GnosisMcpConfig:
 
     # REST API (disabled by default)
     rest: bool = False
+
+    # Access logging (tracks search_docs and get_doc usage for get_context)
+    access_log: bool = True
     cors_origins: str | None = None  # comma-separated origins, or "*"
     api_key: str | None = None  # optional Bearer token auth
 
@@ -289,6 +292,7 @@ class GnosisMcpConfig:
             embed_url=env("EMBED_URL"),
             embed_batch_size=env_int("EMBED_BATCH_SIZE", 50),
             rest=env("REST", "").lower() in ("1", "true", "yes"),
+            access_log=env("ACCESS_LOG", "true").lower() in ("1", "true", "yes"),
             cors_origins=env("CORS_ORIGINS"),
             api_key=env("API_KEY"),
             transport=env("TRANSPORT", "stdio"),

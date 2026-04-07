@@ -325,3 +325,80 @@ class TestSqliteBackendLifecycle:
         # Title match should come first due to 10x title weight
         assert results[0]["file_path"] == "title-match.md"
         assert results[0]["score"] > results[1]["score"]
+
+
+class TestAccessLog:
+    @pytest.fixture
+    async def backend(self):
+        b = _make_backend()
+        await b.startup()
+        await b.init_schema()
+        yield b
+        await b.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_log_access(self, backend):
+        """log_access inserts and get_top_accessed retrieves."""
+        await backend.upsert_doc("a.md", ["Content A"], title="Doc A", category="guides")
+        await backend.log_access("a.md", tool="get_doc")
+        await backend.log_access("a.md", tool="search_docs", query="test query")
+        top = await backend.get_top_accessed(limit=10, days=30)
+        assert len(top) == 1
+        assert top[0]["file_path"] == "a.md"
+        assert top[0]["access_count"] == 2
+        assert top[0]["title"] == "Doc A"
+        assert top[0]["category"] == "guides"
+
+    @pytest.mark.asyncio
+    async def test_ordering(self, backend):
+        """More accesses = higher rank."""
+        await backend.upsert_doc("a.md", ["A"], title="A", category="test")
+        await backend.upsert_doc("b.md", ["B"], title="B", category="test")
+        await backend.log_access("a.md", tool="get_doc")
+        for _ in range(3):
+            await backend.log_access("b.md", tool="get_doc")
+        top = await backend.get_top_accessed(limit=10, days=30)
+        assert top[0]["file_path"] == "b.md"
+        assert top[0]["access_count"] == 3
+        assert top[1]["file_path"] == "a.md"
+        assert top[1]["access_count"] == 1
+
+    @pytest.mark.asyncio
+    async def test_category_filter(self, backend):
+        """Category filter limits results."""
+        await backend.upsert_doc("a.md", ["A"], title="A", category="guides")
+        await backend.upsert_doc("b.md", ["B"], title="B", category="ops")
+        await backend.log_access("a.md", tool="get_doc")
+        await backend.log_access("b.md", tool="get_doc")
+        top = await backend.get_top_accessed(limit=10, days=30, category="ops")
+        assert len(top) == 1
+        assert top[0]["file_path"] == "b.md"
+
+    @pytest.mark.asyncio
+    async def test_empty(self, backend):
+        """No accesses returns empty list."""
+        top = await backend.get_top_accessed(limit=10, days=30)
+        assert top == []
+
+    @pytest.mark.asyncio
+    async def test_purge(self, backend):
+        """Purge with days=0 deletes everything."""
+        await backend.log_access("a.md", tool="get_doc")
+        # Backdate the row so it's older than "now"
+        await backend._db.execute(
+            "UPDATE search_access_log SET accessed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-1 day')"
+        )
+        await backend._db.commit()
+        deleted = await backend.purge_access_log(days=0)
+        assert deleted >= 1
+        top = await backend.get_top_accessed(limit=10, days=30)
+        assert top == []
+
+    @pytest.mark.asyncio
+    async def test_missing_table_no_error(self):
+        """log_access doesn't raise if table is missing."""
+        b = _make_backend()
+        await b.startup()
+        # Don't init_schema — table doesn't exist
+        await b.log_access("a.md", tool="get_doc")  # Should not raise
+        await b.shutdown()

@@ -12,7 +12,7 @@ src/gnosis_mcp/
 ├── sqlite_schema.py   # SQLite DDL — tables, FTS5 virtual table, vec0 virtual table, sync triggers
 ├── config.py          # GnosisMcpConfig frozen dataclass, backend auto-detection, GNOSIS_MCP_* env vars
 ├── db.py              # Backend lifecycle + FastMCP lifespan context manager
-├── server.py          # FastMCP server: 7 tools + 3 resources + auto-embed queries
+├── server.py          # FastMCP server: 8 tools + 3 resources + auto-embed queries
 ├── ingest.py          # File ingestion + converters: multi-format (.md/.txt/.ipynb/.toml/.csv/.json + optional .rst/.pdf), smart chunking, hashing
 ├── crawl.py           # Web crawler: sitemap/BFS URL discovery, robots.txt, ETag caching, trafilatura HTML→markdown, rate-limited async fetching
 ├── parsers/           # Non-file ingest sources
@@ -22,7 +22,7 @@ src/gnosis_mcp/
 ├── schema.py          # PostgreSQL DDL — tables, indexes, HNSW, hybrid search functions
 ├── embed.py           # Embedding providers: openai/ollama/custom/local, batch backfill
 ├── local_embed.py     # Local ONNX embedding engine — stdlib urllib model download, CPU inference
-└── cli.py             # argparse CLI: serve, init-db, ingest, ingest-git, crawl, search, embed, stats, export, diff, check
+└── cli.py             # argparse CLI: serve, init-db, ingest, ingest-git, crawl, search, embed, stats, export, diff, check, cleanup
 ```
 
 ## Backend Protocol
@@ -44,11 +44,12 @@ Default install: `mcp>=1.20` + `aiosqlite>=0.20`. Optional extras: `[postgres]` 
 1. **search_docs(query, category?, limit?, query_embedding?)** -- keyword (FTS5/tsvector), hybrid (with embedding on SQLite via sqlite-vec or PG via pgvector), or custom function search. Auto-embeds query when local provider configured.
 2. **get_doc(path, max_length?)** -- reassemble document chunks by file_path + chunk_index (optional truncation)
 3. **get_related(path)** -- bidirectional link graph query
+4. **get_context(topic?, limit?, category?)** -- usage-weighted context summary. With topic: search + access count enrichment. Without topic: most-accessed docs + stats.
 
 ### Write (requires GNOSIS_MCP_WRITABLE=true)
-4. **upsert_doc(path, content, title?, category?, audience?, tags?, embeddings?)** -- insert/replace document with auto-chunking (optional pre-computed embeddings)
-5. **delete_doc(path)** -- delete document chunks + links
-6. **update_metadata(path, title?, category?, audience?, tags?)** -- update metadata on all chunks
+5. **upsert_doc(path, content, title?, category?, audience?, tags?, embeddings?)** -- insert/replace document with auto-chunking (optional pre-computed embeddings)
+6. **delete_doc(path)** -- delete document chunks + links
+7. **update_metadata(path, title?, category?, audience?, tags?)** -- update metadata on all chunks
 
 ## Resources
 
@@ -65,6 +66,7 @@ Enable with `--rest` flag or `GNOSIS_MCP_REST=true`. Runs alongside MCP on the s
 - **GET /api/docs/{path}** — get document by file path
 - **GET /api/docs/{path}/related** — get related documents
 - **GET /api/categories** — list categories with counts
+- **GET /api/context?topic=&limit=&category=** — usage-weighted context summary
 
 Config: `GNOSIS_MCP_CORS_ORIGINS` (comma-separated or `*`), `GNOSIS_MCP_API_KEY` (Bearer auth).
 New file: `rest.py` — Starlette routes, own backend lifespan, CORS + auth middleware.
@@ -94,11 +96,12 @@ New file: `rest.py` — Starlette routes, own backend lifespan, CORS + auth midd
 - **URL as file_path**: Crawled pages use the full URL as `file_path` — no schema changes, works with existing search/get_doc
 - **Crawl cache**: JSON sidecar at `~/.local/share/gnosis-mcp/crawl-cache.json` for ETag/Last-Modified conditional requests
 - **Deferred web deps**: `[web]` extra (httpx + trafilatura) imported only when `crawl_url()` is called — same pattern as `[rst]`/`[pdf]`
+- **Access tracking**: `search_access_log` table records which documents are accessed via `search_docs` (top 3) and `get_doc`. `get_context` uses access frequency to surface important docs. Fire-and-forget logging, opt-out via `GNOSIS_MCP_ACCESS_LOG=false`
 
 ## Testing
 
 ```bash
-pytest tests/               # Unit tests (470+ tests, no DB required)
+pytest tests/               # Unit tests (580+ tests, no DB required)
 gnosis-mcp check            # Integration check against live DB
 ```
 

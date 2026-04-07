@@ -5,6 +5,14 @@ All notable changes to gnosis-mcp are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 Versioning follows [Semantic Versioning](https://semver.org/) (pre-1.0).
 
+## [0.10.11] - 2026-04-07
+
+### Added
+- **`get_context` tool**: Usage-weighted context loading — surfaces most-accessed documents for efficient session startup. Supports topic search enrichment, category filtering, and repository statistics.
+- **Access tracking**: `search_access_log` table automatically records document access from `search_docs` (top 3 results) and `get_doc`. Fire-and-forget pattern, opt-out via `GNOSIS_MCP_ACCESS_LOG=false`.
+- **`GET /api/context` REST endpoint**: Same functionality as the MCP tool, available when REST API is enabled.
+- **`gnosis-mcp cleanup` CLI command**: Purge old access log entries (`--days N`, default 90).
+
 ## [0.10.10] - 2026-04-07
 
 ### Added

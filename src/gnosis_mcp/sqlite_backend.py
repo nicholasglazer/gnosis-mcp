@@ -720,6 +720,75 @@ class SqliteBackend:
         await self._db.commit()
         return count
 
+    async def log_access(
+        self,
+        file_path: str,
+        tool: str,
+        query: str | None = None,
+    ) -> None:
+        """Log a document access event. Fire-and-forget, never raises."""
+        try:
+            await self._db.execute(
+                "INSERT INTO search_access_log (file_path, tool, query) "
+                "VALUES (?, ?, ?)",
+                (file_path, tool, query),
+            )
+            await self._db.commit()
+        except Exception:
+            log.debug("access_log.write_failed", exc_info=True)
+
+    async def get_top_accessed(
+        self,
+        *,
+        limit: int = 10,
+        days: int = 30,
+        category: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Get most-accessed documents within a time window."""
+        cutoff = f"-{days} days"
+        if category:
+            sql = (
+                "SELECT a.file_path, c.title, c.category, "
+                "COUNT(*) AS access_count, MAX(a.accessed_at) AS last_accessed "
+                "FROM search_access_log a "
+                "LEFT JOIN documentation_chunks c "
+                "  ON c.file_path = a.file_path AND c.chunk_index = 0 "
+                "WHERE a.accessed_at >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', ?) "
+                "  AND c.category = ? "
+                "GROUP BY a.file_path "
+                "ORDER BY access_count DESC "
+                "LIMIT ?"
+            )
+            params: tuple = (cutoff, category, limit)
+        else:
+            sql = (
+                "SELECT a.file_path, c.title, c.category, "
+                "COUNT(*) AS access_count, MAX(a.accessed_at) AS last_accessed "
+                "FROM search_access_log a "
+                "LEFT JOIN documentation_chunks c "
+                "  ON c.file_path = a.file_path AND c.chunk_index = 0 "
+                "WHERE a.accessed_at >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', ?) "
+                "GROUP BY a.file_path "
+                "ORDER BY access_count DESC "
+                "LIMIT ?"
+            )
+            params = (cutoff, limit)
+        cursor = await self._db.execute(sql, params)
+        rows = await cursor.fetchall()
+        cols = [d[0] for d in cursor.description]
+        return [dict(zip(cols, row)) for row in rows]
+
+    async def purge_access_log(self, days: int = 90) -> int:
+        """Delete access log entries older than N days. Returns rows deleted."""
+        cutoff = f"-{days} days"
+        cursor = await self._db.execute(
+            "DELETE FROM search_access_log "
+            "WHERE accessed_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', ?)",
+            (cutoff,),
+        )
+        await self._db.commit()
+        return cursor.rowcount
+
     async def ingest_file(
         self,
         rel_path: str,

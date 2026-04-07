@@ -1,4 +1,4 @@
-"""Command-line interface: serve, init-db, ingest, crawl, search, stats, export, check."""
+"""Command-line interface: serve, init-db, ingest, crawl, search, stats, export, check, cleanup."""
 
 from __future__ import annotations
 
@@ -598,6 +598,25 @@ def cmd_diff(args: argparse.Namespace) -> None:
     asyncio.run(_run())
 
 
+def cmd_cleanup(args: argparse.Namespace) -> None:
+    """Purge old access log entries."""
+    from gnosis_mcp.backend import create_backend
+    from gnosis_mcp.config import GnosisMcpConfig
+
+    config = GnosisMcpConfig.from_env()
+
+    async def _run() -> None:
+        backend = create_backend(config)
+        await backend.startup()
+        try:
+            deleted = await backend.purge_access_log(args.days)
+            print(f"Purged {deleted} access log entries older than {args.days} days.")
+        finally:
+            await backend.shutdown()
+
+    asyncio.run(_run())
+
+
 def _format_bytes(nbytes: int) -> str:
     """Format byte count as human-readable string."""
     for unit in ("B", "KB", "MB", "GB"):
@@ -800,6 +819,10 @@ def main() -> None:
     # check
     sub.add_parser("check", help="Verify database connection and schema")
 
+    # cleanup
+    cleanup_parser = sub.add_parser("cleanup", help="Purge old access log entries")
+    cleanup_parser.add_argument("--days", type=int, default=90, help="Delete entries older than N days (default: 90)")
+
     args = parser.parse_args()
     if not args.command:
         parser.print_help()
@@ -817,5 +840,6 @@ def main() -> None:
         "export": cmd_export,
         "diff": cmd_diff,
         "check": cmd_check,
+        "cleanup": cmd_cleanup,
     }
     commands[args.command](args)

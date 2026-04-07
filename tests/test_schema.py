@@ -101,3 +101,9 @@ class TestGetInitSql:
         sql = get_init_sql(cfg)
         assert "internal.search_docs_hybrid(" in sql
         assert "FROM internal.docs c" in sql
+
+    def test_access_log_table_in_schema(self):
+        cfg = GnosisMcpConfig(database_url="postgresql://localhost/db")
+        sql = get_init_sql(cfg)
+        assert "search_access_log" in sql
+        assert "idx_search_access_log_file_path" in sql

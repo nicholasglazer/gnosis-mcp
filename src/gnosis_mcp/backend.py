@@ -151,6 +151,32 @@ class DocBackend(Protocol):
         """Insert links from source to each target. Returns count inserted."""
         ...
 
+    async def log_access(
+        self,
+        file_path: str,
+        tool: str,
+        query: str | None = None,
+    ) -> None:
+        """Log a document access event. Fire-and-forget, never raises."""
+        ...
+
+    async def get_top_accessed(
+        self,
+        *,
+        limit: int = 10,
+        days: int = 30,
+        category: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Get most-accessed documents within a time window.
+
+        Returns list of {file_path, title, category, access_count, last_accessed}.
+        """
+        ...
+
+    async def purge_access_log(self, days: int = 90) -> int:
+        """Delete access log entries older than N days. Returns rows deleted."""
+        ...
+
     async def ingest_file(
         self,
         rel_path: str,

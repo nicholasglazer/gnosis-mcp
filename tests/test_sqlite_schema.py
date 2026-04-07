@@ -46,3 +46,9 @@ class TestGetSqliteSchema:
         assert "idx_chunks_category" in ddl
         assert "idx_links_source" in ddl
         assert "idx_links_target" in ddl
+
+    def test_access_log_table_in_schema(self):
+        stmts = get_sqlite_schema()
+        joined = "\n".join(stmts)
+        assert "search_access_log" in joined
+        assert "idx_search_access_log_file_path" in joined

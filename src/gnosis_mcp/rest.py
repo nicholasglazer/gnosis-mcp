@@ -250,6 +250,66 @@ async def list_categories(request: Request) -> JSONResponse:
         return JSONResponse({"error": "Failed to list categories"}, status_code=500)
 
 
+async def get_context(request: Request) -> JSONResponse:
+    """Context primer endpoint."""
+    backend = _backend(request)
+    cfg = _config(request)
+    topic = request.query_params.get("topic") or None
+    cat = request.query_params.get("category") or None
+    try:
+        limit_str = request.query_params.get("limit", "10")
+        limit = min(int(limit_str), cfg.search_limit_max)
+    except (ValueError, TypeError):
+        limit = 10
+
+    preview = cfg.content_preview_chars
+    try:
+        docs = []
+        if topic:
+            results = await backend.search(topic, category=cat, limit=limit)
+            top_accessed = await backend.get_top_accessed(
+                limit=limit, days=30, category=cat,
+            )
+            access_map = {r["file_path"]: r["access_count"] for r in top_accessed}
+            for r in results:
+                content = r["content"]
+                docs.append({
+                    "file_path": r["file_path"],
+                    "title": r["title"],
+                    "category": r.get("category"),
+                    "summary": content[:preview] + "..." if len(content) > preview else content,
+                    "access_count": access_map.get(r["file_path"], 0),
+                })
+        else:
+            top_accessed = await backend.get_top_accessed(
+                limit=limit, days=30, category=cat,
+            )
+            for r in top_accessed:
+                chunks = await backend.get_doc(r["file_path"])
+                summary = ""
+                if chunks:
+                    c = chunks[0]["content"]
+                    summary = c[:preview] + "..." if len(c) > preview else c
+                docs.append({
+                    "file_path": r["file_path"],
+                    "title": r["title"],
+                    "category": r["category"],
+                    "summary": summary,
+                    "access_count": r["access_count"],
+                })
+
+        stats_data = await backend.stats()
+        stats = {
+            "total_docs": stats_data["docs"],
+            "total_chunks": stats_data["chunks"],
+            "categories": len(stats_data.get("categories", [])),
+        }
+        return JSONResponse({"docs": docs, "stats": stats})
+    except Exception:
+        log.exception("get_context REST failed")
+        return JSONResponse({"error": "Failed to get context"}, status_code=500)
+
+
 # ---------------------------------------------------------------------------
 # App factories
 # ---------------------------------------------------------------------------
@@ -260,6 +320,7 @@ def _make_routes() -> list:
     return [
         Route("/health", health, methods=["GET"]),
         Route("/api/search", search, methods=["GET"]),
+        Route("/api/context", get_context, methods=["GET"]),
         Route("/api/docs/{path:path}/related", get_related, methods=["GET"]),
         Route("/api/docs/{path:path}", get_doc, methods=["GET"]),
         Route("/api/categories", list_categories, methods=["GET"]),

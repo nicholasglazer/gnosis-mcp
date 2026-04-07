@@ -64,7 +64,7 @@
 | **Smart chunking** (heading-aware) | Yes | N/A | Yes | Yes |
 | **Content hashing** (skip unchanged) | Yes | N/A | No | No |
 | **llms.txt** | Yes | No | No | No |
-| **Test count** | 550+ | Unknown | Unknown | Unknown |
+| **Test count** | 580+ | Unknown | Unknown | Unknown |
 | **Dependencies** | 2 (mcp + aiosqlite) | npm ecosystem | npm ecosystem | npm ecosystem |
 
 **TL;DR**: Context7 indexes *public library docs*. gnosis-mcp indexes *your own private docs*. They're complementary — use both.
@@ -257,6 +257,7 @@ Web apps can now query your docs over plain HTTP — no MCP protocol required.
 | `GET /api/docs/{path}` | Get document by file path |
 | `GET /api/docs/{path}/related` | Get related documents |
 | `GET /api/categories` | List categories with counts |
+| `GET /api/context?topic=&limit=&category=` | Usage-weighted context summary |
 
 **Environment variables:**
 
@@ -360,13 +361,14 @@ For PostgreSQL, add `"env": {"GNOSIS_MCP_DATABASE_URL": "postgresql://..."}`.
 
 ## Tools & Resources
 
-Gnosis MCP exposes 6 tools and 3 resources over [MCP](https://modelcontextprotocol.io/). Your AI agent calls these automatically when it needs information from your docs.
+Gnosis MCP exposes 7 tools and 3 resources over [MCP](https://modelcontextprotocol.io/). Your AI agent calls these automatically when it needs information from your docs.
 
 | Tool | What it does | Mode |
 |------|-------------|------|
 | `search_docs` | Search by keyword or hybrid semantic+keyword | Read |
 | `get_doc` | Retrieve a full document by path | Read |
 | `get_related` | Find linked/related documents | Read |
+| `get_context` | Usage-weighted context summary | Read |
 | `upsert_doc` | Create or replace a document | Write |
 | `delete_doc` | Remove a document and its chunks | Write |
 | `update_metadata` | Change title, category, tags | Write |
@@ -393,6 +395,20 @@ gnosis-mcp search "auth" -c guides
 ```
 
 When called via MCP, the agent passes a `query` string for keyword search. With embeddings configured, search automatically combines keyword and semantic results using Reciprocal Rank Fusion. Results include a `highlight` field with matched terms in `<mark>` tags.
+
+### Context Loading
+
+The `get_context` tool provides usage-weighted document summaries — ideal for session startup or "what matters most?" queries.
+
+```bash
+# Most-accessed docs (no topic)
+get_context(limit=10)
+
+# Topic-focused with access enrichment
+get_context(topic="deployment", category="guides")
+```
+
+Behind the scenes, Gnosis tracks which documents are accessed via `search_docs` and `get_doc`, then uses access frequency to rank importance. Disable tracking with `GNOSIS_MCP_ACCESS_LOG=false`.
 
 ## Embeddings
 
@@ -498,6 +514,7 @@ gnosis-mcp embed [--provider P] [--model M] [--dry-run]    Backfill embeddings
 gnosis-mcp init-db [--dry-run]                             Create tables + indexes
 gnosis-mcp export [-f json|markdown|csv] [-c CAT]          Export documents
 gnosis-mcp diff <path>                                     Preview changes on re-ingest
+gnosis-mcp cleanup [--days N]                              Purge old access log entries
 ```
 
 </details>
@@ -528,7 +545,7 @@ src/gnosis_mcp/
 ├── sqlite_schema.py   SQLite DDL — tables, FTS5, triggers, vec0 virtual table
 ├── config.py          Config from env vars, backend auto-detection
 ├── db.py              Backend lifecycle + FastMCP lifespan
-├── server.py          FastMCP server — 6 tools, 3 resources, auto-embed queries
+├── server.py          FastMCP server — 8 tools, 3 resources, auto-embed queries
 ├── ingest.py          File scanner + converters — multi-format, smart chunking
 ├── crawl.py           Web crawler — sitemap/BFS, robots.txt, ETag caching
 ├── parsers/           Non-file ingest sources (git history, future: schemas)
@@ -537,7 +554,7 @@ src/gnosis_mcp/
 ├── schema.py          PostgreSQL DDL — tables, indexes, search functions
 ├── embed.py           Embedding providers — OpenAI, Ollama, custom, local ONNX
 ├── local_embed.py     Local ONNX embedding engine — HuggingFace model download
-└── cli.py             CLI — serve, ingest, crawl, search, embed, stats, check
+└── cli.py             CLI — serve, ingest, crawl, search, embed, stats, check, cleanup
 ```
 
 </details>
@@ -573,7 +590,7 @@ python tests/bench/bench_search.py --docs 500     # larger corpus
 python tests/bench/bench_search.py --json          # machine-readable output
 ```
 
-550+ tests, 10 eval cases (90% hit rate, 0.85 MRR on sample corpus). All tests run without a database.
+580+ tests, 10 eval cases (90% hit rate, 0.85 MRR on sample corpus). All tests run without a database.
 
 ## Development
 
@@ -582,7 +599,7 @@ git clone https://github.com/nicholasglazer/gnosis-mcp.git
 cd gnosis-mcp
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
-pytest                    # 550+ tests, no database needed
+pytest                    # 580+ tests, no database needed
 ruff check src/ tests/
 ```
 

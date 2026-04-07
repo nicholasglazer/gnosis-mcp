@@ -747,6 +747,80 @@ class PostgresBackend:
 
             return count
 
+    async def log_access(
+        self,
+        file_path: str,
+        tool: str,
+        query: str | None = None,
+    ) -> None:
+        """Log a document access event. Fire-and-forget, never raises."""
+        try:
+            cfg = self._cfg
+            async with await self._acquire() as conn:
+                await conn.execute(
+                    f"INSERT INTO {cfg.schema}.search_access_log "
+                    f"(file_path, tool, query) VALUES ($1, $2, $3)",
+                    file_path,
+                    tool,
+                    query,
+                )
+        except Exception:
+            log.debug("access_log.write_failed", exc_info=True)
+
+    async def get_top_accessed(
+        self,
+        *,
+        limit: int = 10,
+        days: int = 30,
+        category: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Get most-accessed documents within a time window."""
+        cfg = self._cfg
+        qt = cfg.qualified_chunks_table
+        async with await self._acquire() as conn:
+            if category:
+                rows = await conn.fetch(
+                    f"SELECT a.file_path, c.title, c.category, "
+                    f"COUNT(*) AS access_count, MAX(a.accessed_at) AS last_accessed "
+                    f"FROM {cfg.schema}.search_access_log a "
+                    f"LEFT JOIN {qt} c "
+                    f"  ON c.file_path = a.file_path AND c.chunk_index = 0 "
+                    f"WHERE a.accessed_at >= now() - ($1 || ' days')::interval "
+                    f"  AND c.category = $2 "
+                    f"GROUP BY a.file_path, c.title, c.category "
+                    f"ORDER BY access_count DESC "
+                    f"LIMIT $3",
+                    days,
+                    category,
+                    limit,
+                )
+            else:
+                rows = await conn.fetch(
+                    f"SELECT a.file_path, c.title, c.category, "
+                    f"COUNT(*) AS access_count, MAX(a.accessed_at) AS last_accessed "
+                    f"FROM {cfg.schema}.search_access_log a "
+                    f"LEFT JOIN {qt} c "
+                    f"  ON c.file_path = a.file_path AND c.chunk_index = 0 "
+                    f"WHERE a.accessed_at >= now() - ($1 || ' days')::interval "
+                    f"GROUP BY a.file_path, c.title, c.category "
+                    f"ORDER BY access_count DESC "
+                    f"LIMIT $2",
+                    days,
+                    limit,
+                )
+            return [dict(row) for row in rows]
+
+    async def purge_access_log(self, days: int = 90) -> int:
+        """Delete access log entries older than N days. Returns rows deleted."""
+        cfg = self._cfg
+        async with await self._acquire() as conn:
+            status = await conn.execute(
+                f"DELETE FROM {cfg.schema}.search_access_log "
+                f"WHERE accessed_at < now() - ($1 || ' days')::interval",
+                days,
+            )
+            return _row_count(status)
+
     async def ingest_file(
         self,
         rel_path: str,

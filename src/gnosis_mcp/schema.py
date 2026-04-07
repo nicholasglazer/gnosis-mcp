@@ -60,6 +60,20 @@ CREATE INDEX IF NOT EXISTS idx_{links_table}_source
 CREATE INDEX IF NOT EXISTS idx_{links_table}_target
     ON {schema}.{links_table} (target_path);
 
+-- Access log for tracking document usage patterns
+CREATE TABLE IF NOT EXISTS {schema}.search_access_log (
+    id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    file_path text NOT NULL,
+    query text,
+    tool text NOT NULL DEFAULT 'search_docs',
+    accessed_at timestamptz DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_search_access_log_file_path
+    ON {schema}.search_access_log (file_path);
+CREATE INDEX IF NOT EXISTS idx_search_access_log_accessed_at
+    ON {schema}.search_access_log (accessed_at);
+
 -- Basic keyword search function (no embeddings required)
 CREATE OR REPLACE FUNCTION {schema}.search_{chunks_table}(
     p_query_text text,
