@@ -58,11 +58,11 @@ Pre-release doc audit. Finds stale references, missing features, and outdated ex
 ```
 
 ### context-loader
-Lightweight haiku agent that primes your context window with relevant docs before you start working. Keeps token usage low.
+Lightweight haiku agent that primes your context window with relevant docs before you start working. Uses `get_context` for usage-weighted summaries, then drills into specific docs if needed. Keeps token usage low.
 
 ```
 "Load context about the database schema"
-→ Agent searches, reads top 2 docs, returns a 200-word summary
+→ Agent calls get_context(topic="database schema"), returns a 200-word summary
 ```
 
 ## Customization

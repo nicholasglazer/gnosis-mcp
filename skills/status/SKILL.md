@@ -87,7 +87,7 @@ Resource: gnosis://categories
 
 ## Notes
 
-- 7 tools: search_docs, get_doc, get_related, search_git_history (read) + upsert_doc, delete_doc, update_metadata (write)
+- 8 tools: search_docs, get_doc, get_related, get_context, search_git_history (read) + upsert_doc, delete_doc, update_metadata (write)
 - 3 resources: gnosis://docs, gnosis://docs/{path}, gnosis://categories
 - Write tools require `GNOSIS_MCP_WRITABLE=true`
 - Backend auto-detected: no `DATABASE_URL` → SQLite, `postgresql://` → PostgreSQL
