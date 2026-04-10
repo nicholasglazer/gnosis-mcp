@@ -43,7 +43,9 @@ async def _notify_webhook(ctx: AppContext, action: str, path: str) -> None:
         req = urllib.request.Request(
             url, data=payload, headers={"Content-Type": "application/json"}, method="POST"
         )
-        urllib.request.urlopen(req, timeout=ctx.config.webhook_timeout)
+        import asyncio
+
+        await asyncio.to_thread(urllib.request.urlopen, req, timeout=ctx.config.webhook_timeout)
         log.info("webhook notified: action=%s path=%s", action, path)
     except Exception:
         log.warning("webhook failed for %s (url=%s)", path, url, exc_info=True)
@@ -272,12 +274,16 @@ async def search_git_history(
         for r in results:
             content = r.get("content", "")
             fp = r.get("file_path", "")
+            title = r.get("title", "")
 
             if author and author.lower() not in content.lower():
                 continue
-            if since and f"## {since}" > content[:500]:
-                # Simple date prefix check — commits are H2 with date
-                pass  # Allow through; exact date filtering is approximate
+            # Titles are formatted as "YYYY-MM-DD: subject (hash)"
+            title_date = title[:10] if len(title) >= 10 else ""
+            if since and title_date < since:
+                continue
+            if until and title_date > until:
+                continue
             if file_path and file_path not in fp:
                 continue
 

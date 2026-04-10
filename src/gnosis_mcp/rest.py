@@ -159,7 +159,7 @@ async def search(request: Request) -> JSONResponse:
 
     try:
         limit_raw = request.query_params.get("limit", "10")
-        limit = min(int(limit_raw), cfg.search_limit_max)
+        limit = max(1, min(int(limit_raw), cfg.search_limit_max))
     except (ValueError, TypeError):
         limit = 10
 
@@ -229,7 +229,10 @@ async def get_doc(request: Request) -> JSONResponse:
 async def get_related(request: Request) -> JSONResponse:
     path = request.path_params["path"]
     backend = _backend(request)
-    depth = int(request.query_params.get("depth", "1"))
+    try:
+        depth = int(request.query_params.get("depth", "1"))
+    except (ValueError, TypeError):
+        depth = 1
     relation_type = request.query_params.get("relation_type")
     include_titles = request.query_params.get("include_titles", "").lower() in ("1", "true")
 
@@ -280,7 +283,7 @@ async def get_context(request: Request) -> JSONResponse:
     cat = request.query_params.get("category") or None
     try:
         limit_str = request.query_params.get("limit", "10")
-        limit = min(int(limit_str), cfg.search_limit_max)
+        limit = max(1, min(int(limit_str), cfg.search_limit_max))
     except (ValueError, TypeError):
         limit = 10
 
