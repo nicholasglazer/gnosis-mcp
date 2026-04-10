@@ -214,3 +214,11 @@ class TestCombinedApp:
             # REST search endpoint works (empty results since no docs)
             r = client.get("/api/search?q=test")
             assert r.status_code == 200
+
+
+class TestGraphStatsEndpoint:
+    def test_graph_stats_empty(self, seeded_client):
+        resp = seeded_client.get("/api/graph/stats")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "stats" in data

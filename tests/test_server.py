@@ -15,6 +15,7 @@ from gnosis_mcp.server import (
     delete_doc,
     get_context,
     get_doc,
+    get_graph_stats,
     get_related,
     list_categories,
     list_docs,
@@ -627,3 +628,29 @@ class TestNotifyWebhook:
         monkeypatch.setattr(urllib.request, "urlopen", mock_urlopen)
         # Should not raise
         await _notify_webhook(ctx, "delete", "doc.md")
+
+
+# ---------------------------------------------------------------------------
+# MCP Tool tests — get_graph_stats
+# ---------------------------------------------------------------------------
+
+
+class TestGetGraphStatsTool:
+    @pytest.mark.asyncio
+    async def test_empty_graph_stats(self, writable_ctx):
+        result = await get_graph_stats()
+        data = json.loads(result)
+        assert data["total_docs"] == 0
+        assert data["total_edges"] == 0
+        assert data["orphans"] == []
+        assert data["hubs"] == []
+
+    @pytest.mark.asyncio
+    async def test_graph_stats_with_data(self, writable_ctx):
+        await writable_ctx.backend.upsert_doc("a.md", ["A"], title="A", category="test")
+        await writable_ctx.backend.upsert_doc("b.md", ["B"], title="B", category="test")
+        await writable_ctx.backend.insert_links("a.md", ["b.md"])
+        result = await get_graph_stats()
+        data = json.loads(result)
+        assert data["total_edges"] == 1
+        assert len(data["hubs"]) > 0

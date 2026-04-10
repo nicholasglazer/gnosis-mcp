@@ -365,7 +365,14 @@ class PostgresBackend:
                 for r in rows
             ]
 
-    async def get_related(self, path: str) -> list[dict[str, Any]] | None:
+    async def get_related(
+        self,
+        path: str,
+        *,
+        depth: int = 1,
+        relation_type: str | None = None,
+        include_titles: bool = False,
+    ) -> list[dict[str, Any]] | None:
         cfg = self._cfg
         async with await self._acquire() as conn:
             exists = await conn.fetchval(
@@ -379,26 +386,136 @@ class PostgresBackend:
             if not exists:
                 return None
 
-            rows = await conn.fetch(
-                f"SELECT "
-                f"  CASE WHEN {cfg.col_source_path} = $1 "
-                f"    THEN {cfg.col_target_path} ELSE {cfg.col_source_path} END AS related_path, "
-                f"  {cfg.col_relation_type}, "
-                f"  CASE WHEN {cfg.col_source_path} = $1 "
-                f"    THEN 'outgoing' ELSE 'incoming' END AS direction "
-                f"FROM {cfg.qualified_links_table} "
-                f"WHERE {cfg.col_source_path} = $1 OR {cfg.col_target_path} = $1 "
-                f"ORDER BY {cfg.col_relation_type}, related_path",
-                path,
+            depth = min(depth, 3)  # Hard cap
+
+            if depth == 1:
+                # Single-hop query
+                base_sql = (
+                    f"SELECT "
+                    f"  CASE WHEN {cfg.col_source_path} = $1 "
+                    f"    THEN {cfg.col_target_path} ELSE {cfg.col_source_path} END AS related_path, "
+                    f"  {cfg.col_relation_type}, "
+                    f"  CASE WHEN {cfg.col_source_path} = $1 "
+                    f"    THEN 'outgoing' ELSE 'incoming' END AS direction "
+                )
+                if include_titles:
+                    base_sql = (
+                        f"SELECT "
+                        f"  CASE WHEN l.{cfg.col_source_path} = $1 "
+                        f"    THEN l.{cfg.col_target_path} ELSE l.{cfg.col_source_path} END AS related_path, "
+                        f"  l.{cfg.col_relation_type}, "
+                        f"  CASE WHEN l.{cfg.col_source_path} = $1 "
+                        f"    THEN 'outgoing' ELSE 'incoming' END AS direction, "
+                        f"  c.{cfg.col_title} AS title, c.{cfg.col_category} AS category "
+                        f"FROM {cfg.qualified_links_table} l "
+                        f"LEFT JOIN {cfg.qualified_chunks_table} c "
+                        f"  ON c.{cfg.col_file_path} = CASE WHEN l.{cfg.col_source_path} = $1 "
+                        f"    THEN l.{cfg.col_target_path} ELSE l.{cfg.col_source_path} END "
+                        f"  AND c.{cfg.col_chunk_index} = 0 "
+                        f"WHERE (l.{cfg.col_source_path} = $1 OR l.{cfg.col_target_path} = $1) "
+                    )
+                else:
+                    base_sql += (
+                        f"FROM {cfg.qualified_links_table} "
+                        f"WHERE ({cfg.col_source_path} = $1 OR {cfg.col_target_path} = $1) "
+                    )
+
+                params: list[Any] = [path]
+                idx = 2
+
+                if relation_type:
+                    rt_col = f"l.{cfg.col_relation_type}" if include_titles else cfg.col_relation_type
+                    base_sql += f"AND {rt_col} = ${idx} "
+                    params.append(relation_type)
+                    idx += 1
+
+                rt_order = f"l.{cfg.col_relation_type}" if include_titles else cfg.col_relation_type
+                base_sql += f"ORDER BY {rt_order}, related_path"
+
+                rows = await conn.fetch(base_sql, *params)
+
+                if include_titles:
+                    return [
+                        {
+                            "related_path": r["related_path"],
+                            "relation_type": r[cfg.col_relation_type],
+                            "direction": r["direction"],
+                            "title": r["title"],
+                            "category": r["category"],
+                        }
+                        for r in rows
+                    ]
+                return [
+                    {
+                        "related_path": r["related_path"],
+                        "relation_type": r[cfg.col_relation_type],
+                        "direction": r["direction"],
+                    }
+                    for r in rows
+                ]
+
+            # Multi-hop: recursive CTE
+            col_src = cfg.col_source_path
+            col_tgt = cfg.col_target_path
+            col_rt = cfg.col_relation_type
+            lt = cfg.qualified_links_table
+
+            if relation_type:
+                rt_filter_base = f" AND {col_rt} = $3"
+                rt_filter_recurse = f" AND l.{col_rt} = $3"
+                params_cte: list[Any] = [path, depth, relation_type]
+            else:
+                rt_filter_base = ""
+                rt_filter_recurse = ""
+                params_cte = [path, depth]
+
+            cte_sql = (
+                f"WITH RECURSIVE graph(path, rel_type, hop) AS ("
+                f"  SELECT CASE WHEN {col_src} = $1 THEN {col_tgt} ELSE {col_src} END, "
+                f"         {col_rt}, 1 "
+                f"  FROM {lt} "
+                f"  WHERE ({col_src} = $1 OR {col_tgt} = $1){rt_filter_base} "
+                f"  UNION "
+                f"  SELECT CASE WHEN l.{col_src} = g.path THEN l.{col_tgt} ELSE l.{col_src} END, "
+                f"         l.{col_rt}, g.hop + 1 "
+                f"  FROM graph g "
+                f"  JOIN {lt} l ON (l.{col_src} = g.path OR l.{col_tgt} = g.path) "
+                f"  WHERE g.hop < $2 AND "
+                f"    CASE WHEN l.{col_src} = g.path THEN l.{col_tgt} ELSE l.{col_src} END != $1"
+                f"    {rt_filter_recurse}"
+                f") "
+                f"SELECT DISTINCT path AS related_path, rel_type AS relation_type, MIN(hop) AS hops "
+                f"FROM graph "
+                f"WHERE path != $1 "
+                f"GROUP BY path, rel_type "
+                f"ORDER BY hops, path "
+                f"LIMIT 50"
             )
-            return [
+
+            rows = await conn.fetch(cte_sql, *params_cte)
+            results = [
                 {
                     "related_path": r["related_path"],
-                    "relation_type": r[cfg.col_relation_type],
-                    "direction": r["direction"],
+                    "relation_type": r["relation_type"],
+                    "hops": r["hops"],
                 }
                 for r in rows
             ]
+
+            # Optionally enrich with titles
+            if include_titles:
+                for r in results:
+                    row = await conn.fetchrow(
+                        f"SELECT {cfg.col_title} AS title, {cfg.col_category} AS category "
+                        f"FROM {cfg.qualified_chunks_table} "
+                        f"WHERE {cfg.col_file_path} = $1 AND {cfg.col_chunk_index} = 0",
+                        r["related_path"],
+                    )
+                    if row:
+                        r["title"] = row["title"]
+                        r["category"] = row["category"]
+
+            return results
 
     async def list_docs(self) -> list[dict[str, Any]]:
         cfg = self._cfg
@@ -820,6 +937,104 @@ class PostgresBackend:
                 days,
             )
             return _row_count(status)
+
+    async def get_graph_stats(
+        self,
+        *,
+        category: str | None = None,
+    ) -> dict[str, Any] | None:
+        cfg = self._cfg
+        lt = cfg.qualified_links_table
+        qt = cfg.qualified_chunks_table
+        col_src = cfg.col_source_path
+        col_tgt = cfg.col_target_path
+        col_rt = cfg.col_relation_type
+
+        async with await self._acquire() as conn:
+            exists = await conn.fetchval(
+                "SELECT EXISTS ("
+                "  SELECT 1 FROM information_schema.tables"
+                "  WHERE table_schema = $1 AND table_name = $2"
+                ")",
+                cfg.schema,
+                cfg.links_table,
+            )
+            if not exists:
+                return None
+
+            # Total docs
+            total_docs = await conn.fetchval(
+                f"SELECT COUNT(DISTINCT {cfg.col_file_path}) FROM {qt}"
+            )
+
+            # Total edges
+            total_edges = await conn.fetchval(
+                f"SELECT COUNT(*) FROM {lt}"
+            )
+
+            # Relation type distribution
+            rel_rows = await conn.fetch(
+                f"SELECT {col_rt} AS relation_type, COUNT(*) AS cnt "
+                f"FROM {lt} GROUP BY {col_rt} ORDER BY cnt DESC"
+            )
+            relation_types = [{"type": r["relation_type"], "count": r["cnt"]} for r in rel_rows]
+
+            # Hubs: top 10 most connected
+            hub_rows = await conn.fetch(
+                f"SELECT p.path, COUNT(*) AS connections, "
+                f"  c.{cfg.col_title} AS title, c.{cfg.col_category} AS category "
+                f"FROM ("
+                f"  SELECT {col_src} AS path FROM {lt} "
+                f"  UNION ALL "
+                f"  SELECT {col_tgt} AS path FROM {lt}"
+                f") p "
+                f"LEFT JOIN {qt} c ON c.{cfg.col_file_path} = p.path "
+                f"  AND c.{cfg.col_chunk_index} = 0 "
+                f"GROUP BY p.path, c.{cfg.col_title}, c.{cfg.col_category} "
+                f"ORDER BY connections DESC LIMIT 10"
+            )
+            hubs = [
+                {"path": r["path"], "connections": r["connections"],
+                 "title": r["title"], "category": r["category"]}
+                for r in hub_rows
+            ]
+
+            # Orphans: docs with zero links, excluding git-history
+            params: list[Any] = []
+            cat_filter = ""
+            idx = 1
+            if category:
+                cat_filter = f"AND c.{cfg.col_category} = ${idx} "
+                params.append(category)
+                idx += 1
+
+            orphan_rows = await conn.fetch(
+                f"SELECT c.{cfg.col_file_path} AS file_path, "
+                f"  c.{cfg.col_title} AS title, c.{cfg.col_category} AS category "
+                f"FROM {qt} c "
+                f"WHERE c.{cfg.col_chunk_index} = 0 "
+                f"AND c.{cfg.col_file_path} NOT LIKE 'git-history/%%' "
+                f"{cat_filter}"
+                f"AND c.{cfg.col_file_path} NOT IN ("
+                f"  SELECT {col_src} FROM {lt} "
+                f"  UNION "
+                f"  SELECT {col_tgt} FROM {lt}"
+                f") "
+                f"ORDER BY c.{cfg.col_category}, c.{cfg.col_file_path} LIMIT 20",
+                *params,
+            )
+            orphans = [
+                {"path": r["file_path"], "title": r["title"], "category": r["category"]}
+                for r in orphan_rows
+            ]
+
+        return {
+            "total_docs": total_docs,
+            "total_edges": total_edges,
+            "relation_types": relation_types,
+            "hubs": hubs,
+            "orphans": orphans,
+        }
 
     async def ingest_file(
         self,

@@ -310,17 +310,30 @@ async def search_git_history(
 
 
 @mcp.tool()
-async def get_related(path: str) -> str:
+async def get_related(
+    path: str,
+    depth: int = 1,
+    relation_type: str | None = None,
+    include_titles: bool = False,
+) -> str:
     """Find documents related to a given path via incoming and outgoing links.
 
     Args:
         path: Document file path to find related documents for.
+        depth: Traversal depth (1=direct neighbors, 2+=multi-hop, max 3).
+        relation_type: Filter by link type (e.g. 'relates_to', 'content_link', 'git_co_change').
+        include_titles: Include title and category for each related document.
     """
     ctx = await _get_ctx()
     cfg = ctx.config
 
     try:
-        results = await ctx.backend.get_related(path)
+        results = await ctx.backend.get_related(
+            path,
+            depth=min(depth, 3),
+            relation_type=relation_type or None,
+            include_titles=include_titles,
+        )
 
         if results is None:
             return json.dumps(
@@ -332,7 +345,7 @@ async def get_related(path: str) -> str:
                 indent=2,
             )
 
-        return json.dumps(results, indent=2)
+        return json.dumps(results, indent=2, default=str)
     except Exception:
         log.exception("get_related failed for path=%s", path)
         return json.dumps({"error": f"Failed to find related documents for: {path}"})
@@ -417,6 +430,30 @@ async def get_context(
     except Exception:
         log.exception("get_context failed")
         return json.dumps({"error": "Failed to get context"})
+
+
+@mcp.tool()
+async def get_graph_stats(category: str | None = None) -> str:
+    """Get knowledge graph topology: orphans, hubs, connection stats.
+
+    Args:
+        category: Optional category filter for orphan detection.
+    """
+    ctx = await _get_ctx()
+
+    try:
+        stats = await ctx.backend.get_graph_stats(category=category)
+
+        if stats is None:
+            return json.dumps(
+                {"message": "Links table does not exist.", "stats": {}},
+                indent=2,
+            )
+
+        return json.dumps(stats, indent=2, default=str)
+    except Exception:
+        log.exception("get_graph_stats failed")
+        return json.dumps({"error": "Failed to get graph stats"})
 
 
 # ---------------------------------------------------------------------------

@@ -64,7 +64,7 @@
 | **Smart chunking** (heading-aware) | Yes | N/A | Yes | Yes |
 | **Content hashing** (skip unchanged) | Yes | N/A | No | No |
 | **llms.txt** | Yes | No | No | No |
-| **Test count** | 580+ | Unknown | Unknown | Unknown |
+| **Test count** | 599+ | Unknown | Unknown | Unknown |
 | **Dependencies** | 2 (mcp + aiosqlite) | npm ecosystem | npm ecosystem | npm ecosystem |
 
 **TL;DR**: Context7 indexes *public library docs*. gnosis-mcp indexes *your own private docs*. They're complementary — use both.
@@ -258,6 +258,7 @@ Web apps can now query your docs over plain HTTP — no MCP protocol required.
 | `GET /api/docs/{path}/related` | Get related documents |
 | `GET /api/categories` | List categories with counts |
 | `GET /api/context?topic=&limit=&category=` | Usage-weighted context summary |
+| `GET /api/graph/stats?category=` | Knowledge graph topology |
 
 **Environment variables:**
 
@@ -361,14 +362,15 @@ For PostgreSQL, add `"env": {"GNOSIS_MCP_DATABASE_URL": "postgresql://..."}`.
 
 ## Tools & Resources
 
-Gnosis MCP exposes 7 tools and 3 resources over [MCP](https://modelcontextprotocol.io/). Your AI agent calls these automatically when it needs information from your docs.
+Gnosis MCP exposes 8 tools and 3 resources over [MCP](https://modelcontextprotocol.io/). Your AI agent calls these automatically when it needs information from your docs.
 
 | Tool | What it does | Mode |
 |------|-------------|------|
 | `search_docs` | Search by keyword or hybrid semantic+keyword | Read |
 | `get_doc` | Retrieve a full document by path | Read |
-| `get_related` | Find linked/related documents | Read |
+| `get_related` | Find linked/related documents (multi-hop, relation type filtering) | Read |
 | `get_context` | Usage-weighted context summary | Read |
+| `get_graph_stats` | Knowledge graph topology: orphans, hubs, relation distribution | Read |
 | `upsert_doc` | Create or replace a document | Write |
 | `delete_doc` | Remove a document and its chunks | Write |
 | `update_metadata` | Change title, category, tags | Write |
@@ -409,6 +411,26 @@ get_context(topic="deployment", category="guides")
 ```
 
 Behind the scenes, Gnosis tracks which documents are accessed via `search_docs` and `get_doc`, then uses access frequency to rank importance. Disable tracking with `GNOSIS_MCP_ACCESS_LOG=false`.
+
+### Graph & Links
+
+Gnosis automatically extracts links from your documentation — both frontmatter `relates_to` declarations and markdown links in content. Use the graph tools to explore connections:
+
+```bash
+# Direct neighbors
+get_related("guides/auth.md")
+
+# Multi-hop traversal (2 levels deep, with titles)
+get_related("guides/auth.md", depth=2, include_titles=True)
+
+# Filter out noisy git history links
+get_related("guides/auth.md", relation_type="relates_to")
+
+# Graph topology: find orphans and hubs
+get_graph_stats()
+```
+
+**Relation types:** `relates_to` (frontmatter), `content_link` (body markdown links), `git_co_change` (commit co-occurrence), `git_ref` (git history → source file), `links_to` (web crawl).
 
 ## Embeddings
 
@@ -515,6 +537,7 @@ gnosis-mcp init-db [--dry-run]                             Create tables + index
 gnosis-mcp export [-f json|markdown|csv] [-c CAT]          Export documents
 gnosis-mcp diff <path>                                     Preview changes on re-ingest
 gnosis-mcp cleanup [--days N]                              Purge old access log entries
+gnosis-mcp fix-link-types                                  Migrate git-history links to proper types
 ```
 
 </details>
@@ -545,7 +568,7 @@ src/gnosis_mcp/
 ├── sqlite_schema.py   SQLite DDL — tables, FTS5, triggers, vec0 virtual table
 ├── config.py          Config from env vars, backend auto-detection
 ├── db.py              Backend lifecycle + FastMCP lifespan
-├── server.py          FastMCP server — 8 tools, 3 resources, auto-embed queries
+├── server.py          FastMCP server — 9 tools, 3 resources, auto-embed queries
 ├── ingest.py          File scanner + converters — multi-format, smart chunking
 ├── crawl.py           Web crawler — sitemap/BFS, robots.txt, ETag caching
 ├── parsers/           Non-file ingest sources (git history, future: schemas)
@@ -590,7 +613,7 @@ python tests/bench/bench_search.py --docs 500     # larger corpus
 python tests/bench/bench_search.py --json          # machine-readable output
 ```
 
-580+ tests, 10 eval cases (90% hit rate, 0.85 MRR on sample corpus). All tests run without a database.
+599+ tests, 10 eval cases (90% hit rate, 0.85 MRR on sample corpus). All tests run without a database.
 
 ## Development
 
@@ -599,7 +622,7 @@ git clone https://github.com/nicholasglazer/gnosis-mcp.git
 cd gnosis-mcp
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
-pytest                    # 580+ tests, no database needed
+pytest                    # 599+ tests, no database needed
 ruff check src/ tests/
 ```
 

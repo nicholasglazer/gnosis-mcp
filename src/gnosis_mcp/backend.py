@@ -52,11 +52,24 @@ class DocBackend(Protocol):
         """
         ...
 
-    async def get_related(self, path: str) -> list[dict[str, Any]] | None:
+    async def get_related(
+        self,
+        path: str,
+        *,
+        depth: int = 1,
+        relation_type: str | None = None,
+        include_titles: bool = False,
+    ) -> list[dict[str, Any]] | None:
         """Get related documents via links table.
 
-        Returns list of {related_path, relation_type, direction} or None if
-        the links table does not exist.
+        Args:
+            path: Document file path.
+            depth: Traversal depth (1=direct neighbors, 2=neighbors of neighbors, max 3).
+            relation_type: Filter by specific relation type (e.g. 'relates_to', 'content_link').
+            include_titles: Include title and category from chunks table.
+
+        Returns list of {related_path, relation_type, direction, hops?,
+        title?, category?} or None if the links table does not exist.
         """
         ...
 
@@ -140,6 +153,19 @@ class DocBackend(Protocol):
 
     async def get_content_hash(self, path: str) -> str | None:
         """Get the content_hash for the first chunk of a document, or None."""
+        ...
+
+    async def get_graph_stats(
+        self,
+        *,
+        category: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Graph topology stats: orphans, hubs, edge/node counts.
+
+        Returns {total_docs, total_edges, relation_types: [{type, count}],
+        hubs: [{path, title, connections}], orphans: [{path, title, category}]}
+        or None if links table does not exist.
+        """
         ...
 
     async def insert_links(

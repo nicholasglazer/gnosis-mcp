@@ -5,6 +5,18 @@ All notable changes to gnosis-mcp are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 Versioning follows [Semantic Versioning](https://semver.org/) (pre-1.0).
 
+## [0.10.12] - 2026-04-07
+
+### Added
+- **Enriched `get_related` tool**: Multi-hop traversal (`depth=1-3`), relation type filtering, and optional title/category enrichment via `include_titles`.
+- **`get_graph_stats` tool**: Knowledge graph topology — orphans (disconnected docs), hubs (most connected), relation type distribution, edge/node counts.
+- **Content link extraction**: `ingest` now parses `[text](path.md)` markdown links and `[[wikilinks]]` from body content, stored as `content_link` relation type.
+- **`GET /api/graph/stats` REST endpoint**: Same functionality as the MCP tool.
+- **`gnosis-mcp fix-link-types` CLI command**: Migrate existing git-history links from generic `relates_to` to proper `git_co_change` and `git_ref` types.
+
+### Changed
+- Git history ingest now uses `git_co_change` (cross-file) and `git_ref` (source file) relation types instead of generic `relates_to`.
+
 ## [0.10.11] - 2026-04-07
 
 ### Added

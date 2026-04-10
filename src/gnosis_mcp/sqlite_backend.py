@@ -406,20 +406,111 @@ class SqliteBackend:
             for r in rows
         ]
 
-    async def get_related(self, path: str) -> list[dict[str, Any]] | None:
+    async def get_related(
+        self,
+        path: str,
+        *,
+        depth: int = 1,
+        relation_type: str | None = None,
+        include_titles: bool = False,
+    ) -> list[dict[str, Any]] | None:
         if not await self._table_exists("documentation_links"):
             return None
 
-        rows = await self._db.execute_fetchall(
-            "SELECT "
-            "  CASE WHEN source_path = ? THEN target_path ELSE source_path END AS related_path, "
-            "  relation_type, "
-            "  CASE WHEN source_path = ? THEN 'outgoing' ELSE 'incoming' END AS direction "
-            "FROM documentation_links "
-            "WHERE source_path = ? OR target_path = ? "
-            "ORDER BY relation_type, related_path",
-            (path, path, path, path),
-        )
+        depth = min(depth, 3)  # Hard cap
+
+        if depth == 1:
+            return await self._get_related_one_hop(path, relation_type, include_titles)
+
+        # Multi-hop: BFS in Python
+        visited: set[str] = {path}
+        results: list[dict[str, Any]] = []
+        frontier = [path]
+
+        for hop in range(1, depth + 1):
+            next_frontier: list[str] = []
+            for current in frontier:
+                related = await self._get_related_one_hop(current, relation_type, False)
+                if related is None:
+                    continue
+                for r in related:
+                    rp = r["related_path"]
+                    if rp not in visited:
+                        visited.add(rp)
+                        r["hops"] = hop
+                        results.append(r)
+                        next_frontier.append(rp)
+            frontier = next_frontier
+            if not frontier:
+                break
+
+        # Optionally enrich with titles
+        if include_titles:
+            for r in results:
+                rows = await self._db.execute_fetchall(
+                    "SELECT title, category FROM documentation_chunks "
+                    "WHERE file_path = ? AND chunk_index = 0",
+                    (r["related_path"],),
+                )
+                if rows:
+                    r["title"] = rows[0][0]
+                    r["category"] = rows[0][1]
+
+        return results[:50]
+
+    async def _get_related_one_hop(
+        self,
+        path: str,
+        relation_type: str | None = None,
+        include_titles: bool = False,
+    ) -> list[dict[str, Any]] | None:
+        if not await self._table_exists("documentation_links"):
+            return None
+
+        if include_titles:
+            base_sql = (
+                "SELECT "
+                "  CASE WHEN l.source_path = ? THEN l.target_path ELSE l.source_path END AS related_path, "
+                "  l.relation_type, "
+                "  CASE WHEN l.source_path = ? THEN 'outgoing' ELSE 'incoming' END AS direction, "
+                "  c.title, c.category "
+                "FROM documentation_links l "
+                "LEFT JOIN documentation_chunks c "
+                "  ON c.file_path = CASE WHEN l.source_path = ? THEN l.target_path ELSE l.source_path END "
+                "  AND c.chunk_index = 0 "
+                "WHERE (l.source_path = ? OR l.target_path = ?) "
+            )
+            params: list[str] = [path, path, path, path, path]
+        else:
+            base_sql = (
+                "SELECT "
+                "  CASE WHEN source_path = ? THEN target_path ELSE source_path END AS related_path, "
+                "  relation_type, "
+                "  CASE WHEN source_path = ? THEN 'outgoing' ELSE 'incoming' END AS direction "
+                "FROM documentation_links "
+                "WHERE (source_path = ? OR target_path = ?) "
+            )
+            params = [path, path, path, path]
+
+        if relation_type:
+            base_sql += "AND relation_type = ? "
+            params.append(relation_type)
+
+        base_sql += "ORDER BY relation_type, related_path"
+
+        rows = await self._db.execute_fetchall(base_sql, tuple(params))
+
+        if include_titles:
+            return [
+                {
+                    "related_path": r[0],
+                    "relation_type": r[1],
+                    "direction": r[2],
+                    "title": r[3],
+                    "category": r[4],
+                }
+                for r in rows
+            ]
         return [
             {
                 "related_path": r[0],
@@ -788,6 +879,83 @@ class SqliteBackend:
         )
         await self._db.commit()
         return cursor.rowcount
+
+    async def get_graph_stats(
+        self,
+        *,
+        category: str | None = None,
+    ) -> dict[str, Any] | None:
+        if not await self._table_exists("documentation_links"):
+            return None
+
+        # Total docs
+        rows = await self._db.execute_fetchall(
+            "SELECT COUNT(DISTINCT file_path) FROM documentation_chunks"
+        )
+        total_docs = rows[0][0] if rows else 0
+
+        # Total edges and relation types
+        rows = await self._db.execute_fetchall(
+            "SELECT COUNT(*), COUNT(DISTINCT relation_type) FROM documentation_links"
+        )
+        total_edges = rows[0][0] if rows else 0
+
+        # Relation type distribution
+        rel_rows = await self._db.execute_fetchall(
+            "SELECT relation_type, COUNT(*) AS cnt "
+            "FROM documentation_links GROUP BY relation_type ORDER BY cnt DESC"
+        )
+        relation_types = [{"type": r[0], "count": r[1]} for r in rel_rows]
+
+        # Hubs: top 10 most connected
+        hub_rows = await self._db.execute_fetchall(
+            "SELECT p.path, COUNT(*) AS connections, c.title, c.category "
+            "FROM ("
+            "  SELECT source_path AS path FROM documentation_links "
+            "  UNION ALL "
+            "  SELECT target_path AS path FROM documentation_links"
+            ") p "
+            "LEFT JOIN documentation_chunks c ON c.file_path = p.path AND c.chunk_index = 0 "
+            "GROUP BY p.path ORDER BY connections DESC LIMIT 10"
+        )
+        hubs = [
+            {"path": r[0], "connections": r[1], "title": r[2], "category": r[3]}
+            for r in hub_rows
+        ]
+
+        # Orphans: docs with zero links, excluding git-history
+        cat_filter = ""
+        params: tuple = ()
+        if category:
+            cat_filter = "AND c.category = ? "
+            params = (category,)
+
+        orphan_rows = await self._db.execute_fetchall(
+            "SELECT c.file_path, c.title, c.category "
+            "FROM documentation_chunks c "
+            "WHERE c.chunk_index = 0 "
+            "AND c.file_path NOT LIKE 'git-history/%%' "
+            f"{cat_filter}"
+            "AND c.file_path NOT IN ("
+            "  SELECT source_path FROM documentation_links "
+            "  UNION "
+            "  SELECT target_path FROM documentation_links"
+            ") "
+            "ORDER BY c.category, c.file_path LIMIT 20",
+            params,
+        )
+        orphans = [
+            {"path": r[0], "title": r[1], "category": r[2]}
+            for r in orphan_rows
+        ]
+
+        return {
+            "total_docs": total_docs,
+            "total_edges": total_edges,
+            "relation_types": relation_types,
+            "hubs": hubs,
+            "orphans": orphans,
+        }
 
     async def ingest_file(
         self,

@@ -617,6 +617,58 @@ def cmd_cleanup(args: argparse.Namespace) -> None:
     asyncio.run(_run())
 
 
+def cmd_fix_link_types(args: argparse.Namespace) -> None:
+    """Migrate git-history links from 'relates_to' to proper types."""
+    from gnosis_mcp.backend import create_backend
+    from gnosis_mcp.config import GnosisMcpConfig
+
+    config = GnosisMcpConfig.from_env()
+
+    async def _run() -> None:
+        backend = create_backend(config)
+        await backend.startup()
+        try:
+            if config.backend == "sqlite":
+                db = backend._db  # noqa: SLF001
+                cursor = await db.execute(
+                    "UPDATE documentation_links SET relation_type = 'git_co_change' "
+                    "WHERE source_path LIKE 'git-history/%' AND target_path LIKE 'git-history/%' "
+                    "AND relation_type = 'relates_to'"
+                )
+                co_change_count = cursor.rowcount
+                cursor = await db.execute(
+                    "UPDATE documentation_links SET relation_type = 'git_ref' "
+                    "WHERE source_path LIKE 'git-history/%' AND target_path NOT LIKE 'git-history/%' "
+                    "AND relation_type = 'relates_to'"
+                )
+                ref_count = cursor.rowcount
+                await db.commit()
+            else:
+                async with await backend._acquire() as conn:  # noqa: SLF001
+                    cfg_b = backend._cfg  # noqa: SLF001
+                    lt = cfg_b.qualified_links_table
+                    status1 = await conn.execute(
+                        f"UPDATE {lt} SET relation_type = 'git_co_change' "
+                        f"WHERE source_path LIKE 'git-history/%' AND target_path LIKE 'git-history/%' "
+                        f"AND relation_type = 'relates_to'"
+                    )
+                    co_change_count = int(status1.split()[-1]) if status1 else 0
+                    status2 = await conn.execute(
+                        f"UPDATE {lt} SET relation_type = 'git_ref' "
+                        f"WHERE source_path LIKE 'git-history/%' AND target_path NOT LIKE 'git-history/%' "
+                        f"AND relation_type = 'relates_to'"
+                    )
+                    ref_count = int(status2.split()[-1]) if status2 else 0
+
+            print(f"Migrated {co_change_count} links to 'git_co_change'")
+            print(f"Migrated {ref_count} links to 'git_ref'")
+            print(f"Total: {co_change_count + ref_count} links updated")
+        finally:
+            await backend.shutdown()
+
+    asyncio.run(_run())
+
+
 def _format_bytes(nbytes: int) -> str:
     """Format byte count as human-readable string."""
     for unit in ("B", "KB", "MB", "GB"):
@@ -823,6 +875,11 @@ def main() -> None:
     cleanup_parser = sub.add_parser("cleanup", help="Purge old access log entries")
     cleanup_parser.add_argument("--days", type=int, default=90, help="Delete entries older than N days (default: 90)")
 
+    sub.add_parser(
+        "fix-link-types",
+        help="Migrate git-history links to proper relation types",
+    )
+
     args = parser.parse_args()
     if not args.command:
         parser.print_help()
@@ -841,5 +898,6 @@ def main() -> None:
         "diff": cmd_diff,
         "check": cmd_check,
         "cleanup": cmd_cleanup,
+        "fix-link-types": cmd_fix_link_types,
     }
     commands[args.command](args)

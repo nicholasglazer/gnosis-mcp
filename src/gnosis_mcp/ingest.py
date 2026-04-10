@@ -30,6 +30,7 @@ __all__ = [
     "content_hash",
     "parse_frontmatter",
     "extract_relates_to",
+    "extract_content_links",
     "extract_title",
     "chunk_by_headings",
     "scan_files",
@@ -170,6 +171,38 @@ def extract_relates_to(markdown: str) -> list[str]:
 
     # Filter out glob patterns
     return [p for p in paths if "*" not in p and "?" not in p]
+
+
+def extract_content_links(markdown: str) -> list[str]:
+    """Extract markdown links ``[text](path.md)`` and ``[[wikilinks]]`` from body content.
+
+    Only extracts links to local files (skips URLs, globs).
+    Returns deduplicated list of path strings.
+    """
+    if markdown.startswith("---"):
+        end = markdown.find("\n---", 3)
+        body = markdown[end + 4:] if end != -1 else markdown
+    else:
+        body = markdown
+
+    paths: list[str] = []
+    # Standard markdown links: [text](path.md) or [text](../path.md)
+    for m in re.finditer(r'\[.*?\]\(([^)]+\.md)\)', body):
+        paths.append(m.group(1))
+    # Wikilinks: [[path]] or [[path.md]]
+    for m in re.finditer(r'\[\[([^\]|]+)\]\]', body):
+        paths.append(m.group(1))
+
+    # Dedupe, skip URLs, skip globs
+    seen: set[str] = set()
+    result: list[str] = []
+    for p in paths:
+        p = p.strip()
+        if p in seen or p.startswith("http") or "*" in p or "?" in p:
+            continue
+        seen.add(p)
+        result.append(p)
+    return result
 
 
 def extract_title(markdown: str) -> str | None:
@@ -713,6 +746,17 @@ async def ingest_path(
                     log.info("links: %s -> %d targets", rel, inserted)
                 except Exception:
                     log.debug("insert_links failed for %s (links table may not exist)", rel)
+
+            # Extract content links from body (markdown links and wikilinks)
+            content_links = extract_content_links(text)
+            if content_links:
+                try:
+                    cl_inserted = await backend.insert_links(
+                        rel, content_links, relation_type="content_link",
+                    )
+                    log.info("content_links: %s -> %d targets", rel, cl_inserted)
+                except Exception:
+                    log.debug("content link insert failed for %s", rel)
 
             results.append(IngestResult(path=rel, chunks=count, action="ingested"))
             log.info("[%d/%d] ingested: %s (%d chunks)", idx, total_files, rel, count)

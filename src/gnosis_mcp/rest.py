@@ -229,15 +229,37 @@ async def get_doc(request: Request) -> JSONResponse:
 async def get_related(request: Request) -> JSONResponse:
     path = request.path_params["path"]
     backend = _backend(request)
+    depth = int(request.query_params.get("depth", "1"))
+    relation_type = request.query_params.get("relation_type")
+    include_titles = request.query_params.get("include_titles", "").lower() in ("1", "true")
 
     try:
-        results = await backend.get_related(path)
+        results = await backend.get_related(
+            path,
+            depth=min(depth, 3),
+            relation_type=relation_type or None,
+            include_titles=include_titles,
+        )
         if results is None:
             return JSONResponse({"results": [], "message": "Links table not available"})
         return JSONResponse({"results": results})
     except Exception:
         log.exception("get_related failed for path=%s", path)
         return JSONResponse({"error": "Failed to find related documents"}, status_code=500)
+
+
+async def rest_get_graph_stats(request: Request) -> JSONResponse:
+    backend = _backend(request)
+    category = request.query_params.get("category")
+
+    try:
+        stats = await backend.get_graph_stats(category=category or None)
+        if stats is None:
+            return JSONResponse({"stats": {}, "message": "Links table not available"})
+        return JSONResponse({"stats": stats})
+    except Exception:
+        log.exception("get_graph_stats failed")
+        return JSONResponse({"error": "Failed to get graph stats"}, status_code=500)
 
 
 async def list_categories(request: Request) -> JSONResponse:
@@ -321,6 +343,7 @@ def _make_routes() -> list:
         Route("/health", health, methods=["GET"]),
         Route("/api/search", search, methods=["GET"]),
         Route("/api/context", get_context, methods=["GET"]),
+        Route("/api/graph/stats", rest_get_graph_stats, methods=["GET"]),
         Route("/api/docs/{path:path}/related", get_related, methods=["GET"]),
         Route("/api/docs/{path:path}", get_doc, methods=["GET"]),
         Route("/api/categories", list_categories, methods=["GET"]),

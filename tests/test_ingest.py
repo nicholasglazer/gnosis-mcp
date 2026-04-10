@@ -18,6 +18,7 @@ from gnosis_mcp.ingest import (
     chunk_by_headings,
     content_hash,
     diff_path,
+    extract_content_links,
     extract_relates_to,
     extract_title,
     ingest_path,
@@ -745,3 +746,48 @@ class TestDiffPath:
         )
         diff = await diff_path(cfg, str(tmp_path / "docs"))
         assert len(diff["modified"]) == 1
+
+
+# ---------------------------------------------------------------------------
+# extract_content_links
+# ---------------------------------------------------------------------------
+
+
+class TestExtractContentLinks:
+    def test_markdown_links(self):
+        md = "Check [Setup](guides/setup.md) and [Overview](../overview.md) for details."
+        result = extract_content_links(md)
+        assert "guides/setup.md" in result
+        assert "../overview.md" in result
+
+    def test_wikilinks(self):
+        md = "See [[setup.md]] and [[guides/overview.md]] for more."
+        result = extract_content_links(md)
+        assert "setup.md" in result
+        assert "guides/overview.md" in result
+
+    def test_urls_skipped(self):
+        md = "Visit [Docs](https://example.com/docs.md) for info."
+        result = extract_content_links(md)
+        assert result == []
+
+    def test_dedup(self):
+        md = "See [A](setup.md) and [B](setup.md) again."
+        result = extract_content_links(md)
+        assert result == ["setup.md"]
+
+    def test_globs_skipped(self):
+        md = "See [all](src/*.md) files."
+        result = extract_content_links(md)
+        assert result == []
+
+    def test_frontmatter_excluded(self):
+        md = "---\ntitle: Test\nrelates_to: other.md\n---\nSee [Guide](guide.md)."
+        result = extract_content_links(md)
+        assert result == ["guide.md"]
+        assert "other.md" not in result
+
+    def test_empty(self):
+        md = "No links here."
+        result = extract_content_links(md)
+        assert result == []

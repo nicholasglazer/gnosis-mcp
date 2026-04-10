@@ -433,7 +433,7 @@ async def ingest_git(
 
                 # Auto-link to the source file (if it exists in the DB)
                 try:
-                    await backend.insert_links(doc_path, [fp])
+                    await backend.insert_links(doc_path, [fp], relation_type="git_ref")
                 except Exception:
                     pass  # links table may not exist
 
@@ -457,7 +457,7 @@ async def ingest_git(
                 cross_links = _build_cross_file_links(commits, filtered, ingested_paths)
                 for source, targets in cross_links.items():
                     try:
-                        await backend.insert_links(source, targets)
+                        await backend.insert_links(source, targets, relation_type="git_co_change")
                     except Exception:
                         pass  # links table may not exist
                 if cross_links:

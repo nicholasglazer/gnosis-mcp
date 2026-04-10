@@ -12,7 +12,7 @@ src/gnosis_mcp/
 ├── sqlite_schema.py   # SQLite DDL — tables, FTS5 virtual table, vec0 virtual table, sync triggers
 ├── config.py          # GnosisMcpConfig frozen dataclass, backend auto-detection, GNOSIS_MCP_* env vars
 ├── db.py              # Backend lifecycle + FastMCP lifespan context manager
-├── server.py          # FastMCP server: 8 tools + 3 resources + auto-embed queries
+├── server.py          # FastMCP server: 9 tools + 3 resources + auto-embed queries
 ├── ingest.py          # File ingestion + converters: multi-format (.md/.txt/.ipynb/.toml/.csv/.json + optional .rst/.pdf), smart chunking, hashing
 ├── crawl.py           # Web crawler: sitemap/BFS URL discovery, robots.txt, ETag caching, trafilatura HTML→markdown, rate-limited async fetching
 ├── parsers/           # Non-file ingest sources
@@ -22,7 +22,7 @@ src/gnosis_mcp/
 ├── schema.py          # PostgreSQL DDL — tables, indexes, HNSW, hybrid search functions
 ├── embed.py           # Embedding providers: openai/ollama/custom/local, batch backfill
 ├── local_embed.py     # Local ONNX embedding engine — stdlib urllib model download, CPU inference
-└── cli.py             # argparse CLI: serve, init-db, ingest, ingest-git, crawl, search, embed, stats, export, diff, check, cleanup
+└── cli.py             # argparse CLI: serve, init-db, ingest, ingest-git, crawl, search, embed, stats, export, diff, check, cleanup, fix-link-types
 ```
 
 ## Backend Protocol
@@ -43,13 +43,14 @@ Default install: `mcp>=1.20` + `aiosqlite>=0.20`. Optional extras: `[postgres]` 
 ### Read (always available)
 1. **search_docs(query, category?, limit?, query_embedding?)** -- keyword (FTS5/tsvector), hybrid (with embedding on SQLite via sqlite-vec or PG via pgvector), or custom function search. Auto-embeds query when local provider configured.
 2. **get_doc(path, max_length?)** -- reassemble document chunks by file_path + chunk_index (optional truncation)
-3. **get_related(path)** -- bidirectional link graph query
+3. **get_related(path, depth?, relation_type?, include_titles?)** -- bidirectional link graph query with multi-hop traversal
 4. **get_context(topic?, limit?, category?)** -- usage-weighted context summary. With topic: search + access count enrichment. Without topic: most-accessed docs + stats.
+5. **get_graph_stats(category?)** -- knowledge graph topology: orphans, hubs, relation distribution, edge/node counts
 
 ### Write (requires GNOSIS_MCP_WRITABLE=true)
-5. **upsert_doc(path, content, title?, category?, audience?, tags?, embeddings?)** -- insert/replace document with auto-chunking (optional pre-computed embeddings)
-6. **delete_doc(path)** -- delete document chunks + links
-7. **update_metadata(path, title?, category?, audience?, tags?)** -- update metadata on all chunks
+6. **upsert_doc(path, content, title?, category?, audience?, tags?, embeddings?)** -- insert/replace document with auto-chunking (optional pre-computed embeddings)
+7. **delete_doc(path)** -- delete document chunks + links
+8. **update_metadata(path, title?, category?, audience?, tags?)** -- update metadata on all chunks
 
 ## Resources
 
@@ -67,6 +68,7 @@ Enable with `--rest` flag or `GNOSIS_MCP_REST=true`. Runs alongside MCP on the s
 - **GET /api/docs/{path}/related** — get related documents
 - **GET /api/categories** — list categories with counts
 - **GET /api/context?topic=&limit=&category=** — usage-weighted context summary
+- **GET /api/graph/stats?category=** — knowledge graph topology
 
 Config: `GNOSIS_MCP_CORS_ORIGINS` (comma-separated or `*`), `GNOSIS_MCP_API_KEY` (Bearer auth).
 New file: `rest.py` — Starlette routes, own backend lifespan, CORS + auth middleware.
@@ -83,6 +85,9 @@ New file: `rest.py` — Starlette routes, own backend lifespan, CORS + auth midd
 - **Custom search delegation**: Set `GNOSIS_MCP_SEARCH_FUNCTION` to use your own hybrid search (PostgreSQL only)
 - **Column overrides**: `GNOSIS_MCP_COL_*` are for connecting to existing tables with non-standard names
 - **Frontmatter link extraction**: `ingest` parses `relates_to` from frontmatter (comma-separated or YAML list), inserts into links table for `get_related` queries. Glob patterns are skipped.
+- **Content link extraction**: `ingest` parses `[text](path.md)` markdown links and `[[wikilinks]]` from body content, stored as `relation_type='content_link'`. Separate from frontmatter `relates_to` links
+- **Multi-hop graph traversal**: `get_related(depth=2)` uses recursive CTE (PostgreSQL) or Python BFS (SQLite), max depth 3, cycle-safe
+- **Git history link types**: Cross-file commit links use `git_co_change`, source file references use `git_ref` — separates noisy git links from curated documentation links
 - **Smart recursive chunking**: `ingest` splits by H2 (primary), H3/H4 (for oversized sections), then paragraphs. Never splits inside fenced code blocks or tables
 - **Content hashing**: `ingest` skips unchanged files using SHA-256 hash comparison
 - **4-tier embedding support**: (1) Local ONNX via `[embeddings]` extra, (2) pre-computed embeddings via tools, (3) backfill with `gnosis-mcp embed`, (4) built-in hybrid search when `query_embedding` is provided
@@ -101,7 +106,7 @@ New file: `rest.py` — Starlette routes, own backend lifespan, CORS + auth midd
 ## Testing
 
 ```bash
-pytest tests/               # Unit tests (580+ tests, no DB required)
+pytest tests/               # Unit tests (599+ tests, no DB required)
 gnosis-mcp check            # Integration check against live DB
 ```
 

@@ -402,3 +402,126 @@ class TestAccessLog:
         # Don't init_schema — table doesn't exist
         await b.log_access("a.md", tool="get_doc")  # Should not raise
         await b.shutdown()
+
+
+class TestGetRelatedEnriched:
+    @pytest.fixture
+    async def backend(self):
+        b = _make_backend()
+        await b.startup()
+        await b.init_schema()
+        yield b
+        await b.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_depth_1_default(self, backend):
+        """Default depth=1 is backward compatible."""
+        await backend.upsert_doc("a.md", ["A"], title="A")
+        await backend.upsert_doc("b.md", ["B"], title="B")
+        await backend.insert_links("a.md", ["b.md"])
+        related = await backend.get_related("a.md")
+        assert len(related) == 1
+        assert related[0]["related_path"] == "b.md"
+        assert related[0]["direction"] == "outgoing"
+
+    @pytest.mark.asyncio
+    async def test_depth_2(self, backend):
+        """Depth=2 traverses two hops."""
+        await backend.upsert_doc("a.md", ["A"], title="A")
+        await backend.upsert_doc("b.md", ["B"], title="B")
+        await backend.upsert_doc("c.md", ["C"], title="C")
+        await backend.insert_links("a.md", ["b.md"])
+        await backend.insert_links("b.md", ["c.md"])
+        related = await backend.get_related("a.md", depth=2)
+        paths = {r["related_path"] for r in related}
+        assert "b.md" in paths
+        assert "c.md" in paths
+        # c.md should be at hops=2
+        c_entry = [r for r in related if r["related_path"] == "c.md"][0]
+        assert c_entry["hops"] == 2
+
+    @pytest.mark.asyncio
+    async def test_relation_type_filter(self, backend):
+        """Filtering by relation_type excludes other types."""
+        await backend.upsert_doc("a.md", ["A"], title="A")
+        await backend.upsert_doc("b.md", ["B"], title="B")
+        await backend.upsert_doc("c.md", ["C"], title="C")
+        await backend.insert_links("a.md", ["b.md"], relation_type="relates_to")
+        await backend.insert_links("a.md", ["c.md"], relation_type="git_co_change")
+        filtered = await backend.get_related("a.md", relation_type="relates_to")
+        paths = {r["related_path"] for r in filtered}
+        assert "b.md" in paths
+        assert "c.md" not in paths
+
+    @pytest.mark.asyncio
+    async def test_include_titles(self, backend):
+        """include_titles returns title and category."""
+        await backend.upsert_doc("a.md", ["A"], title="Doc A", category="guides")
+        await backend.upsert_doc("b.md", ["B"], title="Doc B", category="arch")
+        await backend.insert_links("a.md", ["b.md"])
+        related = await backend.get_related("a.md", include_titles=True)
+        assert len(related) == 1
+        assert related[0]["title"] == "Doc B"
+        assert related[0]["category"] == "arch"
+
+    @pytest.mark.asyncio
+    async def test_cycle_safe(self, backend):
+        """Cycles don't cause infinite loops."""
+        await backend.upsert_doc("a.md", ["A"], title="A")
+        await backend.upsert_doc("b.md", ["B"], title="B")
+        await backend.insert_links("a.md", ["b.md"])
+        await backend.insert_links("b.md", ["a.md"])
+        related = await backend.get_related("a.md", depth=3)
+        paths = {r["related_path"] for r in related}
+        assert paths == {"b.md"}  # No duplicates, no infinite loop
+
+
+class TestGraphStats:
+    @pytest.fixture
+    async def backend(self):
+        b = _make_backend()
+        await b.startup()
+        await b.init_schema()
+        yield b
+        await b.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_empty(self, backend):
+        """Empty database returns zero stats."""
+        stats = await backend.get_graph_stats()
+        assert stats["total_docs"] == 0
+        assert stats["total_edges"] == 0
+        assert stats["orphans"] == []
+        assert stats["hubs"] == []
+
+    @pytest.mark.asyncio
+    async def test_orphans(self, backend):
+        """Docs with no links appear in orphans."""
+        await backend.upsert_doc("lonely.md", ["Content"], title="Lonely", category="test")
+        stats = await backend.get_graph_stats()
+        orphan_paths = [o["path"] for o in stats["orphans"]]
+        assert "lonely.md" in orphan_paths
+
+    @pytest.mark.asyncio
+    async def test_hubs(self, backend):
+        """Most connected doc ranks first in hubs."""
+        await backend.upsert_doc("hub.md", ["Hub"], title="Hub")
+        await backend.upsert_doc("a.md", ["A"], title="A")
+        await backend.upsert_doc("b.md", ["B"], title="B")
+        await backend.upsert_doc("c.md", ["C"], title="C")
+        await backend.insert_links("hub.md", ["a.md", "b.md", "c.md"])
+        stats = await backend.get_graph_stats()
+        assert stats["hubs"][0]["path"] == "hub.md"
+        assert stats["hubs"][0]["connections"] >= 3
+
+    @pytest.mark.asyncio
+    async def test_relation_distribution(self, backend):
+        """Relation type counts are accurate."""
+        await backend.upsert_doc("a.md", ["A"], title="A")
+        await backend.upsert_doc("b.md", ["B"], title="B")
+        await backend.insert_links("a.md", ["b.md"], relation_type="relates_to")
+        await backend.insert_links("a.md", ["b.md"], relation_type="content_link")
+        stats = await backend.get_graph_stats()
+        type_map = {r["type"]: r["count"] for r in stats["relation_types"]}
+        assert type_map["relates_to"] == 1
+        assert type_map["content_link"] == 1
