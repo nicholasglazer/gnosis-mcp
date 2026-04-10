@@ -243,7 +243,8 @@ def _build_cross_file_links(
     for commit in commits:
         # Files from this commit that are in our filtered set
         shared = [f for f in commit.files if f in filtered_files]
-        if len(shared) < 2:
+        if len(shared) < 2 or len(shared) > 20:
+            # Skip bulk commits (>20 files) — they create O(N²) links with low signal
             continue
 
         # Create bidirectional links between all pairs

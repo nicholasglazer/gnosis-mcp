@@ -738,8 +738,8 @@ async def ingest_path(
                 has_hash_col=has_hash,
             )
 
-            # Extract and insert frontmatter links
-            link_targets = extract_relates_to(text)
+            # Extract and insert frontmatter links (use md_text for converted formats)
+            link_targets = extract_relates_to(md_text)
             if link_targets:
                 try:
                     inserted = await backend.insert_links(rel, link_targets)
@@ -748,7 +748,7 @@ async def ingest_path(
                     log.debug("insert_links failed for %s (links table may not exist)", rel)
 
             # Extract content links from body (markdown links and wikilinks)
-            content_links = extract_content_links(text)
+            content_links = extract_content_links(md_text)
             if content_links:
                 try:
                     cl_inserted = await backend.insert_links(

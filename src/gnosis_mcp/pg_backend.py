@@ -687,6 +687,8 @@ class PostgresBackend:
     async def stats(self) -> dict[str, Any]:
         cfg = self._cfg
         qt = cfg.qualified_chunks_table
+        # Check column existence BEFORE acquiring connection to avoid pool deadlock
+        has_embed_col = await self.has_column(qt.split(".")[-1], cfg.col_embedding)
         async with await self._acquire() as conn:
             total = await conn.fetchval(f"SELECT count(*) FROM {qt}")
             docs = await conn.fetchval(
@@ -715,10 +717,10 @@ class PostgresBackend:
                     f"SELECT count(*) FROM {cfg.qualified_links_table}"
                 )
 
-            # Embedded chunks count
+            # Embedded chunks count (has_embed_col checked before acquiring conn)
             embedded = await conn.fetchval(
                 f"SELECT count(*) FROM {qt} WHERE {cfg.col_embedding} IS NOT NULL"
-            ) if await self.has_column(qt.split(".")[-1], cfg.col_embedding) else 0
+            ) if has_embed_col else 0
 
         return {
             "table": qt,
@@ -849,26 +851,27 @@ class PostgresBackend:
         lt = cfg.qualified_links_table
 
         async with await self._acquire() as conn:
-            await conn.execute(
-                f"DELETE FROM {lt} "
-                f"WHERE {cfg.col_source_path} = $1 AND {cfg.col_relation_type} = $2",
-                source_path,
-                relation_type,
-            )
-
-            count = 0
-            for target in target_paths:
+            async with conn.transaction():
                 await conn.execute(
-                    f"INSERT INTO {lt} ({cfg.col_source_path}, {cfg.col_target_path}, {cfg.col_relation_type}) "
-                    f"VALUES ($1, $2, $3) "
-                    f"ON CONFLICT ({cfg.col_source_path}, {cfg.col_target_path}, {cfg.col_relation_type}) DO NOTHING",
+                    f"DELETE FROM {lt} "
+                    f"WHERE {cfg.col_source_path} = $1 AND {cfg.col_relation_type} = $2",
                     source_path,
-                    target,
                     relation_type,
                 )
-                count += 1
 
-            return count
+                count = 0
+                for target in target_paths:
+                    await conn.execute(
+                        f"INSERT INTO {lt} ({cfg.col_source_path}, {cfg.col_target_path}, {cfg.col_relation_type}) "
+                        f"VALUES ($1, $2, $3) "
+                        f"ON CONFLICT ({cfg.col_source_path}, {cfg.col_target_path}, {cfg.col_relation_type}) DO NOTHING",
+                        source_path,
+                        target,
+                        relation_type,
+                    )
+                    count += 1
+
+                return count
 
     async def log_access(
         self,

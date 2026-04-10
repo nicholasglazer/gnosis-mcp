@@ -336,7 +336,7 @@ async def get_related(
     try:
         results = await ctx.backend.get_related(
             path,
-            depth=min(depth, 3),
+            depth=max(1, min(depth, 3)),
             relation_type=relation_type or None,
             include_titles=include_titles,
         )
