@@ -362,13 +362,14 @@ For PostgreSQL, add `"env": {"GNOSIS_MCP_DATABASE_URL": "postgresql://..."}`.
 
 ## Tools & Resources
 
-Gnosis MCP exposes 8 tools and 3 resources over [MCP](https://modelcontextprotocol.io/). Your AI agent calls these automatically when it needs information from your docs.
+Gnosis MCP exposes 9 tools and 3 resources over [MCP](https://modelcontextprotocol.io/). Your AI agent calls these automatically when it needs information from your docs.
 
 | Tool | What it does | Mode |
 |------|-------------|------|
 | `search_docs` | Search by keyword or hybrid semantic+keyword | Read |
 | `get_doc` | Retrieve a full document by path | Read |
 | `get_related` | Find linked/related documents (multi-hop, relation type filtering) | Read |
+| `search_git_history` | Search indexed git commit history | Read |
 | `get_context` | Usage-weighted context summary | Read |
 | `get_graph_stats` | Knowledge graph topology: orphans, hubs, relation distribution | Read |
 | `upsert_doc` | Create or replace a document | Write |

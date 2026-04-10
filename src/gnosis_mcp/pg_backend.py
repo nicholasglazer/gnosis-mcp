@@ -715,10 +715,16 @@ class PostgresBackend:
                     f"SELECT count(*) FROM {cfg.qualified_links_table}"
                 )
 
+            # Embedded chunks count
+            embedded = await conn.fetchval(
+                f"SELECT count(*) FROM {qt} WHERE {cfg.col_embedding} IS NOT NULL"
+            ) if await self.has_column(qt.split(".")[-1], cfg.col_embedding) else 0
+
         return {
             "table": qt,
             "docs": docs,
             "chunks": total,
+            "embedded_chunks": embedded,
             "content_bytes": size,
             "categories": [
                 {"cat": r["cat"], "docs": r["docs"], "chunks": r["chunks"]}

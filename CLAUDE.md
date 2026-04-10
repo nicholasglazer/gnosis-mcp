@@ -44,13 +44,14 @@ Default install: `mcp>=1.20` + `aiosqlite>=0.20`. Optional extras: `[postgres]` 
 1. **search_docs(query, category?, limit?, query_embedding?)** -- keyword (FTS5/tsvector), hybrid (with embedding on SQLite via sqlite-vec or PG via pgvector), or custom function search. Auto-embeds query when local provider configured.
 2. **get_doc(path, max_length?)** -- reassemble document chunks by file_path + chunk_index (optional truncation)
 3. **get_related(path, depth?, relation_type?, include_titles?)** -- bidirectional link graph query with multi-hop traversal
-4. **get_context(topic?, limit?, category?)** -- usage-weighted context summary. With topic: search + access count enrichment. Without topic: most-accessed docs + stats.
-5. **get_graph_stats(category?)** -- knowledge graph topology: orphans, hubs, relation distribution, edge/node counts
+4. **search_git_history(query, author?, since?, until?, file_path?, limit?)** -- search indexed git commit history by message, author, date range, or file
+5. **get_context(topic?, limit?, category?)** -- usage-weighted context summary. With topic: search + access count enrichment. Without topic: most-accessed docs + stats.
+6. **get_graph_stats(category?)** -- knowledge graph topology: orphans, hubs, relation distribution, edge/node counts
 
 ### Write (requires GNOSIS_MCP_WRITABLE=true)
-6. **upsert_doc(path, content, title?, category?, audience?, tags?, embeddings?)** -- insert/replace document with auto-chunking (optional pre-computed embeddings)
-7. **delete_doc(path)** -- delete document chunks + links
-8. **update_metadata(path, title?, category?, audience?, tags?)** -- update metadata on all chunks
+7. **upsert_doc(path, content, title?, category?, audience?, tags?, embeddings?)** -- insert/replace document with auto-chunking (optional pre-computed embeddings)
+8. **delete_doc(path)** -- delete document chunks + links
+9. **update_metadata(path, title?, category?, audience?, tags?)** -- update metadata on all chunks
 
 ## Resources
 
