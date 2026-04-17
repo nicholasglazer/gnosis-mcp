@@ -45,7 +45,9 @@ Point at a folder of markdown files:
 gnosis-mcp ingest ./docs/
 ```
 
-This auto-creates the SQLite database at `~/.local/share/gnosis-mcp/docs.db`, scans all `.md` files, chunks them by H2 headings, extracts metadata from frontmatter, and inserts into the database. Re-running skips unchanged files — safe to run as often as you like.
+This auto-creates the SQLite database at `~/.local/share/gnosis-mcp/docs.db` (Unix/macOS) or `%USERPROFILE%\.local\share\gnosis-mcp\docs.db` (Windows), scans all `.md` files, chunks them by H2 headings, extracts metadata from frontmatter, and inserts into the database. Re-running skips unchanged files — safe to run as often as you like.
+
+Override the path with `GNOSIS_MCP_DATABASE_URL=sqlite:///C:/path/to/docs.db` (Windows) or `sqlite:///~/custom/path/docs.db` (Unix).
 
 For PostgreSQL, set the URL first:
 

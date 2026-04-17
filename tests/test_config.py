@@ -153,7 +153,11 @@ class TestMultiTable:
         assert cfg.chunks_tables == ["docs_v1", "docs_v2", "api_docs"]
         assert cfg.multi_table
         assert cfg.qualified_chunks_table == "public.docs_v1"
-        assert cfg.qualified_chunks_tables == ["public.docs_v1", "public.docs_v2", "public.api_docs"]
+        assert cfg.qualified_chunks_tables == [
+            "public.docs_v1",
+            "public.docs_v2",
+            "public.api_docs",
+        ]
 
     def test_comma_separated_with_spaces(self, monkeypatch):
         monkeypatch.setenv("GNOSIS_MCP_DATABASE_URL", "postgresql://localhost/db")

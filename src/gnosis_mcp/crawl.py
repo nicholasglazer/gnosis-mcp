@@ -100,6 +100,7 @@ class CrawlConfig:
     force: bool = False
     embed: bool = False
     max_urls: int = 5000
+    extract_timeout_s: float = 30.0
 
     def __post_init__(self) -> None:
         if self.depth > _MAX_DEPTH:
@@ -264,11 +265,11 @@ def _require_httpx():
     """Deferred import for httpx — raises ImportError with install instructions."""
     try:
         import httpx
+
         return httpx
     except ImportError:
         raise ImportError(
-            "Web crawling requires the [web] extra.\n"
-            "Install with: pip install gnosis-mcp[web]"
+            "Web crawling requires the [web] extra.\nInstall with: pip install gnosis-mcp[web]"
         ) from None
 
 
@@ -276,11 +277,11 @@ def _require_trafilatura():
     """Deferred import for trafilatura — raises ImportError with install instructions."""
     try:
         import trafilatura
+
         return trafilatura
     except ImportError:
         raise ImportError(
-            "Web crawling requires the [web] extra.\n"
-            "Install with: pip install gnosis-mcp[web]"
+            "Web crawling requires the [web] extra.\nInstall with: pip install gnosis-mcp[web]"
         ) from None
 
 
@@ -329,15 +330,16 @@ async def fetch_page(
     )
 
 
-async def extract_content(html: str, url: str) -> str | None:
+async def extract_content(html: str, url: str, timeout_s: float | None = None) -> str | None:
     """Extract main content from HTML as markdown using trafilatura.
 
     Runs in a thread pool because trafilatura.extract() is CPU-bound
     (HTML parsing + content extraction) and would block the event loop.
+    A pathological page can hang the thread — enforce a timeout.
     """
     trafilatura = _require_trafilatura()
     loop = asyncio.get_running_loop()
-    result = await loop.run_in_executor(
+    call = loop.run_in_executor(
         None,
         lambda: trafilatura.extract(
             html,
@@ -349,6 +351,14 @@ async def extract_content(html: str, url: str) -> str | None:
             favor_precision=True,
         ),
     )
+    try:
+        if timeout_s is not None and timeout_s > 0:
+            result = await asyncio.wait_for(call, timeout=timeout_s)
+        else:
+            result = await call
+    except asyncio.TimeoutError:
+        log.warning("trafilatura extract timed out after %ss for %s", timeout_s, url)
+        return None
     return result if result and len(result.strip()) >= 50 else None
 
 
@@ -402,9 +412,7 @@ async def _discover_sitemap(
                 log.warning("Could not fetch nested sitemap: %s", sm_url)
                 return []
 
-        nested_results = await asyncio.gather(
-            *[_fetch_nested(sm) for sm in nested_sitemaps]
-        )
+        nested_results = await asyncio.gather(*[_fetch_nested(sm) for sm in nested_sitemaps])
         urls = [u for batch in nested_results for u in batch]
 
     # Filter to same host and normalize
@@ -486,10 +494,14 @@ async def crawl_url(
     # SSRF: block private base URLs
     base_host = urlparse(url).hostname or ""
     if _is_private_host(base_host):
-        return [CrawlResult(
-            url=url, chunks=0, action=CrawlAction.BLOCKED,
-            detail="private/internal host blocked",
-        )]
+        return [
+            CrawlResult(
+                url=url,
+                chunks=0,
+                action=CrawlAction.BLOCKED,
+                detail="private/internal host blocked",
+            )
+        ]
 
     # 1. Load crawl cache
     cache = load_cache(cache_path)
@@ -509,8 +521,17 @@ async def crawl_url(
         try:
             robots_resp = await client.get(robots_url, follow_redirects=True)
             if robots_resp.status_code == 200:
-                robots_txt = robots_resp.text
-                robots = _parse_robots(robots_txt)
+                # Guard against cross-host redirects that would allow spoofing
+                final_host = urlparse(str(robots_resp.url)).netloc.lower()
+                if final_host and final_host != parsed.netloc.lower():
+                    log.warning(
+                        "robots.txt for %s redirected to different host %s; treating as disallow",
+                        parsed.netloc,
+                        final_host,
+                    )
+                else:
+                    robots_txt = robots_resp.text
+                    robots = _parse_robots(robots_txt)
         except Exception:
             log.debug("Could not fetch robots.txt from %s", robots_url)
 
@@ -522,15 +543,18 @@ async def crawl_url(
         if crawl_config.include:
             discovered = [u for u in discovered if url_matches_pattern(u, crawl_config.include)]
         if crawl_config.exclude:
-            discovered = [u for u in discovered if not url_matches_pattern(u, crawl_config.exclude)]
+            discovered = [
+                u for u in discovered if not url_matches_pattern(u, crawl_config.exclude)
+            ]
 
         # 4b. Cap URL count to prevent runaway memory usage
         if len(discovered) > crawl_config.max_urls:
             log.warning(
                 "Truncating %d discovered URLs to --max-urls %d",
-                len(discovered), crawl_config.max_urls,
+                len(discovered),
+                crawl_config.max_urls,
             )
-            discovered = discovered[:crawl_config.max_urls]
+            discovered = discovered[: crawl_config.max_urls]
 
         # 5. Dry run — return early
         if crawl_config.dry_run:
@@ -578,10 +602,14 @@ async def crawl_url(
             results = []
             for i, r in enumerate(raw_results):
                 if isinstance(r, BaseException):
-                    results.append(CrawlResult(
-                        url=discovered[i], chunks=0,
-                        action=CrawlAction.ERROR, detail=str(r),
-                    ))
+                    results.append(
+                        CrawlResult(
+                            url=discovered[i],
+                            chunks=0,
+                            action=CrawlAction.ERROR,
+                            detail=str(r),
+                        )
+                    )
                 else:
                     results.append(r)
 
@@ -597,6 +625,7 @@ async def crawl_url(
                             try:
                                 import onnxruntime  # noqa: F401
                                 import tokenizers  # noqa: F401
+
                                 provider = "local"
                             except ImportError:
                                 pass
@@ -652,14 +681,22 @@ async def _crawl_single(
         fetch_result = await fetch_page(client, url, cache, force=config.force)
         if fetch_result is None:
             return CrawlResult(
-                url=url, chunks=0, action=CrawlAction.UNCHANGED, detail="304 Not Modified",
+                url=url,
+                chunks=0,
+                action=CrawlAction.UNCHANGED,
+                detail="304 Not Modified",
             )
 
-        # Extract content
-        markdown = await extract_content(fetch_result.html, url)
+        # Extract content (with timeout to bound pathological pages)
+        markdown = await extract_content(
+            fetch_result.html, url, timeout_s=config.extract_timeout_s
+        )
         if markdown is None:
             return CrawlResult(
-                url=url, chunks=0, action=CrawlAction.SKIPPED, detail="No extractable content",
+                url=url,
+                chunks=0,
+                action=CrawlAction.SKIPPED,
+                detail="No extractable content",
             )
 
         # Content hash check
@@ -675,7 +712,10 @@ async def _crawl_single(
                     "timestamp": time.time(),
                 }
                 return CrawlResult(
-                    url=url, chunks=0, action=CrawlAction.UNCHANGED, detail="hash match",
+                    url=url,
+                    chunks=0,
+                    action=CrawlAction.UNCHANGED,
+                    detail="hash match",
                 )
 
         # Chunk

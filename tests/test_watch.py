@@ -123,26 +123,20 @@ class TestDetectChanges:
 class TestStartWatcher:
     def test_starts_and_stops(self, tmp_path, sqlite_config):
         (tmp_path / "doc.md").write_text("# Test\n\nSome content for testing watcher.")
-        thread = start_watcher(
-            str(tmp_path), sqlite_config, embed=False, interval=0.2
-        )
+        thread = start_watcher(str(tmp_path), sqlite_config, embed=False, interval=0.2)
         assert thread.is_alive()
         thread.stop_event.set()
         thread.join(timeout=3)
         assert not thread.is_alive()
 
     def test_daemon_thread(self, tmp_path, sqlite_config):
-        thread = start_watcher(
-            str(tmp_path), sqlite_config, embed=False, interval=0.2
-        )
+        thread = start_watcher(str(tmp_path), sqlite_config, embed=False, interval=0.2)
         assert thread.daemon is True
         thread.stop_event.set()
         thread.join(timeout=3)
 
     def test_thread_name(self, tmp_path, sqlite_config):
-        thread = start_watcher(
-            str(tmp_path), sqlite_config, embed=False, interval=0.2
-        )
+        thread = start_watcher(str(tmp_path), sqlite_config, embed=False, interval=0.2)
         assert thread.name == "gnosis-watcher"
         thread.stop_event.set()
         thread.join(timeout=3)

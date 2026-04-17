@@ -15,7 +15,6 @@ import json
 import statistics
 import time
 from argparse import ArgumentParser
-from pathlib import Path
 
 from gnosis_mcp.config import GnosisMcpConfig
 from gnosis_mcp.ingest import chunk_by_headings
@@ -52,24 +51,26 @@ def _generate_docs(count: int) -> list[dict]:
     docs = []
     for i in range(count):
         cat = categories[i % len(categories)]
-        docs.append({
-            "path": f"{cat}/doc-{i:04d}.md",
-            "content": (
-                f"# Document {i}: {cat.title()} Topic\n\n"
-                f"This is document number {i} in the {cat} category.\n\n"
-                f"## Section A\n\n"
-                f"Content about {QUERIES[i % len(QUERIES)]} with detailed "
-                f"explanation and examples for developers.\n\n"
-                f"## Section B\n\n"
-                f"Additional context about {QUERIES[(i + 7) % len(QUERIES)]} "
-                f"including configuration options and best practices.\n\n"
-                f"## Section C\n\n"
-                f"Advanced usage patterns for {QUERIES[(i + 13) % len(QUERIES)]} "
-                f"with code examples and troubleshooting tips."
-            ),
-            "title": f"Document {i}",
-            "category": cat,
-        })
+        docs.append(
+            {
+                "path": f"{cat}/doc-{i:04d}.md",
+                "content": (
+                    f"# Document {i}: {cat.title()} Topic\n\n"
+                    f"This is document number {i} in the {cat} category.\n\n"
+                    f"## Section A\n\n"
+                    f"Content about {QUERIES[i % len(QUERIES)]} with detailed "
+                    f"explanation and examples for developers.\n\n"
+                    f"## Section B\n\n"
+                    f"Additional context about {QUERIES[(i + 7) % len(QUERIES)]} "
+                    f"including configuration options and best practices.\n\n"
+                    f"## Section C\n\n"
+                    f"Advanced usage patterns for {QUERIES[(i + 13) % len(QUERIES)]} "
+                    f"with code examples and troubleshooting tips."
+                ),
+                "title": f"Document {i}",
+                "category": cat,
+            }
+        )
     return docs
 
 
@@ -151,7 +152,7 @@ def main():
         print(json.dumps(metrics, indent=2))
     else:
         print(f"\n{'=' * 55}")
-        print(f"  Gnosis MCP Search Benchmark")
+        print("  Gnosis MCP Search Benchmark")
         print(f"{'=' * 55}")
         print(f"  Corpus:   {metrics['docs']} docs, {metrics['chunks']} chunks")
         print(f"  Ingest:   {metrics['ingest_time_s']}s")

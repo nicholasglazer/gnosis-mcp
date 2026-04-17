@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from gnosis_mcp.ingest import (
+    TYPED_RELATION_ALLOWLIST,
     _SUPPORTED_EXTS,
     _convert_csv,
     _convert_ipynb,
@@ -21,6 +22,7 @@ from gnosis_mcp.ingest import (
     extract_content_links,
     extract_relates_to,
     extract_title,
+    extract_typed_relations,
     ingest_path,
     parse_frontmatter,
     scan_files,
@@ -63,7 +65,7 @@ class TestParseFrontmatter:
         assert body.startswith("# Title")
 
     def test_quoted_values(self):
-        md = '---\ntitle: "Quoted Title"\ncategory: \'single\'\n---\nBody'
+        md = "---\ntitle: \"Quoted Title\"\ncategory: 'single'\n---\nBody"
         meta, body = parse_frontmatter(md)
         assert meta["title"] == "Quoted Title"
         assert meta["category"] == "single"
@@ -115,7 +117,7 @@ class TestExtractRelatesTo:
         assert result == ["architecture/overview.md"]
 
     def test_quoted_values(self):
-        md = '---\nrelates_to: "guides/setup.md", \'architecture/overview.md\'\n---\nBody'
+        md = "---\nrelates_to: \"guides/setup.md\", 'architecture/overview.md'\n---\nBody"
         result = extract_relates_to(md)
         assert result == ["guides/setup.md", "architecture/overview.md"]
 
@@ -131,6 +133,221 @@ class TestExtractRelatesTo:
     def test_empty_relates_to(self):
         md = "---\nrelates_to:\n---\nBody"
         assert extract_relates_to(md) == []
+
+
+# ---------------------------------------------------------------------------
+# extract_typed_relations
+# ---------------------------------------------------------------------------
+
+
+class TestExtractTypedRelations:
+    def test_no_frontmatter(self):
+        assert extract_typed_relations("# Title\n\nContent") == []
+
+    def test_no_relations_block(self):
+        md = "---\ntitle: My Doc\nrelates_to: other.md\n---\n# Title"
+        assert extract_typed_relations(md) == []
+
+    def test_inline_brace_form(self):
+        md = (
+            "---\n"
+            "relations:\n"
+            '  - { path: "guides/billing-architecture.md", type: "prerequisite" }\n'
+            '  - { path: "audits/billing-audit-2026-03.md", type: "audited_by" }\n'
+            "---\nBody"
+        )
+        result = extract_typed_relations(md)
+        assert ("guides/billing-architecture.md", "prerequisite") in result
+        assert ("audits/billing-audit-2026-03.md", "audited_by") in result
+        assert len(result) == 2
+
+    def test_block_form(self):
+        md = (
+            "---\n"
+            "relations:\n"
+            "  - path: guides/old-billing.md\n"
+            "    type: replaces\n"
+            "---\nBody"
+        )
+        result = extract_typed_relations(md)
+        assert result == [("guides/old-billing.md", "replaces")]
+
+    def test_mixed_forms(self):
+        md = (
+            "---\n"
+            "relations:\n"
+            '  - { path: "guides/a.md", type: "prerequisite" }\n'
+            "  - path: guides/b.md\n"
+            "    type: extends\n"
+            "---\nBody"
+        )
+        result = extract_typed_relations(md)
+        assert ("guides/a.md", "prerequisite") in result
+        assert ("guides/b.md", "extends") in result
+        assert len(result) == 2
+
+    def test_unknown_type_skipped(self):
+        md = (
+            "---\n"
+            "relations:\n"
+            "  - path: guides/a.md\n"
+            "    type: invented_type_xyz\n"
+            "---\nBody"
+        )
+        result = extract_typed_relations(md)
+        assert result == []
+
+    def test_unknown_type_warns(self, caplog):
+        import logging
+
+        md = (
+            "---\n"
+            "relations:\n"
+            "  - path: guides/a.md\n"
+            "    type: not_a_valid_type\n"
+            "---\nBody"
+        )
+        with caplog.at_level(logging.WARNING, logger="gnosis_mcp"):
+            extract_typed_relations(md)
+        assert "not_a_valid_type" in caplog.text
+
+    def test_glob_path_skipped(self):
+        md = (
+            "---\n"
+            "relations:\n"
+            "  - path: guides/*.md\n"
+            "    type: related\n"
+            "  - path: guides/real.md\n"
+            "    type: related\n"
+            "---\nBody"
+        )
+        result = extract_typed_relations(md)
+        assert len(result) == 1
+        assert result[0][0] == "guides/real.md"
+
+    def test_incomplete_frontmatter(self):
+        md = "---\nrelations:\n  - path: a.md\n    type: related"
+        assert extract_typed_relations(md) == []
+
+    def test_ends_on_next_top_level_key(self):
+        md = (
+            "---\n"
+            "relations:\n"
+            "  - path: guides/a.md\n"
+            "    type: extends\n"
+            "category: guides\n"
+            "---\nBody"
+        )
+        result = extract_typed_relations(md)
+        assert result == [("guides/a.md", "extends")]
+
+    def test_allowlist_contents(self):
+        """Spot-check that key types are in the allowlist."""
+        for t in ("related", "prerequisite", "depends_on", "summarizes", "replaces", "audits"):
+            assert t in TYPED_RELATION_ALLOWLIST
+
+    def test_coexists_with_relates_to(self):
+        """relates_to and relations: blocks are independent."""
+        md = (
+            "---\n"
+            "relates_to: guides/other.md\n"
+            "relations:\n"
+            "  - path: guides/prereq.md\n"
+            "    type: prerequisite\n"
+            "---\nBody"
+        )
+        flat = extract_relates_to(md)
+        typed = extract_typed_relations(md)
+        assert flat == ["guides/other.md"]
+        assert typed == [("guides/prereq.md", "prerequisite")]
+
+
+# ---------------------------------------------------------------------------
+# extract_typed_relations + ingest: async integration
+# ---------------------------------------------------------------------------
+
+
+class TestTypedRelationsIngest:
+    async def test_ingest_inserts_typed_and_flat_edges(self, tmp_path):
+        """Both relates_to (flat) and relations: (typed) edges are stored correctly."""
+        db = str(tmp_path / "test.db")
+        docs_dir = tmp_path / "docs"
+        docs_dir.mkdir()
+
+        (docs_dir / "main.md").write_text(
+            "---\n"
+            "relates_to: guides/other.md\n"
+            "relations:\n"
+            "  - path: guides/prereq.md\n"
+            "    type: prerequisite\n"
+            "  - path: audits/audit-2026.md\n"
+            "    type: audited_by\n"
+            "---\n"
+            "# Main\n\n"
+            "This document covers the main concepts needed for setup and configuration of the system.\n"
+        )
+
+        cfg = GnosisMcpConfig(database_url=db, backend="sqlite")
+        results = await ingest_path(cfg, str(docs_dir))
+        assert any(r.action == "ingested" for r in results)
+
+        from gnosis_mcp.backend import create_backend
+
+        backend = create_backend(cfg)
+        await backend.startup()
+        try:
+            rows = await backend._db.execute_fetchall(
+                "SELECT source_path, target_path, relation_type FROM documentation_links "
+                "WHERE source_path = 'main.md' ORDER BY target_path"
+            )
+        finally:
+            await backend.shutdown()
+
+        link_map = {(r[1], r[2]) for r in rows}
+        # relates_to → type stored as "relates_to" (existing default behavior)
+        assert ("guides/other.md", "relates_to") in link_map
+        # typed relations
+        assert ("guides/prereq.md", "prerequisite") in link_map
+        assert ("audits/audit-2026.md", "audited_by") in link_map
+
+    async def test_ingest_rejects_unknown_type(self, tmp_path):
+        """Unknown type in relations: block is skipped — no edge inserted."""
+        db = str(tmp_path / "test.db")
+        docs_dir = tmp_path / "docs"
+        docs_dir.mkdir()
+
+        (docs_dir / "main.md").write_text(
+            "---\n"
+            "relations:\n"
+            "  - path: guides/unknown.md\n"
+            "    type: invented_type_xyz\n"
+            "  - path: guides/valid.md\n"
+            "    type: references\n"
+            "---\n"
+            "# Main\n\n"
+            "This document covers the main concepts needed for setup and configuration of the system.\n"
+        )
+
+        cfg = GnosisMcpConfig(database_url=db, backend="sqlite")
+        await ingest_path(cfg, str(docs_dir))
+
+        from gnosis_mcp.backend import create_backend
+
+        backend = create_backend(cfg)
+        await backend.startup()
+        try:
+            rows = await backend._db.execute_fetchall(
+                "SELECT target_path, relation_type FROM documentation_links "
+                "WHERE source_path = 'main.md'"
+            )
+        finally:
+            await backend.shutdown()
+
+        targets = {r[0] for r in rows}
+        # Unknown type must not be inserted
+        assert "guides/unknown.md" not in targets
+        # Valid type must be present
+        assert "guides/valid.md" in targets
 
 
 # ---------------------------------------------------------------------------
@@ -283,7 +500,7 @@ class TestProtectedRanges:
         assert len(ranges) >= 1
         # The code block range should contain "code here"
         code_range = ranges[0]
-        assert "code here" in text[code_range[0]:code_range[1]]
+        assert "code here" in text[code_range[0] : code_range[1]]
 
     def test_tilde_fence(self):
         text = "Before\n\n~~~\ncode\n~~~\n\nAfter"
@@ -299,7 +516,7 @@ class TestProtectedRanges:
     def test_table_detection(self):
         text = "Before\n\n| A | B |\n| --- | --- |\n| 1 | 2 |\n\nAfter"
         ranges = _find_protected_ranges(text)
-        table_ranges = [r for r in ranges if "| A |" in text[r[0]:r[1]]]
+        table_ranges = [r for r in ranges if "| A |" in text[r[0] : r[1]]]
         assert len(table_ranges) == 1
 
     def test_no_protected(self):
@@ -409,6 +626,7 @@ class TestConvertTxt:
 class TestConvertIpynb:
     def test_basic_notebook(self):
         import json
+
         nb = {
             "metadata": {"kernelspec": {"language": "python"}},
             "nbformat": 4,
@@ -425,6 +643,7 @@ class TestConvertIpynb:
 
     def test_empty_cells_skipped(self):
         import json
+
         nb = {
             "metadata": {},
             "cells": [
@@ -442,6 +661,7 @@ class TestConvertIpynb:
 
     def test_source_as_string(self):
         import json
+
         nb = {
             "metadata": {},
             "cells": [{"cell_type": "markdown", "source": "# Hello"}],
@@ -497,6 +717,7 @@ class TestConvertCsv:
 class TestConvertJson:
     def test_dict_with_sections(self):
         import json
+
         data = {"name": "foo", "config": {"key": "val"}, "items": [1, 2, 3]}
         result = _convert_json(json.dumps(data), Path("data.json"))
         assert "## config" in result
@@ -505,6 +726,7 @@ class TestConvertJson:
 
     def test_array_as_code_block(self):
         import json
+
         result = _convert_json(json.dumps([1, 2, 3]), Path("arr.json"))
         assert "```json" in result
 
@@ -619,6 +841,7 @@ class TestSupportedExts:
         """RST extension present only if docutils installed."""
         try:
             import docutils  # noqa: F401
+
             assert ".rst" in _SUPPORTED_EXTS
         except ImportError:
             assert ".rst" not in _SUPPORTED_EXTS
@@ -627,6 +850,7 @@ class TestSupportedExts:
         """PDF extension present only if pypdf installed."""
         try:
             import pypdf  # noqa: F401
+
             assert ".pdf" in _SUPPORTED_EXTS
         except ImportError:
             assert ".pdf" not in _SUPPORTED_EXTS
@@ -707,6 +931,7 @@ class TestDiffPath:
         cfg = GnosisMcpConfig(database_url=db, backend="sqlite")
         # Init schema so diff_path has tables to query
         from gnosis_mcp.backend import create_backend
+
         b = create_backend(cfg)
         await b.startup()
         await b.init_schema()

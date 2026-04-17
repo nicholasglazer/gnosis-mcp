@@ -24,7 +24,7 @@ class TestFts5Query:
         assert result == '"pandas" OR "data" OR "analysis"'
 
     def test_strips_special_chars(self):
-        assert _to_fts5_query('test*') == '"test"'
+        assert _to_fts5_query("test*") == '"test"'
         assert _to_fts5_query('"quoted"') == '"quoted"'
         assert _to_fts5_query("a-b") == '"ab"'
 
@@ -101,17 +101,13 @@ class TestSqliteBackendLifecycle:
         await backend.upsert_doc(
             "guides/a.md", ["Content about testing"], title="A", category="guides"
         )
-        await backend.upsert_doc(
-            "ops/b.md", ["Content about testing"], title="B", category="ops"
-        )
+        await backend.upsert_doc("ops/b.md", ["Content about testing"], title="B", category="ops")
 
         results = await backend.search("testing", category="ops")
         assert all(r["category"] == "ops" for r in results)
 
     async def test_delete_doc(self, backend):
-        await backend.upsert_doc(
-            "guides/del.md", ["Delete me"], title="Delete", category="guides"
-        )
+        await backend.upsert_doc("guides/del.md", ["Delete me"], title="Delete", category="guides")
         result = await backend.delete_doc("guides/del.md")
         assert result["chunks_deleted"] == 1
 
@@ -123,9 +119,7 @@ class TestSqliteBackendLifecycle:
         assert result["chunks_deleted"] == 0
 
     async def test_update_metadata(self, backend):
-        await backend.upsert_doc(
-            "guides/meta.md", ["Content"], title="Old", category="old"
-        )
+        await backend.upsert_doc("guides/meta.md", ["Content"], title="Old", category="old")
         affected = await backend.update_metadata(
             "guides/meta.md", title="New Title", category="new"
         )
@@ -162,9 +156,7 @@ class TestSqliteBackendLifecycle:
         assert s["content_bytes"] > 0
 
     async def test_export_docs(self, backend):
-        await backend.upsert_doc(
-            "a.md", ["Chunk 1", "Chunk 2"], title="A", category="guides"
-        )
+        await backend.upsert_doc("a.md", ["Chunk 1", "Chunk 2"], title="A", category="guides")
         docs = await backend.export_docs()
         assert len(docs) == 1
         assert "Chunk 1" in docs[0]["content"]
@@ -224,9 +216,7 @@ class TestSqliteBackendLifecycle:
         await backend.upsert_doc(
             "a.md", ["Pandas is a data analysis library"], title="A", category="test"
         )
-        await backend.upsert_doc(
-            "b.md", ["Flask is a web framework"], title="B", category="test"
-        )
+        await backend.upsert_doc("b.md", ["Flask is a web framework"], title="B", category="test")
 
         # "pandas web" — one word in each doc, OR should find both
         results = await backend.search("pandas web")
@@ -270,6 +260,7 @@ class TestSqliteBackendLifecycle:
         # Tags are stored as JSON string in SQLite, should be parsed back
         if isinstance(tags, str):
             import json
+
             tags = json.loads(tags)
         assert tags == ["python", "backend"]
 

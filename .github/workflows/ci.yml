@@ -1,0 +1,92 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches-ignore:
+      - main
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+      - name: Install ruff
+        run: uv pip install --system ruff
+      - name: Ruff check
+        run: ruff check .
+      - name: Ruff format
+        run: ruff format --check .
+
+  test-sqlite:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+      - name: Setup Python
+        run: uv python install ${{ matrix.python-version }}
+      - name: Install project
+        run: uv sync --all-extras
+      - name: Run tests (SQLite + unit)
+        run: uv run pytest -q -m "not postgres_only and not eval and not bench and not e2e"
+
+  test-postgres:
+    runs-on: ubuntu-latest
+    # Allow PG job to fail while we work through backend parity in tests.
+    # Remove `continue-on-error` once all tests pass against both backends.
+    continue-on-error: true
+    services:
+      postgres:
+        image: pgvector/pgvector:pg15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: gnosis_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      GNOSIS_MCP_CI_PG: "1"
+      GNOSIS_MCP_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/gnosis_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+      - name: Setup Python
+        run: uv python install 3.12
+      - name: Install project
+        run: uv sync --all-extras
+      - name: Enable pgvector
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+          PGPASSWORD=postgres psql -h localhost -U postgres -d gnosis_test -c "CREATE EXTENSION IF NOT EXISTS vector;"
+      - name: Init schema
+        run: uv run gnosis-mcp init-db
+      - name: Run check
+        run: uv run gnosis-mcp check
+      - name: Run tests (PostgreSQL + unit)
+        run: uv run pytest -q -m "not sqlite_only and not eval and not bench and not e2e"
+
+  version-parity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Check version parity
+        run: bash scripts/check-versions.sh

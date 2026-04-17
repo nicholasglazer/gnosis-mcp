@@ -133,11 +133,16 @@ class TestNormalizeUrl:
         assert normalize_url("https://DOCS.Example.COM/api") == "https://docs.example.com/api"
 
     def test_preserves_query(self):
-        assert normalize_url("https://example.com/search?q=test") == "https://example.com/search?q=test"
+        assert (
+            normalize_url("https://example.com/search?q=test")
+            == "https://example.com/search?q=test"
+        )
 
     def test_preserves_path_case(self):
         # Path case is significant (unlike host)
-        assert normalize_url("https://example.com/API/Charges") == "https://example.com/API/Charges"
+        assert (
+            normalize_url("https://example.com/API/Charges") == "https://example.com/API/Charges"
+        )
 
     def test_empty_path(self):
         result = normalize_url("https://example.com")
@@ -258,7 +263,9 @@ class TestCheckRobots:
 
     def test_disallow_specific_path(self):
         robots = "User-agent: *\nDisallow: /private/"
-        assert check_robots(robots, "https://example.com/private/secret", "gnosis-mcp/0.8.0") is False
+        assert (
+            check_robots(robots, "https://example.com/private/secret", "gnosis-mcp/0.8.0") is False
+        )
         assert check_robots(robots, "https://example.com/public/page", "gnosis-mcp/0.8.0") is True
 
     def test_specific_user_agent_blocked(self):
@@ -408,7 +415,9 @@ class TestUrlMatchesPattern:
         assert url_matches_pattern("https://example.com/blog/post", "/docs/*") is False
 
     def test_double_wildcard(self):
-        assert url_matches_pattern("https://example.com/docs/api/v2/charges", "/docs/api/*") is True
+        assert (
+            url_matches_pattern("https://example.com/docs/api/v2/charges", "/docs/api/*") is True
+        )
 
     def test_question_mark(self):
         assert url_matches_pattern("https://example.com/v1", "/v?") is True
@@ -419,7 +428,9 @@ class TestUrlMatchesPattern:
 
     def test_nested_pattern(self):
         assert url_matches_pattern("https://example.com/tutorial/basics", "/tutorial/*") is True
-        assert url_matches_pattern("https://example.com/api/tutorial/basics", "/tutorial/*") is False
+        assert (
+            url_matches_pattern("https://example.com/api/tutorial/basics", "/tutorial/*") is False
+        )
 
     def test_any_extension(self):
         assert url_matches_pattern("https://example.com/docs/page.html", "/docs/*.html") is True
@@ -492,7 +503,9 @@ class TestCrawlResult:
         assert r.detail == ""
 
     def test_with_detail(self):
-        r = CrawlResult(url="https://example.com", chunks=0, action=CrawlAction.ERROR, detail="timeout")
+        r = CrawlResult(
+            url="https://example.com", chunks=0, action=CrawlAction.ERROR, detail="timeout"
+        )
         assert r.detail == "timeout"
 
     def test_action_is_str(self):
@@ -602,7 +615,9 @@ class TestFetchPage:
         client = AsyncMock()
         client.get.return_value = mock_response
 
-        cache = {"https://example.com/page": {"etag": '"abc"', "last_modified": "Mon, 01 Jan 2024"}}
+        cache = {
+            "https://example.com/page": {"etag": '"abc"', "last_modified": "Mon, 01 Jan 2024"}
+        }
         await fetch_page(client, "https://example.com/page", cache)
 
         call_kwargs = client.get.call_args
@@ -839,7 +854,9 @@ class TestCrawlUrlIntegration:
             crawl_config = CrawlConfig(sitemap=True, dry_run=True)
             cache_file = tmp_path / "test-cache.json"
 
-            results = await crawl_url(config, "https://docs.test.com/", crawl_config, cache_path=cache_file)
+            results = await crawl_url(
+                config, "https://docs.test.com/", crawl_config, cache_path=cache_file
+            )
 
         assert len(results) == 2
         assert all(r.action == "dry-run" for r in results)
@@ -892,7 +909,9 @@ class TestCrawlUrlIntegration:
             crawl_config = CrawlConfig(sitemap=True, dry_run=True, include="/api/*")
             cache_file = tmp_path / "test-cache.json"
 
-            results = await crawl_url(config, "https://docs.test.com/", crawl_config, cache_path=cache_file)
+            results = await crawl_url(
+                config, "https://docs.test.com/", crawl_config, cache_path=cache_file
+            )
 
         assert len(results) == 2
         assert all("/api/" in r.url for r in results)
@@ -944,7 +963,9 @@ class TestCrawlUrlIntegration:
             crawl_config = CrawlConfig(sitemap=True, dry_run=True, exclude="/blog/*")
             cache_file = tmp_path / "test-cache.json"
 
-            results = await crawl_url(config, "https://docs.test.com/", crawl_config, cache_path=cache_file)
+            results = await crawl_url(
+                config, "https://docs.test.com/", crawl_config, cache_path=cache_file
+            )
 
         assert len(results) == 1
         assert "/api/" in results[0].url

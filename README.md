@@ -64,7 +64,7 @@
 | **Smart chunking** (heading-aware) | Yes | N/A | Yes | Yes |
 | **Content hashing** (skip unchanged) | Yes | N/A | No | No |
 | **llms.txt** | Yes | No | No | No |
-| **Test count** | 599+ | Unknown | Unknown | Unknown |
+| **Test count** | 610 | Unknown | Unknown | Unknown |
 | **Dependencies** | 2 (mcp + aiosqlite) | npm ecosystem | npm ecosystem | npm ecosystem |
 
 **TL;DR**: Context7 indexes *public library docs*. gnosis-mcp indexes *your own private docs*. They're complementary — use both.
@@ -74,12 +74,14 @@
 ## Features
 
 - **Zero config** — SQLite by default, `pip install` and go
-- **Hybrid search** — keyword (BM25) + semantic (local ONNX embeddings, no API key)
+- **Hybrid search** — keyword (BM25) + semantic (local ONNX embeddings, no API key). Tune RRF fusion with `GNOSIS_MCP_RRF_K`.
+- **Cross-encoder reranking** — optional `[reranking]` extra with a 22M-param ONNX model. Enable with `rerank=true` on the tool or `GNOSIS_MCP_RERANK_ENABLED=true`.
 - **Git history** — ingest commit messages as searchable context (`ingest-git`)
 - **Web crawl** — ingest documentation from any website via sitemap or link crawl
 - **Multi-format** — `.md` `.txt` `.ipynb` `.toml` `.csv` `.json` + optional `.rst` `.pdf`
 - **Auto-linking** — `relates_to` frontmatter creates a navigable document graph
 - **Watch mode** — auto-re-ingest on file changes
+- **Built-in eval harness** — `gnosis-mcp eval` prints Hit@K / MRR / Precision@K in one command
 - **PostgreSQL ready** — pgvector + tsvector when you need scale
 
 ## Quick Start
@@ -91,6 +93,8 @@ gnosis-mcp serve                # starts MCP server
 ```
 
 That's it. Your AI agent can now search your docs.
+
+**Connect your editor** — see [`llms-install.md`](llms-install.md) for copy-paste JSON snippets for Claude Code, Claude Desktop, Cursor, Windsurf, VS Code, JetBrains, and Cline.
 
 **Want semantic search?** Add local embeddings — no API key needed:
 
@@ -597,24 +601,54 @@ src/gnosis_mcp/
 
 ## Performance
 
-Benchmarked on SQLite (in-memory) with keyword search (FTS5 + BM25):
+Three benchmark suites, each answers a different question:
+
+**1. Search speed** (SQLite FTS5, in-memory, median of 3 runs):
 
 | Corpus | QPS | p50 | p95 | p99 | Hit Rate |
-|--------|-----|-----|-----|-----|----------|
-| 100 docs / 300 chunks | ~9,800 | 0.09ms | 0.16ms | 0.18ms | 100% |
-| 500 docs / 1,500 chunks | ~3,500 | 0.24ms | 0.51ms | 0.82ms | 100% |
+|--------|----:|----:|----:|----:|---------:|
+| 100 docs / 300 chunks | 9,463 | 0.10 ms | 0.16 ms | 0.19 ms | 100% |
+| 1 000 docs / 3 000 chunks | 2,768 | 0.29 ms | 0.72 ms | 0.78 ms | 100% |
+| 5 000 docs / 15 000 chunks | 839 | 0.80 ms | 2.97 ms | 3.54 ms | 100% |
+| 10 000 docs / 30 000 chunks | 471 | 1.38 ms | 5.60 ms | 6.29 ms | 100% |
+
+**2. Retrieval quality** (RAG-native metrics on 10 eval cases):
+
+| Mode | Hit@5 | MRR | P@5 |
+|------|------:|----:|----:|
+| Keyword (FTS5 + BM25) | 1.000 | 0.950 | 0.668 |
+| Hybrid (FTS5 + ONNX embeddings, RRF) | 1.000 | 0.950 | 0.668 |
+
+**3. End-to-end MCP protocol** (what Claude Code actually pays per tool call):
+
+| Operation | Mean | p50 | p95 | p99 |
+|-----------|-----:|----:|----:|----:|
+| `search_docs` through stdio MCP | **8.7 ms** | 8.1 ms | 13.0 ms | 15.8 ms |
+
+(Improved from 13 ms mean in v0.10.12 via mcp SDK 1.27 upgrade.)
 
 Install size: ~23MB with `[embeddings]` (ONNX model). Base install is ~5MB.
 
-Run the benchmark yourself:
+Run the benchmarks yourself:
 
 ```bash
-python tests/bench/bench_search.py                # 100 docs, 1000 queries
-python tests/bench/bench_search.py --docs 500     # larger corpus
-python tests/bench/bench_search.py --json          # machine-readable output
+uv run python tests/bench/bench_search.py           # speed, scale curve
+uv run python tests/bench/bench_rag.py              # quality, keyword vs hybrid
+uv run python tests/bench/bench_mcp_e2e.py          # protocol round-trip
 ```
 
-599+ tests, 10 eval cases (90% hit rate, 0.85 MRR on sample corpus). All tests run without a database.
+See [`docs/benchmarks.md`](docs/benchmarks.md) for methodology, PostgreSQL numbers, and regression gates.
+
+610 tests, 10 RAG eval cases (Hit@5 = 1.00, MRR = 0.95), 3 end-to-end MCP protocol tests, 4 reranker tests. Most tests run without a database.
+
+Run `gnosis-mcp eval` yourself to reproduce the quality numbers:
+
+```bash
+$ gnosis-mcp eval
+  Hit Rate@5:       1.000
+  MRR:                0.950
+  Mean Precision@5: 0.668
+```
 
 ## Development
 
@@ -623,7 +657,7 @@ git clone https://github.com/nicholasglazer/gnosis-mcp.git
 cd gnosis-mcp
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
-pytest                    # 599+ tests, no database needed
+pytest                    # 610 tests, no database needed
 ruff check src/ tests/
 ```
 

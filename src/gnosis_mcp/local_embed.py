@@ -7,6 +7,7 @@ Default: MongoDB/mdbr-leaf-ir (23M params, 23MB quantized, Apache 2.0).
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 import urllib.request
@@ -29,6 +30,23 @@ _MODEL_FILES = [
 ]
 
 _HF_BASE = "https://huggingface.co"
+
+# SHA-256 checksums for the bundled default model. Empty dict = no checks for other models
+# (user is responsible for pinning). Populate by running `gnosis-mcp embed --compute-checksums`
+# after first successful download on a trusted network.
+_MODEL_CHECKSUMS: dict[tuple[str, str], str] = {
+    # Uncomment and pin once captured from a trusted download:
+    # (_DEFAULT_MODEL, "onnx/model_quantized.onnx"): "...",
+}
+
+
+def _sha256_file(path: Path) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
 
 # Module-level singleton — loaded once, reused across calls
 _embedder: LocalEmbedder | None = None
@@ -60,6 +78,8 @@ def _download_model(model_id: str, cache_dir: Path) -> Path:
 
         local_path.parent.mkdir(parents=True, exist_ok=True)
         url = f"{_HF_BASE}/{model_id}/resolve/main/{rel_path}"
+        if not url.startswith("https://huggingface.co/"):
+            raise RuntimeError(f"Refusing non-HuggingFace HTTPS URL: {url}")
         log.info("Downloading %s ...", url)
 
         try:
@@ -69,14 +89,28 @@ def _download_model(model_id: str, cache_dir: Path) -> Path:
             local_path.unlink(missing_ok=True)
             raise RuntimeError(f"Failed to download {url}: {exc}") from exc
 
+        expected = _MODEL_CHECKSUMS.get((model_id, rel_path))
+        if expected:
+            actual = _sha256_file(local_path)
+            if actual != expected:
+                local_path.unlink(missing_ok=True)
+                raise RuntimeError(
+                    f"Checksum mismatch for {rel_path}: expected {expected}, got {actual}. "
+                    f"Delete {local_path.parent} and re-run on a trusted network."
+                )
+
     return model_dir
 
 
 class LocalEmbedder:
     """Local CPU embedding using ONNX Runtime + tokenizers."""
 
-    def __init__(self, model_id: str = _DEFAULT_MODEL, cache_dir: Path | None = None,
-                 dim: int = _DEFAULT_DIM) -> None:
+    def __init__(
+        self,
+        model_id: str = _DEFAULT_MODEL,
+        cache_dir: Path | None = None,
+        dim: int = _DEFAULT_DIM,
+    ) -> None:
         self._model_id = model_id
         self._cache_dir = cache_dir or _get_cache_dir()
         self._dim = dim
@@ -150,7 +184,7 @@ class LocalEmbedder:
         normalized = pooled / norms
 
         # Matryoshka dimension truncation
-        truncated = normalized[:, :self._dim]
+        truncated = normalized[:, : self._dim]
 
         # Re-normalize after truncation
         norms2 = np.linalg.norm(truncated, axis=1, keepdims=True).clip(min=1e-12)

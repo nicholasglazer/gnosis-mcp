@@ -77,7 +77,9 @@ class GnosisMcpConfig:
     pool_min: int = 1
     pool_max: int = 3
 
-    # Schema settings
+    # Schema settings — PostgreSQL `vector(N)` column width (pgvector). Match this to your
+    # embedding provider's output dimension. Distinct from `embed_dim` which controls
+    # runtime Matryoshka truncation for the local ONNX embedder.
     embedding_dim: int = 1536
 
     # Write mode (disabled by default -- read-only server)
@@ -92,10 +94,28 @@ class GnosisMcpConfig:
     search_limit_max: int = 20
     webhook_timeout: int = 5
 
+    # Safety caps
+    max_doc_bytes: int = 50_000_000  # 50 MB per document
+    max_query_chars: int = 10_000
+    webhook_allow_private: bool = False  # allow POST to private/loopback addresses
+    crawl_extract_timeout_s: int = 30  # per-page trafilatura extract timeout
+
+    # Hybrid search tuning
+    # RRF fusion constant (Cormack et al. 2009). 60 is the canonical default;
+    # smaller values weight top-ranked items more aggressively.
+    rrf_k: int = 60
+
+    # Reranking (opt-in, requires [reranking] extra)
+    rerank_enabled: bool = False
+    rerank_model: str = "onnx-community/ms-marco-MiniLM-L6-v2-ONNX"
+    rerank_pool: int = 20  # fetch this many before reranking, return `limit` after
+
     # Embedding provider (Tier 2 sidecar)
     embed_provider: str | None = None  # "openai", "ollama", "custom", "local"
     embed_model: str = "text-embedding-3-small"
-    embed_dim: int = 384  # Matryoshka truncation dim for local provider, vec0 column width
+    embed_dim: int = (
+        384  # Matryoshka truncation dim for local provider, sqlite-vec vec0 column width
+    )
     embed_api_key: str | None = None
     embed_url: str | None = None  # custom endpoint or ollama override
     embed_batch_size: int = 50
@@ -132,9 +152,7 @@ class GnosisMcpConfig:
 
         # For postgres, database_url is required
         if self.backend == "postgres" and not self.database_url:
-            raise ValueError(
-                "PostgreSQL backend requires GNOSIS_MCP_DATABASE_URL or DATABASE_URL"
-            )
+            raise ValueError("PostgreSQL backend requires GNOSIS_MCP_DATABASE_URL or DATABASE_URL")
 
         # Validate identifiers (relevant for both backends, harmless for SQLite)
         for table_name in self.chunks_tables:
@@ -236,9 +254,7 @@ class GnosisMcpConfig:
         Falls back to DATABASE_URL if GNOSIS_MCP_DATABASE_URL is not set.
         When neither is set, defaults to SQLite at ~/.local/share/gnosis-mcp/docs.db.
         """
-        database_url = os.environ.get("GNOSIS_MCP_DATABASE_URL") or os.environ.get(
-            "DATABASE_URL"
-        )
+        database_url = os.environ.get("GNOSIS_MCP_DATABASE_URL") or os.environ.get("DATABASE_URL")
         # database_url can be None — that means SQLite default
 
         def env(key: str, default: str | None = None) -> str | None:
@@ -251,9 +267,7 @@ class GnosisMcpConfig:
             try:
                 return int(val)
             except ValueError:
-                raise ValueError(
-                    f"GNOSIS_MCP_{key} must be an integer, got: {val!r}"
-                ) from None
+                raise ValueError(f"GNOSIS_MCP_{key} must be an integer, got: {val!r}") from None
 
         backend_raw = env("BACKEND", "auto")
 
@@ -285,6 +299,14 @@ class GnosisMcpConfig:
             chunk_size=env_int("CHUNK_SIZE", 4000),
             search_limit_max=env_int("SEARCH_LIMIT_MAX", 20),
             webhook_timeout=env_int("WEBHOOK_TIMEOUT", 5),
+            max_doc_bytes=env_int("MAX_DOC_BYTES", 50_000_000),
+            max_query_chars=env_int("MAX_QUERY_CHARS", 10_000),
+            webhook_allow_private=env("WEBHOOK_ALLOW_PRIVATE", "").lower() in ("1", "true", "yes"),
+            crawl_extract_timeout_s=env_int("CRAWL_EXTRACT_TIMEOUT_S", 30),
+            rrf_k=env_int("RRF_K", 60),
+            rerank_enabled=env("RERANK_ENABLED", "").lower() in ("1", "true", "yes"),
+            rerank_model=env("RERANK_MODEL", "onnx-community/ms-marco-MiniLM-L6-v2-ONNX"),
+            rerank_pool=env_int("RERANK_POOL", 20),
             embed_provider=env("EMBED_PROVIDER"),
             embed_model=env("EMBED_MODEL", "text-embedding-3-small"),
             embed_dim=env_int("EMBED_DIM", 384),

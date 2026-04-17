@@ -1,0 +1,69 @@
+name: Bug report
+description: Report a problem with gnosis-mcp
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Please fill in as much as you can — each field helps reproduce the issue.
+  - type: input
+    id: version
+    attributes:
+      label: gnosis-mcp version
+      description: "`gnosis-mcp --version` or `pip show gnosis-mcp`"
+      placeholder: "0.10.13"
+    validations:
+      required: true
+  - type: dropdown
+    id: backend
+    attributes:
+      label: Backend
+      options:
+        - SQLite (default)
+        - PostgreSQL
+        - SQLite + embeddings
+    validations:
+      required: true
+  - type: input
+    id: python
+    attributes:
+      label: Python version
+      placeholder: "3.12.3"
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: OS
+      placeholder: "Ubuntu 24.04, macOS 15, Windows 11"
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Minimal commands or configuration needed to see the issue.
+      placeholder: |
+        1. `pip install gnosis-mcp`
+        2. `gnosis-mcp ingest ./docs`
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or traceback
+      render: text

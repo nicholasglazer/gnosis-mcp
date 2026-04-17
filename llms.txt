@@ -40,10 +40,11 @@ Add to your editor's MCP config (e.g. `.claude/mcp.json` for Claude Code):
 
 ### Read Tools (always available)
 
-#### search_docs(query: str, category?: str, limit?: int, query_embedding?: list[float]) -> JSON
+#### search_docs(query: str, category?: str, limit?: int, query_embedding?: list[float], rerank?: bool) -> JSON
 Search documentation using keyword (FTS5/tsvector) or hybrid semantic+keyword search.
-When `query_embedding` is provided (PostgreSQL), combines keyword and cosine similarity scoring.
-Returns: `[{"file_path", "title", "content_preview", "score", "highlight"}]`
+When `query_embedding` is provided, hybrid mode merges BM25 and cosine scores via Reciprocal Rank Fusion (tune via `GNOSIS_MCP_RRF_K`, default 60).
+When `rerank=true` (or `GNOSIS_MCP_RERANK_ENABLED=true`), a cross-encoder re-scores the top-N candidates (requires the `[reranking]` extra).
+Returns: `[{"file_path", "title", "content_preview", "score", "highlight", "rerank_score"?}]`
 The `highlight` field contains matched terms in `<mark>` tags (FTS5 snippet on SQLite, ts_headline on PostgreSQL).
 
 #### get_doc(path: str, max_length?: int) -> JSON
@@ -117,7 +118,7 @@ Tables are auto-created on first `ingest`. Run `gnosis-mcp init-db` to create th
 
 ## Performance
 
-~9,800 QPS on 100 docs (300 chunks), ~3,500 QPS on 500 docs (1,500 chunks). p50 latency under 0.25ms. 550+ tests, 10 eval cases (90% hit rate, 0.85 MRR). Install size: ~23MB with `[embeddings]` (ONNX model), ~5MB base. Benchmark: `python tests/bench/bench_search.py`.
+9,463 QPS on 100 docs (300 chunks), 471 QPS on 10,000 docs (30,000 chunks). p95 under 0.2 ms at 100 docs, under 6 ms at 10,000. End-to-end through the MCP stdio protocol: 8.7 ms mean, 13.0 ms p95 (v0.10.13 SDK 1.27 transport). 610 tests, 10 RAG eval cases (Hit@5 = 1.00, MRR = 0.95, Precision@5 = 0.67). Install size: ~23MB with `[embeddings]` (ONNX model), ~5MB base. Reproduce with `gnosis-mcp eval`, `python tests/bench/bench_search.py`, `python tests/bench/bench_rag.py`, `python tests/bench/bench_mcp_e2e.py`.
 
 ## Documentation
 

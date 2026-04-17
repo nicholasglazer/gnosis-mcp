@@ -10,7 +10,6 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
-import re
 from dataclasses import dataclass, field
 from fnmatch import fnmatch
 from pathlib import Path
@@ -149,15 +148,17 @@ def parse_git_log(log_output: str) -> list[GitCommit]:
         body = "\n".join(body_lines).strip()
 
         if commit_hash:
-            commits.append(GitCommit(
-                hash=commit_hash,
-                author=author,
-                author_email=author_email,
-                date=date,
-                subject=subject,
-                body=body,
-                files=files,
-            ))
+            commits.append(
+                GitCommit(
+                    hash=commit_hash,
+                    author=author,
+                    author_email=author_email,
+                    date=date,
+                    subject=subject,
+                    body=body,
+                    files=files,
+                )
+            )
 
     return commits
 
@@ -287,7 +288,10 @@ async def _run_git_log(
 ) -> str:
     """Execute git log and return raw output."""
     cmd = [
-        "git", "-C", repo_path, "log",
+        "git",
+        "-C",
+        repo_path,
+        "log",
         f"--format={_git_log_format()}",
         "--name-only",
     ]
@@ -351,10 +355,15 @@ async def ingest_git(
     commits = parse_git_log(raw_log)
 
     if not commits:
-        return [GitIngestResult(
-            path=str(repo), commits=0, chunks=0,
-            action="skipped", detail="No commits found",
-        )]
+        return [
+            GitIngestResult(
+                path=str(repo),
+                commits=0,
+                chunks=0,
+                action="skipped",
+                detail="No commits found",
+            )
+        ]
 
     # Group by file and filter
     by_file = group_by_file(commits)
@@ -365,13 +374,18 @@ async def ingest_git(
     for fp, file_commits in sorted(by_file.items()):
         if not should_include(fp, config.include, config.exclude):
             continue
-        filtered[fp] = file_commits[:config.max_commits]
+        filtered[fp] = file_commits[: config.max_commits]
 
     if not filtered:
-        return [GitIngestResult(
-            path=str(repo), commits=0, chunks=0,
-            action="skipped", detail="No files matched filters",
-        )]
+        return [
+            GitIngestResult(
+                path=str(repo),
+                commits=0,
+                chunks=0,
+                action="skipped",
+                detail="No files matched filters",
+            )
+        ]
 
     # Dry run — just report
     if config.dry_run:
@@ -379,10 +393,14 @@ async def ingest_git(
             doc_path = f"git-history/{fp}"
             md = render_history_markdown(fp, file_commits)
             chunks = chunk_by_headings(md, doc_path, max_chunk_size=gnosis_config.chunk_size)
-            results.append(GitIngestResult(
-                path=doc_path, commits=len(file_commits),
-                chunks=len(chunks), action="dry-run",
-            ))
+            results.append(
+                GitIngestResult(
+                    path=doc_path,
+                    commits=len(file_commits),
+                    chunks=len(chunks),
+                    action="dry-run",
+                )
+            )
         return results
 
     # Create backend and ingest
@@ -412,10 +430,14 @@ async def ingest_git(
                     existing = await backend.get_content_hash(doc_path)
                     if existing == digest:
                         doc_chunks = await backend.get_doc(doc_path)
-                        results.append(GitIngestResult(
-                            path=doc_path, commits=len(file_commits),
-                            chunks=len(doc_chunks), action="unchanged",
-                        ))
+                        results.append(
+                            GitIngestResult(
+                                path=doc_path,
+                                commits=len(file_commits),
+                                chunks=len(doc_chunks),
+                                action="unchanged",
+                            )
+                        )
                         continue
 
                 chunks = chunk_by_headings(md, doc_path, max_chunk_size=gnosis_config.chunk_size)
@@ -438,17 +460,33 @@ async def ingest_git(
                 except Exception:
                     pass  # links table may not exist
 
-                results.append(GitIngestResult(
-                    path=doc_path, commits=len(file_commits),
-                    chunks=count, action="ingested",
-                ))
-                log.info("[%d/%d] %s (%d commits, %d chunks)", idx, total, doc_path, len(file_commits), count)
+                results.append(
+                    GitIngestResult(
+                        path=doc_path,
+                        commits=len(file_commits),
+                        chunks=count,
+                        action="ingested",
+                    )
+                )
+                log.info(
+                    "[%d/%d] %s (%d commits, %d chunks)",
+                    idx,
+                    total,
+                    doc_path,
+                    len(file_commits),
+                    count,
+                )
 
             except Exception as e:
-                results.append(GitIngestResult(
-                    path=doc_path, commits=0, chunks=0,
-                    action="error", detail=str(e),
-                ))
+                results.append(
+                    GitIngestResult(
+                        path=doc_path,
+                        commits=0,
+                        chunks=0,
+                        action="error",
+                        detail=str(e),
+                    )
+                )
 
         # Cross-file commit graph links
         # For files that share commits, create relates_to links between their docs
@@ -463,7 +501,9 @@ async def ingest_git(
                         pass  # links table may not exist
                 if cross_links:
                     total_links = sum(len(t) for t in cross_links.values())
-                    log.info("Cross-file links: %d sources, %d links", len(cross_links), total_links)
+                    log.info(
+                        "Cross-file links: %d sources, %d links", len(cross_links), total_links
+                    )
             except Exception:
                 log.debug("Cross-file link creation failed", exc_info=True)
 
@@ -477,6 +517,7 @@ async def ingest_git(
                     try:
                         import onnxruntime  # noqa: F401
                         import tokenizers  # noqa: F401
+
                         provider = "local"
                     except ImportError:
                         pass

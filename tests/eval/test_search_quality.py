@@ -11,11 +11,15 @@ import json
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
 from gnosis_mcp.config import GnosisMcpConfig
 from gnosis_mcp.ingest import chunk_by_headings
+
+if TYPE_CHECKING:
+    from gnosis_mcp.sqlite_backend import SqliteBackend
 
 log = logging.getLogger("gnosis_mcp.eval")
 
@@ -249,9 +253,7 @@ class TestEvalHarness:
         asyncio.run(self.backend.shutdown())
 
     def _search(self, query: str, category: str | None = None) -> list[str]:
-        results = asyncio.run(
-            self.backend.search(query, category=category, limit=K)
-        )
+        results = asyncio.run(self.backend.search(query, category=category, limit=K))
         return [r["file_path"] for r in results]
 
     def test_eval_cases(self):
@@ -270,9 +272,9 @@ class TestEvalHarness:
             summary.results.append(result)
 
         # Report
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print(f"Search Quality Eval — {len(summary.results)} cases")
-        print(f"{'='*60}")
+        print(f"{'=' * 60}")
         for r in summary.results:
             status = "PASS" if r.hit else "MISS"
             print(
@@ -280,16 +282,14 @@ class TestEvalHarness:
                 f"P@{K}={r.precision_at_k:.2f} RR={r.reciprocal_rank:.2f} "
                 f"got={r.returned_paths}"
             )
-        print(f"{'='*60}")
+        print(f"{'=' * 60}")
         print(f"  Mean Precision@{K}: {summary.mean_precision:.3f}")
         print(f"  MRR:                {summary.mrr:.3f}")
         print(f"  Hit Rate@{K}:       {summary.hit_rate:.3f}")
-        print(f"{'='*60}")
+        print(f"{'=' * 60}")
 
         # Thresholds — adjust as search improves
-        assert summary.hit_rate >= 0.6, (
-            f"Hit rate {summary.hit_rate:.2f} below threshold 0.60"
-        )
+        assert summary.hit_rate >= 0.6, f"Hit rate {summary.hit_rate:.2f} below threshold 0.60"
 
     def test_individual_search_docs(self):
         """Each sample doc should be findable by a distinctive keyword."""
@@ -305,15 +305,12 @@ class TestEvalHarness:
             query = queries[doc["path"]]
             results = self._search(query)
             assert doc["path"] in results, (
-                f"Expected {doc['path']} in results for query {query!r}, "
-                f"got {results}"
+                f"Expected {doc['path']} in results for query {query!r}, got {results}"
             )
 
     def test_category_filter(self):
         """Category filter should only return docs from that category."""
-        results = asyncio.run(
-            self.backend.search("search", category="architecture", limit=K)
-        )
+        results = asyncio.run(self.backend.search("search", category="architecture", limit=K))
         for r in results:
             assert r["category"] == "architecture"
 

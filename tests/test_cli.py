@@ -71,6 +71,7 @@ class TestMainNoArgs:
             main()
         out = capsys.readouterr().out
         from gnosis_mcp import __version__
+
         assert f"gnosis-mcp {__version__}" in out
 
 

@@ -45,7 +45,10 @@ class TestGetProviderUrl:
 class TestBuildRequestOpenai:
     def test_payload_format(self):
         req = _build_request_openai(
-            ["hello", "world"], "text-embedding-3-small", "sk-test", "https://api.openai.com/v1/embeddings"
+            ["hello", "world"],
+            "text-embedding-3-small",
+            "sk-test",
+            "https://api.openai.com/v1/embeddings",
         )
         payload = json.loads(req.data)
         assert payload["input"] == ["hello", "world"]
@@ -86,15 +89,11 @@ class TestBuildRequestOllama:
         assert payload["input"] == ["hello", "world"]
 
     def test_no_auth_header(self):
-        req = _build_request_ollama(
-            ["text"], "model", "http://localhost:11434/api/embed"
-        )
+        req = _build_request_ollama(["text"], "model", "http://localhost:11434/api/embed")
         assert req.get_header("Authorization") is None
 
     def test_content_type(self):
-        req = _build_request_ollama(
-            ["text"], "model", "http://localhost:11434/api/embed"
-        )
+        req = _build_request_ollama(["text"], "model", "http://localhost:11434/api/embed")
         assert req.get_header("Content-type") == "application/json"
 
 
@@ -157,9 +156,7 @@ class TestEmbedTexts:
 
             class MockResponse:
                 def read(self):
-                    return json.dumps({
-                        "data": [{"embedding": [0.1, 0.2], "index": 0}]
-                    }).encode()
+                    return json.dumps({"data": [{"embedding": [0.1, 0.2], "index": 0}]}).encode()
 
                 def __enter__(self):
                     return self
@@ -187,9 +184,7 @@ class TestEmbedTexts:
 
             class MockResponse:
                 def read(self):
-                    return json.dumps({
-                        "embeddings": [[0.3, 0.4]]
-                    }).encode()
+                    return json.dumps({"embeddings": [[0.3, 0.4]]}).encode()
 
                 def __enter__(self):
                     return self
@@ -215,9 +210,7 @@ class TestEmbedTexts:
 
             class MockResponse:
                 def read(self):
-                    return json.dumps({
-                        "data": [{"embedding": [0.5, 0.6], "index": 0}]
-                    }).encode()
+                    return json.dumps({"data": [{"embedding": [0.5, 0.6], "index": 0}]}).encode()
 
                 def __enter__(self):
                     return self
@@ -229,9 +222,7 @@ class TestEmbedTexts:
 
         monkeypatch.setattr(urllib.request, "urlopen", mock_urlopen)
 
-        result = embed_texts(
-            ["test"], "custom", "my-model", url="https://custom.api/embed"
-        )
+        result = embed_texts(["test"], "custom", "my-model", url="https://custom.api/embed")
         assert result == [[0.5, 0.6]]
         assert captured["url"] == "https://custom.api/embed"
 
@@ -255,12 +246,9 @@ class TestEmbedTexts:
 
             class MockResponse:
                 def read(self):
-                    return json.dumps({
-                        "data": [
-                            {"embedding": [float(i)], "index": i}
-                            for i in range(n)
-                        ]
-                    }).encode()
+                    return json.dumps(
+                        {"data": [{"embedding": [float(i)], "index": i} for i in range(n)]}
+                    ).encode()
 
                 def __enter__(self):
                     return self
@@ -290,6 +278,7 @@ class TestEmbedTexts:
 
         # Clear cached module reference so re-import picks up monkeypatched version
         import gnosis_mcp.local_embed as le_mod
+
         monkeypatch.setattr(le_mod, "get_embedder", lambda model=None, dim=None: mock_embedder)
 
         result = embed_texts(["test"], "local", "test-model", dim=384)
@@ -367,7 +356,14 @@ class TestEmbedPending:
         mock_backend = AsyncMock()
         mock_backend.count_pending_embeddings.return_value = 1
         mock_backend.get_pending_embeddings.side_effect = [
-            [{"id": 1, "content": "Some content", "title": "Setup", "file_path": "guides/setup.md"}],
+            [
+                {
+                    "id": 1,
+                    "content": "Some content",
+                    "title": "Setup",
+                    "file_path": "guides/setup.md",
+                }
+            ],
             [],
         ]
         monkeypatch.setattr("gnosis_mcp.backend.create_backend", lambda cfg: mock_backend)
@@ -401,6 +397,7 @@ class TestEmbedPending:
 
         def failing_embed(*args, **kwargs):
             raise RuntimeError("API error")
+
         monkeypatch.setattr("gnosis_mcp.embed.embed_texts", failing_embed)
 
         config = GnosisMcpConfig(database_url=":memory:", backend="sqlite")

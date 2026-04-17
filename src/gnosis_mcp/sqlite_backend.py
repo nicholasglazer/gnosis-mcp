@@ -13,7 +13,8 @@ __all__ = ["SqliteBackend"]
 
 log = logging.getLogger("gnosis_mcp")
 
-# RRF constant (standard value from the original paper)
+# RRF constant fallback; the backend reads cfg.rrf_k at query time so users can
+# tune the fusion weight without forking the module.
 _RRF_K = 60
 
 # Characters that have special meaning in FTS5 queries
@@ -74,7 +75,8 @@ class SqliteBackend:
 
         log.info(
             "gnosis-mcp started: backend=sqlite path=%s sqlite-vec=%s",
-            db_path, self._has_vec,
+            db_path,
+            self._has_vec,
         )
 
     async def _try_load_sqlite_vec(self) -> bool:
@@ -112,8 +114,16 @@ class SqliteBackend:
             try:
                 await self._db.execute(vec0_sql)
                 statements.append(vec0_sql)
-            except Exception:
-                log.warning("Failed to create vec0 table", exc_info=True)
+            except Exception as exc:
+                # vec0 is only load-bearing when the user actually wants hybrid search.
+                # Fail fast so silent degradation never surprises them.
+                if self._cfg.embed_provider:
+                    raise RuntimeError(
+                        f"sqlite-vec vec0 table creation failed: {exc}. "
+                        "Hybrid search requires sqlite-vec; either install the [embeddings] "
+                        "extra cleanly, unset GNOSIS_MCP_EMBED_PROVIDER, or pick a writable DB path."
+                    ) from exc
+                log.info("vec0 table creation failed; hybrid search disabled: %s", exc)
 
         await self._db.commit()
         return "\n".join(statements)
@@ -128,9 +138,7 @@ class SqliteBackend:
         chunks_exists = await self._table_exists("documentation_chunks")
         result["chunks_table_exists"] = chunks_exists
         if chunks_exists:
-            row = await self._db.execute_fetchall(
-                "SELECT count(*) FROM documentation_chunks"
-            )
+            row = await self._db.execute_fetchall("SELECT count(*) FROM documentation_chunks")
             result["chunks_count"] = row[0][0]
 
         # Check FTS table
@@ -152,9 +160,7 @@ class SqliteBackend:
         links_exists = await self._table_exists("documentation_links")
         result["links_table_exists"] = links_exists
         if links_exists:
-            row = await self._db.execute_fetchall(
-                "SELECT count(*) FROM documentation_links"
-            )
+            row = await self._db.execute_fetchall("SELECT count(*) FROM documentation_links")
             result["links_count"] = row[0][0]
 
         return result
@@ -181,8 +187,10 @@ class SqliteBackend:
             log.warning("search called with empty query")
             return []
 
-        if query_embedding and self._has_vec and await self._table_exists(
-            "documentation_chunks_vec"
+        if (
+            query_embedding
+            and self._has_vec
+            and await self._table_exists("documentation_chunks_vec")
         ):
             return await self._search_hybrid(
                 query, query_embedding, category=category, limit=limit
@@ -288,9 +296,7 @@ class SqliteBackend:
         fetch_n = max(limit * 4, 20)
 
         # 1. Keyword results (FTS5 BM25)
-        keyword_results = await self._search_keyword(
-            query, category=category, limit=fetch_n
-        )
+        keyword_results = await self._search_keyword(query, category=category, limit=fetch_n)
 
         # 2. Semantic results (sqlite-vec KNN cosine distance)
         query_blob = sqlite_vec.serialize_float32(query_embedding)
@@ -329,7 +335,8 @@ class SqliteBackend:
         # Apply category filter to semantic results if needed
         if category:
             semantic_ids = [
-                cid for cid in semantic_ids
+                cid
+                for cid in semantic_ids
                 if cid in chunk_data and chunk_data[cid]["category"] == category
             ]
 
@@ -358,9 +365,9 @@ class SqliteBackend:
         for key in all_keys:
             score = 0.0
             if key in keyword_rank:
-                score += 1.0 / (_RRF_K + keyword_rank[key])
+                score += 1.0 / (self._cfg.rrf_k + keyword_rank[key])
             if key in semantic_rank:
-                score += 1.0 / (_RRF_K + semantic_rank[key])
+                score += 1.0 / (self._cfg.rrf_k + semantic_rank[key])
             rrf_scores.append((score, key))
 
         rrf_scores.sort(reverse=True)
@@ -374,14 +381,16 @@ class SqliteBackend:
                 data = semantic_data_by_key[key]
             else:
                 continue
-            results.append({
-                "file_path": data["file_path"],
-                "title": data["title"],
-                "content": data["content"],
-                "category": data["category"],
-                "score": score,
-                "highlight": data.get("highlight"),
-            })
+            results.append(
+                {
+                    "file_path": data["file_path"],
+                    "title": data["title"],
+                    "content": data["content"],
+                    "category": data["category"],
+                    "score": score,
+                    "highlight": data.get("highlight"),
+                }
+            )
 
         return results
 
@@ -567,9 +576,7 @@ class SqliteBackend:
 
         has_hash = await self.has_column("documentation_chunks", "content_hash")
 
-        await self._db.execute(
-            "DELETE FROM documentation_chunks WHERE file_path = ?", (path,)
-        )
+        await self._db.execute("DELETE FROM documentation_chunks WHERE file_path = ?", (path,))
         for i, chunk in enumerate(chunks):
             if has_hash:
                 await self._db.execute(
@@ -597,8 +604,7 @@ class SqliteBackend:
         links_deleted = 0
         if await self._table_exists("documentation_links"):
             cursor = await self._db.execute(
-                "DELETE FROM documentation_links "
-                "WHERE source_path = ? OR target_path = ?",
+                "DELETE FROM documentation_links WHERE source_path = ? OR target_path = ?",
                 (path, path),
             )
             links_deleted = cursor.rowcount
@@ -644,9 +650,7 @@ class SqliteBackend:
     # -- stats / export --------------------------------------------------------
 
     async def stats(self) -> dict[str, Any]:
-        rows = await self._db.execute_fetchall(
-            "SELECT count(*) FROM documentation_chunks"
-        )
+        rows = await self._db.execute_fetchall("SELECT count(*) FROM documentation_chunks")
         total = rows[0][0]
 
         rows = await self._db.execute_fetchall(
@@ -667,9 +671,7 @@ class SqliteBackend:
 
         links = None
         if await self._table_exists("documentation_links"):
-            rows = await self._db.execute_fetchall(
-                "SELECT count(*) FROM documentation_links"
-            )
+            rows = await self._db.execute_fetchall("SELECT count(*) FROM documentation_links")
             links = rows[0][0]
 
         # Embedded chunks count
@@ -684,9 +686,7 @@ class SqliteBackend:
             "chunks": total,
             "embedded_chunks": embedded,
             "content_bytes": size,
-            "categories": [
-                {"cat": r[0], "docs": r[1], "chunks": r[2]} for r in cats
-            ],
+            "categories": [{"cat": r[0], "docs": r[1], "chunks": r[2]} for r in cats],
             "links": links,
             "sqlite_vec": self._has_vec,
         }
@@ -738,10 +738,7 @@ class SqliteBackend:
             "WHERE embedding IS NULL ORDER BY id LIMIT ?",
             (batch_size,),
         )
-        return [
-            {"id": r[0], "content": r[1], "title": r[2], "file_path": r[3]}
-            for r in rows
-        ]
+        return [{"id": r[0], "content": r[1], "title": r[2], "file_path": r[3]} for r in rows]
 
     async def set_embedding(self, chunk_id: int, embedding: list[float]) -> None:
         # Store as binary blob (compact float32 array)
@@ -770,15 +767,12 @@ class SqliteBackend:
     # -- ingest support --------------------------------------------------------
 
     async def has_column(self, table: str, column: str) -> bool:
-        rows = await self._db.execute_fetchall(
-            f"PRAGMA table_info({table})"
-        )
+        rows = await self._db.execute_fetchall(f"PRAGMA table_info({table})")
         return any(r[1] == column for r in rows)
 
     async def get_content_hash(self, path: str) -> str | None:
         rows = await self._db.execute_fetchall(
-            "SELECT content_hash FROM documentation_chunks "
-            "WHERE file_path = ? LIMIT 1",
+            "SELECT content_hash FROM documentation_chunks WHERE file_path = ? LIMIT 1",
             (path,),
         )
         return rows[0][0] if rows else None
@@ -794,8 +788,7 @@ class SqliteBackend:
 
         # Delete existing links from this source with the same relation type
         await self._db.execute(
-            "DELETE FROM documentation_links "
-            "WHERE source_path = ? AND relation_type = ?",
+            "DELETE FROM documentation_links WHERE source_path = ? AND relation_type = ?",
             (source_path, relation_type),
         )
 
@@ -820,8 +813,7 @@ class SqliteBackend:
         """Log a document access event. Fire-and-forget, never raises."""
         try:
             await self._db.execute(
-                "INSERT INTO search_access_log (file_path, tool, query) "
-                "VALUES (?, ?, ?)",
+                "INSERT INTO search_access_log (file_path, tool, query) VALUES (?, ?, ?)",
                 (file_path, tool, query),
             )
             await self._db.commit()
@@ -919,8 +911,7 @@ class SqliteBackend:
             "GROUP BY p.path ORDER BY connections DESC LIMIT 10"
         )
         hubs = [
-            {"path": r[0], "connections": r[1], "title": r[2], "category": r[3]}
-            for r in hub_rows
+            {"path": r[0], "connections": r[1], "title": r[2], "category": r[3]} for r in hub_rows
         ]
 
         # Orphans: docs with zero links, excluding git-history
@@ -944,10 +935,7 @@ class SqliteBackend:
             "ORDER BY c.category, c.file_path LIMIT 20",
             params,
         )
-        orphans = [
-            {"path": r[0], "title": r[1], "category": r[2]}
-            for r in orphan_rows
-        ]
+        orphans = [{"path": r[0], "title": r[1], "category": r[2]} for r in orphan_rows]
 
         return {
             "total_docs": total_docs,
@@ -972,15 +960,17 @@ class SqliteBackend:
     ) -> int:
         tags_json = json.dumps(tags) if tags else None
 
-        await self._db.execute(
-            "DELETE FROM documentation_chunks WHERE file_path = ?", (rel_path,)
-        )
+        await self._db.execute("DELETE FROM documentation_chunks WHERE file_path = ?", (rel_path,))
         for i, chunk in enumerate(chunks):
             cols = "file_path, chunk_index, title, content, category, audience"
             vals = "?, ?, ?, ?, ?, ?"
             params: list[Any] = [
-                rel_path, i, chunk["title"], chunk["content"],
-                category, audience,
+                rel_path,
+                i,
+                chunk["title"],
+                chunk["content"],
+                category,
+                audience,
             ]
 
             if has_tags_col and tags_json:

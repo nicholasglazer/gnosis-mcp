@@ -39,28 +39,33 @@ classifiers = [
     "Framework :: AsyncIO",
 ]
 dependencies = [
-    "mcp>=1.20",
-    "aiosqlite>=0.20",
+    "mcp>=1.27,<2.0",
+    "aiosqlite>=0.22,<1.0",
 ]
 
 [project.optional-dependencies]
 postgres = [
-    "asyncpg>=0.29",
+    "asyncpg>=0.30,<1.0",
 ]
 embeddings = [
-    "onnxruntime>=1.17",
-    "tokenizers>=0.15",
-    "numpy>=1.24",
-    "sqlite-vec>=0.1.1",
+    "onnxruntime>=1.22,<2.0",
+    "tokenizers>=0.22,<1.0",
+    "numpy>=2.0,<3.0",
+    "sqlite-vec>=0.1.6,<1.0",
 ]
-web = ["httpx>=0.25", "trafilatura>=1.8"]
-rst = ["docutils>=0.20"]
-pdf = ["pypdf>=4.0"]
-formats = ["docutils>=0.20", "pypdf>=4.0"]
+reranking = [
+    "onnxruntime>=1.22,<2.0",
+    "tokenizers>=0.22,<1.0",
+    "numpy>=2.0,<3.0",
+]
+web = ["httpx>=0.28,<1.0", "trafilatura>=2.0,<3.0"]
+rst = ["docutils>=0.22,<1.0"]
+pdf = ["pypdf>=5.0,<6.0"]
+formats = ["docutils>=0.22,<1.0", "pypdf>=5.0,<6.0"]
 dev = [
-    "pytest>=8",
-    "pytest-asyncio>=0.24",
-    "ruff>=0.8",
+    "pytest>=9",
+    "pytest-asyncio>=1.0",
+    "ruff>=0.14",
 ]
 
 [project.scripts]
@@ -80,3 +85,10 @@ line-length = 99
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+markers = [
+    "sqlite_only: test only runs against the SQLite backend",
+    "postgres_only: test only runs against the PostgreSQL backend (requires GNOSIS_MCP_CI_PG=1)",
+    "eval: search-quality eval tests (slow, not on PR CI)",
+    "bench: benchmark harness, not for CI",
+    "e2e: end-to-end MCP protocol subprocess tests (slow, not on pre-commit)",
+]

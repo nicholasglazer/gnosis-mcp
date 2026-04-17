@@ -77,9 +77,7 @@ class TestSqliteVecDetection:
         )
         # Even if we pass an embedding, without vec0 table it should use keyword search
         fake_embedding = [0.1] * 384
-        results = await backend.search(
-            "search", query_embedding=fake_embedding
-        )
+        results = await backend.search("search", query_embedding=fake_embedding)
         # Should return keyword results (may or may not use embedding depending on vec status)
         assert isinstance(results, list)
 

@@ -59,7 +59,9 @@ def cmd_serve(args: argparse.Namespace) -> None:
     rest_enabled = args.rest if args.rest else config.rest
 
     if rest_enabled and transport == "stdio":
-        log.warning("--rest flag ignored: REST API requires an HTTP transport (use --transport streamable-http or sse)")
+        log.warning(
+            "--rest flag ignored: REST API requires an HTTP transport (use --transport streamable-http or sse)"
+        )
 
     if rest_enabled and transport in ("sse", "streamable-http"):
         import uvicorn
@@ -77,11 +79,13 @@ def cmd_serve(args: argparse.Namespace) -> None:
         from starlette.routing import Mount, Route
 
         async def _health(request: Request) -> JSONResponse:
-            return JSONResponse({
-                "status": "ok",
-                "version": __version__,
-                "transport": transport,
-            })
+            return JSONResponse(
+                {
+                    "status": "ok",
+                    "version": __version__,
+                    "transport": transport,
+                }
+            )
 
         if transport == "sse":
             mcp_app = mcp.sse_app()
@@ -111,9 +115,11 @@ def cmd_init_db(args: argparse.Namespace) -> None:
     if args.dry_run:
         if config.backend == "postgres":
             from gnosis_mcp.schema import get_init_sql
+
             sys.stdout.write(get_init_sql(config) + "\n")
         else:
             from gnosis_mcp.sqlite_schema import get_sqlite_schema
+
             sys.stdout.write("\n".join(get_sqlite_schema()) + "\n")
         return
 
@@ -202,7 +208,13 @@ def cmd_ingest(args: argparse.Namespace) -> None:
         for r in results:
             counts[r.action] = counts.get(r.action, 0) + 1
             total_chunks += r.chunks
-            marker = {"ingested": "+", "unchanged": "=", "skipped": "-", "error": "!", "dry-run": "?"}
+            marker = {
+                "ingested": "+",
+                "unchanged": "=",
+                "skipped": "-",
+                "error": "!",
+                "dry-run": "?",
+            }
             sym = marker.get(r.action, " ")
             detail = f"  ({r.detail})" if r.detail else ""
             log.info("[%s] %s  (%d chunks)%s", sym, r.path, r.chunks, detail)
@@ -248,7 +260,9 @@ def cmd_ingest(args: argparse.Namespace) -> None:
             )
             log.info(
                 "Embedded: %d/%d chunks (%d errors)",
-                embed_result.embedded, embed_result.total_null, embed_result.errors,
+                embed_result.embedded,
+                embed_result.total_null,
+                embed_result.errors,
             )
 
     asyncio.run(_run())
@@ -315,7 +329,15 @@ def cmd_search(args: argparse.Namespace) -> None:
                     sys.stdout.write(f"  {snippet}\n")
 
             if not results:
-                log.info("No results for: %s", args.query)
+                try:
+                    stats = await backend.get_stats()
+                    chunk_count = stats.get("chunk_count", 0) if isinstance(stats, dict) else 0
+                except Exception:
+                    chunk_count = 0
+                if chunk_count == 0:
+                    log.info("No documents indexed. Run: gnosis-mcp ingest <path>")
+                else:
+                    log.info("No results for: %s", args.query)
             else:
                 sys.stdout.write(f"\n  {len(results)} result(s)\n")
         finally:
@@ -355,9 +377,11 @@ def cmd_embed(args: argparse.Namespace) -> None:
         )
         sys.exit(1)
 
-    model = args.model or (
-        config.embed_model if config.embed_provider else "MongoDB/mdbr-leaf-ir"
-    ) if provider == "local" else (args.model or config.embed_model)
+    model = (
+        args.model or (config.embed_model if config.embed_provider else "MongoDB/mdbr-leaf-ir")
+        if provider == "local"
+        else (args.model or config.embed_model)
+    )
     batch_size = args.batch_size or config.embed_batch_size
     api_key = config.embed_api_key
     url = config.embed_url
@@ -498,8 +522,12 @@ def cmd_crawl(args: argparse.Namespace) -> None:
             counts[r.action] += 1
             total_chunks += r.chunks
             marker = {
-                "crawled": "+", "unchanged": "=", "skipped": "-",
-                "error": "!", "blocked": "x", "dry-run": "?",
+                "crawled": "+",
+                "unchanged": "=",
+                "skipped": "-",
+                "error": "!",
+                "blocked": "x",
+                "dry-run": "?",
             }
             sym = marker.get(r.action, " ")
             detail = f"  ({r.detail})" if r.detail else ""
@@ -548,14 +576,21 @@ def cmd_ingest_git(args: argparse.Namespace) -> None:
             counts[r.action] += 1
             total_chunks += r.chunks
             marker = {
-                "ingested": "+", "unchanged": "=", "skipped": "-",
-                "error": "!", "dry-run": "?",
+                "ingested": "+",
+                "unchanged": "=",
+                "skipped": "-",
+                "error": "!",
+                "dry-run": "?",
             }
             sym = marker.get(r.action, " ")
             detail = f"  ({r.detail})" if r.detail else ""
             log.info(
                 "[%s] %s  (%d commits, %d chunks)%s",
-                sym, r.path, r.commits, r.chunks, detail,
+                sym,
+                r.path,
+                r.commits,
+                r.chunks,
+                detail,
             )
 
         log.info("")
@@ -610,9 +645,103 @@ def cmd_cleanup(args: argparse.Namespace) -> None:
         await backend.startup()
         try:
             deleted = await backend.purge_access_log(args.days)
-            print(f"Purged {deleted} access log entries older than {args.days} days.")
+            log.info("Purged %d access log entries older than %d days", deleted, args.days)
         finally:
             await backend.shutdown()
+
+    asyncio.run(_run())
+
+
+def cmd_eval(args: argparse.Namespace) -> None:
+    """Run the bundled retrieval-quality eval harness and print metrics.
+
+    Useful as a one-liner answer to "where are the numbers?" — measures
+    Precision@K, MRR, and Hit Rate@K against query/expected-path cases.
+    """
+    import json as _json
+    import tempfile
+    from pathlib import Path as _Path
+
+    # Import the fixtures/helpers from the eval harness without requiring pytest.
+    tests_dir = _Path(__file__).resolve().parents[2] / "tests"
+    if not tests_dir.exists():  # installed package; user needs the repo layout
+        log.error(
+            "`gnosis-mcp eval` requires the repository checkout with tests/ present. "
+            "Install from source: git clone && pip install -e ."
+        )
+        sys.exit(1)
+
+    sys.path.insert(0, str(tests_dir))
+    from eval.test_search_quality import (  # type: ignore
+        K,
+        SAMPLE_DOCS,
+        SAMPLE_GIT_HISTORY_DOCS,
+        _load_cases,
+        _score_query,
+        EvalSummary,
+    )
+
+    from gnosis_mcp.config import GnosisMcpConfig
+    from gnosis_mcp.ingest import chunk_by_headings
+    from gnosis_mcp.sqlite_backend import SqliteBackend
+
+    async def _run() -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = GnosisMcpConfig(database_url=str(_Path(tmp) / "eval.db"), backend="sqlite")
+            backend = SqliteBackend(cfg)
+            await backend.startup()
+            await backend.init_schema()
+            for doc in SAMPLE_DOCS + SAMPLE_GIT_HISTORY_DOCS:
+                chunks = chunk_by_headings(doc["content"], doc["path"], max_chunk_size=4000)
+                await backend.upsert_doc(
+                    doc["path"],
+                    [c["content"] for c in chunks],
+                    title=doc["title"],
+                    category=doc["category"],
+                )
+
+            cases = _load_cases()
+            summary = EvalSummary()
+            for case in cases:
+                results = await backend.search(
+                    case["query"], category=case.get("category"), limit=K
+                )
+                paths = [r["file_path"] for r in results]
+                summary.results.append(
+                    _score_query(
+                        query=case["query"],
+                        expected_paths=case["expected_paths"],
+                        returned_paths=paths,
+                        description=case.get("description", ""),
+                    )
+                )
+            await backend.shutdown()
+
+        out = {
+            "cases": len(summary.results),
+            "hit_rate_at_k": round(summary.hit_rate, 3),
+            "mrr": round(summary.mrr, 3),
+            "mean_precision_at_k": round(summary.mean_precision, 3),
+            "k": K,
+        }
+
+        if args.json:
+            sys.stdout.write(_json.dumps(out, indent=2) + "\n")
+            return
+
+        sys.stdout.write(f"\nRetrieval quality — {out['cases']} cases, K={K}\n")
+        sys.stdout.write("=" * 48 + "\n")
+        for r in summary.results:
+            status = "PASS" if r.hit else "MISS"
+            sys.stdout.write(
+                f"  [{status}] P@{K}={r.precision_at_k:.2f} RR={r.reciprocal_rank:.2f} "
+                f"{r.query!r}\n"
+            )
+        sys.stdout.write("=" * 48 + "\n")
+        sys.stdout.write(f"  Hit Rate@{K}:       {out['hit_rate_at_k']:.3f}\n")
+        sys.stdout.write(f"  MRR:                {out['mrr']:.3f}\n")
+        sys.stdout.write(f"  Mean Precision@{K}: {out['mean_precision_at_k']:.3f}\n")
+        sys.stdout.write("=" * 48 + "\n")
 
     asyncio.run(_run())
 
@@ -660,9 +789,9 @@ def cmd_fix_link_types(args: argparse.Namespace) -> None:
                     )
                     ref_count = int(status2.split()[-1]) if status2 else 0
 
-            print(f"Migrated {co_change_count} links to 'git_co_change'")
-            print(f"Migrated {ref_count} links to 'git_ref'")
-            print(f"Total: {co_change_count + ref_count} links updated")
+            log.info("Migrated %d links to 'git_co_change'", co_change_count)
+            log.info("Migrated %d links to 'git_ref'", ref_count)
+            log.info("Total: %d links updated", co_change_count + ref_count)
         finally:
             await backend.shutdown()
 
@@ -702,9 +831,7 @@ def main() -> None:
         prog="gnosis-mcp",
         description="Zero-config MCP server for searchable documentation (SQLite default, PostgreSQL optional)",
     )
-    parser.add_argument(
-        "-V", "--version", action="version", version=f"gnosis-mcp {__version__}"
-    )
+    parser.add_argument("-V", "--version", action="version", version=f"gnosis-mcp {__version__}")
     sub = parser.add_subparsers(dest="command")
 
     # serve
@@ -716,11 +843,14 @@ def main() -> None:
         help="Transport protocol (default: from GNOSIS_MCP_TRANSPORT or stdio)",
     )
     p_serve.add_argument(
-        "--host", default=None,
+        "--host",
+        default=None,
         help="Host to bind HTTP server (default: 127.0.0.1, env: GNOSIS_MCP_HOST)",
     )
     p_serve.add_argument(
-        "--port", type=int, default=None,
+        "--port",
+        type=int,
+        default=None,
         help="Port for HTTP server (default: 8000, env: GNOSIS_MCP_PORT)",
     )
     p_serve.add_argument(
@@ -736,7 +866,9 @@ def main() -> None:
         help="Watch PATH for file changes and auto-re-ingest (implies --ingest)",
     )
     p_serve.add_argument(
-        "--rest", action="store_true", default=False,
+        "--rest",
+        action="store_true",
+        default=False,
         help="Enable REST API endpoints alongside MCP (env: GNOSIS_MCP_REST)",
     )
 
@@ -745,15 +877,19 @@ def main() -> None:
     p_init.add_argument("--dry-run", action="store_true", help="Print SQL without executing")
 
     # ingest
-    p_ingest = sub.add_parser("ingest", help="Ingest files (.md, .txt, .ipynb, .toml, .csv, .json)")
+    p_ingest = sub.add_parser(
+        "ingest", help="Ingest files (.md, .txt, .ipynb, .toml, .csv, .json)"
+    )
     p_ingest.add_argument("path", help="File or directory to ingest")
     p_ingest.add_argument("--dry-run", action="store_true", help="Show what would be ingested")
     p_ingest.add_argument(
-        "--force", action="store_true",
+        "--force",
+        action="store_true",
         help="Re-ingest all files, ignoring content hash (skip-if-unchanged)",
     )
     p_ingest.add_argument(
-        "--embed", action="store_true",
+        "--embed",
+        action="store_true",
         help="Embed all chunks after ingestion (auto-detects local provider if installed)",
     )
 
@@ -763,7 +899,8 @@ def main() -> None:
     p_search.add_argument("-n", "--limit", type=int, default=5, help="Max results (default: 5)")
     p_search.add_argument("-c", "--category", default=None, help="Filter by category")
     p_search.add_argument(
-        "--embed", action="store_true",
+        "--embed",
+        action="store_true",
         help="Auto-embed query for hybrid search (requires GNOSIS_MCP_EMBED_PROVIDER)",
     )
 
@@ -773,14 +910,20 @@ def main() -> None:
     # export
     p_export = sub.add_parser("export", help="Export documents as JSON or markdown")
     p_export.add_argument(
-        "-f", "--format", choices=["json", "markdown", "csv"], default="json", help="Output format (default: json)"
+        "-f",
+        "--format",
+        choices=["json", "markdown", "csv"],
+        default="json",
+        help="Output format (default: json)",
     )
     p_export.add_argument("-c", "--category", default=None, help="Filter by category")
 
     # embed
     p_embed = sub.add_parser("embed", help="Embed chunks with NULL embeddings")
     p_embed.add_argument(
-        "--provider", choices=["openai", "ollama", "custom", "local"], default=None,
+        "--provider",
+        choices=["openai", "ollama", "custom", "local"],
+        default=None,
         help="Embedding provider (overrides GNOSIS_MCP_EMBED_PROVIDER)",
     )
     p_embed.add_argument("--model", default=None, help="Embedding model name")
@@ -790,77 +933,91 @@ def main() -> None:
     p_embed.add_argument("--dry-run", action="store_true", help="Count NULL embeddings only")
 
     # crawl
-    p_crawl = sub.add_parser(
-        "crawl", help="Crawl a documentation website and ingest pages"
-    )
+    p_crawl = sub.add_parser("crawl", help="Crawl a documentation website and ingest pages")
     p_crawl.add_argument("url", help="Base URL to crawl (e.g. https://docs.example.com/)")
     p_crawl.add_argument(
-        "--sitemap", action="store_true",
+        "--sitemap",
+        action="store_true",
         help="Discover URLs from sitemap.xml instead of link crawling",
     )
     p_crawl.add_argument(
-        "--depth", type=int, default=1,
+        "--depth",
+        type=int,
+        default=1,
         help="Maximum link-crawl depth (default: 1, ignored with --sitemap)",
     )
     p_crawl.add_argument(
-        "--include", default=None,
+        "--include",
+        default=None,
         help="Only crawl URLs whose path matches this glob (e.g. '/docs/*')",
     )
     p_crawl.add_argument(
-        "--exclude", default=None,
+        "--exclude",
+        default=None,
         help="Skip URLs whose path matches this glob",
     )
     p_crawl.add_argument("--dry-run", action="store_true", help="Discover URLs only, don't fetch")
     p_crawl.add_argument(
-        "--force", action="store_true",
+        "--force",
+        action="store_true",
         help="Re-crawl all pages ignoring cache and content hash",
     )
     p_crawl.add_argument(
-        "--embed", action="store_true",
+        "--embed",
+        action="store_true",
         help="Embed all chunks after crawling",
     )
     p_crawl.add_argument(
-        "--max-urls", type=int, default=5000,
+        "--max-urls",
+        type=int,
+        default=5000,
         help="Maximum number of URLs to crawl (default: 5000)",
     )
 
     # ingest-git
-    p_igit = sub.add_parser(
-        "ingest-git", help="Ingest git commit history as searchable documents"
-    )
+    p_igit = sub.add_parser("ingest-git", help="Ingest git commit history as searchable documents")
     p_igit.add_argument("repo", help="Path to git repository")
     p_igit.add_argument(
-        "--since", default=None,
+        "--since",
+        default=None,
         help="Only commits since this date (e.g. '6m', '2025-01-01')",
     )
     p_igit.add_argument(
-        "--until", default=None,
+        "--until",
+        default=None,
         help="Only commits until this date (e.g. '2026-02-20')",
     )
     p_igit.add_argument(
-        "--author", default=None,
+        "--author",
+        default=None,
         help="Filter commits by author name or email (e.g. 'Alice', 'alice@example.com')",
     )
     p_igit.add_argument(
-        "--max-commits", type=int, default=10,
+        "--max-commits",
+        type=int,
+        default=10,
         help="Max commits per file, most recent (default: 10)",
     )
     p_igit.add_argument(
-        "--include", default=None,
+        "--include",
+        default=None,
         help="Only include files matching this glob (e.g. 'src/**')",
     )
     p_igit.add_argument(
-        "--exclude", default=None,
+        "--exclude",
+        default=None,
         help="Skip files matching this glob (e.g. '*.lock,package.json')",
     )
     p_igit.add_argument("--dry-run", action="store_true", help="Preview without ingesting")
     p_igit.add_argument(
-        "--force", action="store_true",
+        "--force",
+        action="store_true",
         help="Re-ingest all files, ignoring content hash (skip-if-unchanged)",
     )
     p_igit.add_argument("--embed", action="store_true", help="Embed chunks after ingestion")
     p_igit.add_argument(
-        "--merges", action="store_true",
+        "--merges",
+        action="store_true",
         help="Include merge commits (excluded by default)",
     )
 
@@ -873,12 +1030,17 @@ def main() -> None:
 
     # cleanup
     cleanup_parser = sub.add_parser("cleanup", help="Purge old access log entries")
-    cleanup_parser.add_argument("--days", type=int, default=90, help="Delete entries older than N days (default: 90)")
+    cleanup_parser.add_argument(
+        "--days", type=int, default=90, help="Delete entries older than N days (default: 90)"
+    )
 
     sub.add_parser(
         "fix-link-types",
         help="Migrate git-history links to proper relation types",
     )
+
+    p_eval = sub.add_parser("eval", help="Run retrieval quality eval (Hit@K, MRR, Precision@K)")
+    p_eval.add_argument("--json", action="store_true", help="Emit JSON only")
 
     args = parser.parse_args()
     if not args.command:
@@ -899,5 +1061,6 @@ def main() -> None:
         "check": cmd_check,
         "cleanup": cmd_cleanup,
         "fix-link-types": cmd_fix_link_types,
+        "eval": cmd_eval,
     }
     commands[args.command](args)

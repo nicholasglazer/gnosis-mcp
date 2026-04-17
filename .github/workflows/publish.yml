@@ -30,8 +30,13 @@ jobs:
       - name: Decide whether to release
         id: decide
         run: |
-          # If triggered by a tag push, always release
+          # If triggered by a tag push, always release — but first assert tag matches pyproject
           if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            REF_TAG="${GITHUB_REF##refs/tags/}"
+            if [[ "$REF_TAG" != "${{ steps.version.outputs.tag }}" ]]; then
+              echo "ERROR: tag $REF_TAG does not match pyproject.toml version ${{ steps.version.outputs.tag }}" >&2
+              exit 1
+            fi
             echo "should_release=true" >> "$GITHUB_OUTPUT"
             echo "Tag push trigger — releasing"
             exit 0
@@ -45,8 +50,59 @@ jobs:
             echo "New version ${{ steps.version.outputs.tag }}, will release"
           fi
 
-  build:
+      - name: Verify version parity across all 4 files
+        if: steps.decide.outputs.should_release == 'true'
+        run: bash scripts/check-versions.sh
+
+  test:
     needs: check
+    if: needs.check.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: gnosis_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+      - run: uv python install 3.12
+      - run: uv sync --all-extras
+      - name: Lint
+        run: uv run ruff check .
+      - name: Format check
+        run: uv run ruff format --check .
+      - name: Enable pgvector
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+          PGPASSWORD=postgres psql -h localhost -U postgres -d gnosis_test -c "CREATE EXTENSION IF NOT EXISTS vector;"
+      - name: Run tests (SQLite + unit)
+        run: uv run pytest -q -m "not postgres_only and not eval and not bench and not e2e"
+      - name: Run tests (PostgreSQL)
+        # Tolerated to fail while backend parity lands; publish depends on SQLite tests.
+        continue-on-error: true
+        env:
+          GNOSIS_MCP_CI_PG: "1"
+          GNOSIS_MCP_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/gnosis_test
+        run: |
+          uv run gnosis-mcp init-db
+          uv run gnosis-mcp check
+          uv run pytest -q -m "not sqlite_only and not eval and not bench and not e2e"
+
+  build:
+    needs: [check, test]
     if: needs.check.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     steps:
@@ -83,12 +139,17 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install mcp-publisher
         run: |
-          curl -sL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz" | tar xz
+          set -euo pipefail
+          URL="https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz"
+          curl -fsSL --retry 3 --retry-delay 5 "$URL" -o /tmp/mcp-publisher.tar.gz
+          tar -xzf /tmp/mcp-publisher.tar.gz
+          test -s mcp-publisher || { echo "mcp-publisher binary missing or empty" >&2; exit 1; }
+          chmod +x mcp-publisher
           sudo mv mcp-publisher /usr/local/bin/
       - name: Login via GitHub OIDC
-        run: mcp-publisher login github-oidc
+        run: mcp-publisher login github-oidc || { echo "mcp-publisher login failed" >&2; exit 1; }
       - name: Publish to MCP Registry
-        run: mcp-publisher publish
+        run: mcp-publisher publish || { echo "MCP Registry publish failed" >&2; exit 1; }
 
   tag:
     needs: [check, publish-pypi]

@@ -18,6 +18,7 @@ from gnosis_mcp.local_embed import (
 
 try:
     import numpy as np
+
     HAS_NUMPY = True
 except ImportError:
     HAS_NUMPY = False
@@ -34,9 +35,7 @@ class TestLocalEmbedderInit:
         assert embedder._tokenizer is None
 
     def test_custom_values(self, tmp_path):
-        embedder = LocalEmbedder(
-            model_id="test/model", cache_dir=tmp_path, dim=128
-        )
+        embedder = LocalEmbedder(model_id="test/model", cache_dir=tmp_path, dim=128)
         assert embedder._model_id == "test/model"
         assert embedder._cache_dir == tmp_path
         assert embedder._dim == 128
@@ -214,6 +213,7 @@ class TestDownloadModel:
 
     def test_sanitizes_model_id(self, tmp_path, monkeypatch):
         """Model ID slashes become double-dashes in directory name."""
+
         def mock_urlretrieve(url, path):
             Path(path).write_text("mock")
 

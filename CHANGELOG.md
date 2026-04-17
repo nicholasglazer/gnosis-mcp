@@ -5,6 +5,52 @@ All notable changes to gnosis-mcp are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 Versioning follows [Semantic Versioning](https://semver.org/) (pre-1.0).
 
+## [Unreleased]
+
+### Security
+- **Timing-safe Bearer token comparison** in REST API auth (`secrets.compare_digest`).
+- **Webhook SSRF guard**: `GNOSIS_MCP_WEBHOOK_URL` now refuses private, loopback, link-local, multicast, and reserved addresses unless `GNOSIS_MCP_WEBHOOK_ALLOW_PRIVATE=true`.
+- **HuggingFace model download**: enforced `https://huggingface.co/` origin assertion, SHA-256 checksum verification scaffolding for the bundled default model.
+- **robots.txt cross-host redirect** now treated as disallow (prevents redirect-based spoofing).
+- **Content size caps**: `upsert_doc` rejects content over `GNOSIS_MCP_MAX_DOC_BYTES` (default 50 MB); `search_docs` rejects queries over `GNOSIS_MCP_MAX_QUERY_CHARS` (default 10 000).
+- **Dependency upper bounds** pinned on `mcp`, `aiosqlite`, `asyncpg`, `onnxruntime`, `tokenizers`, `numpy`, `sqlite-vec`, `httpx`, `trafilatura`, `docutils`, `pypdf` — major-version bumps can no longer slip in.
+
+### Added
+- **Typed relations** (`relations:` frontmatter block): documents can now declare semantic edge types beyond the flat `relates_to:` list. Supported types: `related`, `prerequisite`, `depends_on`, `summarizes`, `summarized_by`, `extends`, `extended_by`, `replaces`, `replaced_by`, `audited_by`, `audits`, `implements`, `implemented_by`, `tests`, `tested_by`, `example_of`, `references`. Unknown types warn and are skipped. Stored in the existing `relation_type` column; queryable via `get_related(relation_type=...)` and `get_graph_stats()`. No schema migration needed — `relation_type` column already existed.
+- **CONTRIBUTING.md, CODE_OF_CONDUCT.md, SECURITY.md** for OSS community hygiene.
+- **PR CI workflow** (`.github/workflows/ci.yml`): ruff + pytest on Python 3.11 & 3.12, SQLite backend green-gated, PostgreSQL backend + pgvector service container (allow-failure during backend parity ramp-up).
+- **Version-parity CI gate** (`scripts/check-versions.sh`): fails the release workflow if `pyproject.toml` / `__init__.py` / `server.json` / `marketplace.json` drift.
+- **Tag-vs-pyproject assertion** in `publish.yml` — a `v*` tag push whose name disagrees with `pyproject.toml` fails early.
+- **End-to-end MCP protocol tests** (`tests/test_mcp_e2e.py`): spawn `gnosis-mcp` subprocess, drive it through stdio MCP, assert 9 tools + 3 resources + write/read roundtrip + `gnosis-mcp check` integration.
+- **Three benchmark suites** in `tests/bench/`: `bench_search.py` (speed), `bench_rag.py` (retrieval quality — Precision@K, MRR, Hit Rate, keyword vs hybrid), `bench_mcp_e2e.py` (protocol round-trip latency).
+- **`gnosis-mcp eval` CLI subcommand** — runs the retrieval-quality harness and prints Hit@K / MRR / Precision@K in ~1 s. Short answer to "show me the numbers".
+- **`[reranking]` optional extra** with ONNX cross-encoder reranker (`onnx-community/ms-marco-MiniLM-L6-v2-ONNX`, 22 M params, Apache 2.0). Off by default; enable via `GNOSIS_MCP_RERANK_ENABLED=true` or the `rerank=true` tool parameter.
+- **`GNOSIS_MCP_RRF_K`** env var to tune hybrid-search Reciprocal Rank Fusion (default 60, the canonical value).
+- `/health` REST endpoint now exposes `search_stats` (total / misses / hybrid / keyword counters).
+- **Benchmarks doc** (`docs/benchmarks.md`) with methodology, scale curve to 10 000 docs, RAG-native metrics, PostgreSQL reproduction steps, and regression gates.
+- **Dependency floors bumped**: `mcp>=1.27`, `aiosqlite>=0.22`, `asyncpg>=0.30`, `onnxruntime>=1.22`, `tokenizers>=0.22`, `numpy>=2.0`, `sqlite-vec>=0.1.6`, `httpx>=0.28`, `trafilatura>=2.0`, `docutils>=0.22`, `pypdf>=5.0`. Upper bounds retained.
+- **Pytest markers** (`sqlite_only`, `postgres_only`, `eval`, `bench`, `e2e`) registered in `pyproject.toml`.
+- **`GNOSIS_MCP_CRAWL_EXTRACT_TIMEOUT_S`** (default 30 s) caps per-page trafilatura extraction.
+- First-run guidance: `gnosis-mcp search` against an empty database now hints to run `gnosis-mcp ingest <path>` first.
+- REST request logging middleware: method, path, status, duration_ms at INFO (skips `/health`).
+- Windows install paths documented in `llms-install.md`.
+
+### Changed
+- **MCP protocol round-trip latency improved ~35 %** (13.3 ms → 8.7 ms mean, 24.4 ms → 13.0 ms p95) via `mcp` SDK upgrade to 1.27.
+- Ingest format dispatch refactored to a registry (`_CONVERTERS` in `ingest.py`) — adding a new format is now a single map entry.
+- Duplicate search-result dict construction in `server.py` extracted to `_format_search_result()` helper.
+- Tests gate the publish workflow (`publish.yml`): ruff check + pytest must pass before PyPI upload.
+- MCP Registry publish step now has explicit error handling, timeout, and binary integrity check.
+- vec0 initialization failure is now fail-fast when `GNOSIS_MCP_EMBED_PROVIDER` is configured (silent degradation hid hybrid-search breakage).
+- Resource error responses include exception type and a `hint` to run `gnosis-mcp check`.
+- `_search_custom` PostgreSQL fallback narrowed to `asyncpg.UndefinedFunctionError`, `AmbiguousFunctionError`, `InvalidParameterValueError` (was catching every exception).
+
+### Fixed
+- Documentation claim alignment: corrected test count, format count, and tool count across README, `llms.txt`, `llms-full.txt`, and `docs/show-hn.md`.
+- README links to `llms-install.md` from the Quick Start section.
+- `.coverage`, `htmlcov/`, `coverage.xml` added to `.gitignore`.
+- Removed orphaned `demo.gif` (not referenced) and stray `sqlite:/` directory (CLI-misparse artefact).
+
 ## [0.10.12] - 2026-04-07
 
 ### Added

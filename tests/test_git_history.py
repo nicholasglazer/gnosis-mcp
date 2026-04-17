@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-import os
 import subprocess
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -13,7 +11,6 @@ import pytest
 from gnosis_mcp.parsers.git_history import (
     GitCommit,
     GitIngestConfig,
-    GitIngestResult,
     _build_cross_file_links,
     group_by_file,
     parse_git_log,
@@ -270,7 +267,7 @@ class TestRenderHistoryMarkdown:
     def test_no_self_reference(self):
         """The file itself should not appear in 'Also changed'."""
         md = render_history_markdown("src/stripe.py", _make_commits())
-        lines = [l for l in md.split("\n") if l.startswith("Also changed:")]
+        lines = [ln for ln in md.split("\n") if ln.startswith("Also changed:")]
         for line in lines:
             assert "src/stripe.py" not in line
 
@@ -280,18 +277,26 @@ class TestRenderHistoryMarkdown:
 
     def test_short_date(self):
         c = GitCommit(
-            hash="aaa", author="X", author_email="x@test.com",
+            hash="aaa",
+            author="X",
+            author_email="x@test.com",
             date="2026-02-20T10:00:00Z",
-            subject="Test", body="", files=[],
+            subject="Test",
+            body="",
+            files=[],
         )
         md = render_history_markdown("f.py", [c])
         assert "2026-02-20" in md
 
     def test_short_hash(self):
         c = GitCommit(
-            hash="abcdefghijklmnop", author="X", author_email="x@test.com",
+            hash="abcdefghijklmnop",
+            author="X",
+            author_email="x@test.com",
             date="2026-01-01",
-            subject="Test", body="", files=[],
+            subject="Test",
+            body="",
+            files=[],
         )
         md = render_history_markdown("f.py", [c])
         assert "(abcdefg)" in md
@@ -299,9 +304,13 @@ class TestRenderHistoryMarkdown:
     def test_many_other_files_truncated(self):
         files = [f"file{i}.py" for i in range(20)]
         c = GitCommit(
-            hash="aaa", author="X", author_email="x@test.com",
+            hash="aaa",
+            author="X",
+            author_email="x@test.com",
             date="2026-01-01",
-            subject="Bulk", body="", files=files,
+            subject="Bulk",
+            body="",
+            files=files,
         )
         md = render_history_markdown("file0.py", [c])
         assert "+9 more files" in md
@@ -423,11 +432,13 @@ def _create_temp_repo(tmp_path: Path) -> Path:
     subprocess.run(["git", "init", str(repo)], check=True, capture_output=True)
     subprocess.run(
         ["git", "-C", str(repo), "config", "user.email", "test@test.com"],
-        check=True, capture_output=True,
+        check=True,
+        capture_output=True,
     )
     subprocess.run(
         ["git", "-C", str(repo), "config", "user.name", "Tester"],
-        check=True, capture_output=True,
+        check=True,
+        capture_output=True,
     )
 
     # Commit 1
@@ -435,7 +446,8 @@ def _create_temp_repo(tmp_path: Path) -> Path:
     subprocess.run(["git", "-C", str(repo), "add", "."], check=True, capture_output=True)
     subprocess.run(
         ["git", "-C", str(repo), "commit", "-m", "Initial commit"],
-        check=True, capture_output=True,
+        check=True,
+        capture_output=True,
     )
 
     # Commit 2
@@ -444,7 +456,8 @@ def _create_temp_repo(tmp_path: Path) -> Path:
     subprocess.run(["git", "-C", str(repo), "add", "."], check=True, capture_output=True)
     subprocess.run(
         ["git", "-C", str(repo), "commit", "-m", "Add main module"],
-        check=True, capture_output=True,
+        check=True,
+        capture_output=True,
     )
 
     # Commit 3 — modify existing
@@ -452,7 +465,8 @@ def _create_temp_repo(tmp_path: Path) -> Path:
     subprocess.run(["git", "-C", str(repo), "add", "."], check=True, capture_output=True)
     subprocess.run(
         ["git", "-C", str(repo), "commit", "-m", "Update greeting"],
-        check=True, capture_output=True,
+        check=True,
+        capture_output=True,
     )
 
     return repo
@@ -622,11 +636,13 @@ class TestIngestGitIntegration:
         subprocess.run(["git", "init", str(repo)], check=True, capture_output=True)
         subprocess.run(
             ["git", "-C", str(repo), "config", "user.email", "test@test.com"],
-            check=True, capture_output=True,
+            check=True,
+            capture_output=True,
         )
         subprocess.run(
             ["git", "-C", str(repo), "config", "user.name", "Tester"],
-            check=True, capture_output=True,
+            check=True,
+            capture_output=True,
         )
         # Commit touching multiple files at once
         (repo / "src").mkdir()
@@ -635,7 +651,8 @@ class TestIngestGitIntegration:
         subprocess.run(["git", "-C", str(repo), "add", "."], check=True, capture_output=True)
         subprocess.run(
             ["git", "-C", str(repo), "commit", "-m", "Add both modules"],
-            check=True, capture_output=True,
+            check=True,
+            capture_output=True,
         )
 
         db_path = tmp_path / "cross.db"

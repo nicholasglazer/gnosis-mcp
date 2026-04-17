@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import logging
+import socket
 from datetime import datetime, timezone
+from urllib.parse import urlparse
 
 from mcp.server.fastmcp import FastMCP
 
@@ -29,13 +32,49 @@ async def _get_ctx() -> AppContext:
     return mcp.get_context().request_context.lifespan_context
 
 
+def _is_private_address(host: str) -> bool:
+    """Resolve host and check if any resolved address is private/loopback/link-local/multicast."""
+    try:
+        _, _, addrs = socket.gethostbyname_ex(host)
+    except (socket.gaierror, socket.herror):
+        return True  # unresolvable host → treat as unsafe
+    for addr in addrs:
+        try:
+            ip = ipaddress.ip_address(addr)
+        except ValueError:
+            continue
+        if (
+            ip.is_private
+            or ip.is_loopback
+            or ip.is_link_local
+            or ip.is_multicast
+            or ip.is_reserved
+        ):
+            return True
+    return False
+
+
 async def _notify_webhook(ctx: AppContext, action: str, path: str) -> None:
     """POST to webhook URL if configured. Fire-and-forget, never raises."""
     url = ctx.config.webhook_url
     if not url:
         return
     try:
+        import asyncio
         import urllib.request
+
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https") or not parsed.hostname:
+            log.warning("webhook URL has unsupported scheme or missing host: %s", url)
+            return
+        if not ctx.config.webhook_allow_private:
+            is_private = await asyncio.to_thread(_is_private_address, parsed.hostname)
+            if is_private:
+                log.warning(
+                    "webhook URL resolves to private/loopback address; refusing to POST: %s",
+                    url,
+                )
+                return
 
         payload = json.dumps(
             {"action": action, "path": path, "timestamp": datetime.now(timezone.utc).isoformat()}
@@ -43,7 +82,6 @@ async def _notify_webhook(ctx: AppContext, action: str, path: str) -> None:
         req = urllib.request.Request(
             url, data=payload, headers={"Content-Type": "application/json"}, method="POST"
         )
-        import asyncio
 
         await asyncio.to_thread(urllib.request.urlopen, req, timeout=ctx.config.webhook_timeout)
         log.info("webhook notified: action=%s path=%s", action, path)
@@ -51,8 +89,30 @@ async def _notify_webhook(ctx: AppContext, action: str, path: str) -> None:
         log.warning("webhook failed for %s (url=%s)", path, url, exc_info=True)
 
 
+def _format_search_result(row: dict, preview_chars: int) -> dict:
+    """Shape a backend search row as the MCP-tool result dict.
+
+    Shared by `search_docs` and `search_git_history` so their output stays in lockstep.
+    """
+    content = row["content"]
+    item = {
+        "file_path": row["file_path"],
+        "title": row["title"],
+        "content_preview": (
+            content[:preview_chars] + "..." if len(content) > preview_chars else content
+        ),
+        "score": round(float(row["score"]), 4),
+    }
+    if row.get("highlight"):
+        item["highlight"] = row["highlight"]
+    return item
+
+
 async def _log_access(
-    ctx: AppContext, file_paths: list[str], tool: str, query: str | None = None,
+    ctx: AppContext,
+    file_paths: list[str],
+    tool: str,
+    query: str | None = None,
 ) -> None:
     """Log document access events. Fire-and-forget, never raises."""
     if not ctx.config.access_log:
@@ -76,9 +136,11 @@ async def list_docs() -> str:
     try:
         docs = await ctx.backend.list_docs()
         return json.dumps(docs, indent=2)
-    except Exception:
+    except Exception as e:
         log.exception("list_docs resource failed")
-        return json.dumps({"error": "Failed to list documents"})
+        return json.dumps(
+            {"error": f"{type(e).__name__}: {e}", "hint": "Run `gnosis-mcp check` to diagnose."}
+        )
 
 
 @mcp.resource("gnosis://docs/{path}")
@@ -90,9 +152,11 @@ async def read_doc_resource(path: str) -> str:
         if not rows:
             return json.dumps({"error": f"No document at: {path}"})
         return "\n\n".join(r["content"] for r in rows)
-    except Exception:
+    except Exception as e:
         log.exception("read_doc_resource failed for path=%s", path)
-        return json.dumps({"error": f"Failed to read document: {path}"})
+        return json.dumps(
+            {"error": f"{type(e).__name__}: {e}", "hint": "Run `gnosis-mcp check` to diagnose."}
+        )
 
 
 @mcp.resource("gnosis://categories")
@@ -102,9 +166,11 @@ async def list_categories() -> str:
     try:
         cats = await ctx.backend.list_categories()
         return json.dumps(cats, indent=2)
-    except Exception:
+    except Exception as e:
         log.exception("list_categories resource failed")
-        return json.dumps({"error": "Failed to list categories"})
+        return json.dumps(
+            {"error": f"{type(e).__name__}: {e}", "hint": "Run `gnosis-mcp check` to diagnose."}
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -118,6 +184,7 @@ async def search_docs(
     category: str | None = None,
     limit: int = 5,
     query_embedding: list[float] | None = None,
+    rerank: bool | None = None,
 ) -> str:
     """Search documentation using keyword or hybrid semantic+keyword search.
 
@@ -127,12 +194,23 @@ async def search_docs(
         limit: Maximum results (default 5, server-configurable upper bound).
         query_embedding: Optional pre-computed embedding vector for hybrid search.
             When provided, combines keyword (tsvector) and semantic (cosine) scoring.
+        rerank: Rerank results with a cross-encoder before returning.
+            None = follow `GNOSIS_MCP_RERANK_ENABLED`. Requires the [reranking] extra.
     """
     ctx = await _get_ctx()
     cfg = ctx.config
 
     if not query or not query.strip():
         return json.dumps({"error": "Empty query. Provide a search term."})
+
+    if len(query) > cfg.max_query_chars:
+        return json.dumps(
+            {"error": f"Query exceeds {cfg.max_query_chars} chars. Shorten the query."}
+        )
+
+    use_rerank = cfg.rerank_enabled if rerank is None else rerank
+    fetch_limit = max(limit, cfg.rerank_pool) if use_rerank else limit
+    fetch_limit = max(1, min(max(cfg.search_limit_max, cfg.rerank_pool), fetch_limit))
 
     limit = max(1, min(cfg.search_limit_max, limit))
     preview = cfg.content_preview_chars
@@ -153,24 +231,32 @@ async def search_docs(
         results = await ctx.backend.search(
             query,
             category=category,
-            limit=limit,
+            limit=fetch_limit,
             query_embedding=query_embedding,
         )
-        items = []
-        for r in results:
-            item = {
-                "file_path": r["file_path"],
-                "title": r["title"],
-                "content_preview": (
-                    r["content"][:preview] + "..."
-                    if len(r["content"]) > preview
-                    else r["content"]
-                ),
-                "score": round(float(r["score"]), 4),
-            }
-            if r.get("highlight"):
-                item["highlight"] = r["highlight"]
-            items.append(item)
+
+        if use_rerank and results:
+            try:
+                from gnosis_mcp.rerank import get_reranker
+
+                reranker = get_reranker(cfg.rerank_model)
+                import asyncio as _asyncio
+
+                results = await _asyncio.to_thread(
+                    reranker.rerank, query, results, text_key="content", top_k=limit
+                )
+            except ImportError:
+                log.warning(
+                    "Rerank requested but [reranking] extra not installed — returning unranked"
+                )
+                results = results[:limit]
+            except Exception:
+                log.exception("Rerank failed; falling back to unranked results")
+                results = results[:limit]
+        else:
+            results = results[:limit]
+
+        items = [_format_search_result(r, preview) for r in results]
 
         # Log query for observability
         top_path = items[0]["file_path"] if items else None
@@ -182,7 +268,12 @@ async def search_docs(
             _search_stats["misses"] += 1
         log.info(
             "search: query=%r mode=%s results=%d top=%s score=%s cat=%s",
-            query, search_mode, len(items), top_path, top_score, category,
+            query,
+            search_mode,
+            len(items),
+            top_path,
+            top_score,
+            category,
         )
 
         # Log top result paths for access tracking
@@ -190,9 +281,14 @@ async def search_docs(
             await _log_access(ctx, [it["file_path"] for it in items[:3]], "search_docs", query)
 
         return json.dumps(items, indent=2)
-    except Exception:
+    except Exception as e:
         log.exception("search_docs failed")
-        return json.dumps({"error": f"Search failed for query: {query!r}"})
+        return json.dumps(
+            {
+                "error": f"{type(e).__name__}: {e}",
+                "hint": "Run `gnosis-mcp check` to verify the DB is initialised and reachable.",
+            }
+        )
 
 
 @mcp.tool()
@@ -266,7 +362,9 @@ async def search_git_history(
         # Search within git-history category
         search_category = "git-history"
         results = await ctx.backend.search(
-            query, category=search_category, limit=limit * 3,  # over-fetch for post-filtering
+            query,
+            category=search_category,
+            limit=limit * 3,  # over-fetch for post-filtering
         )
 
         # Post-filter by author, date, file_path
@@ -291,23 +389,15 @@ async def search_git_history(
 
         filtered = filtered[:limit]
 
-        items = []
-        for r in filtered:
-            preview = cfg.content_preview_chars
-            items.append({
-                "file_path": r["file_path"],
-                "title": r["title"],
-                "content_preview": (
-                    r["content"][:preview] + "..."
-                    if len(r["content"]) > preview
-                    else r["content"]
-                ),
-                "score": round(float(r["score"]), 4),
-            })
+        preview = cfg.content_preview_chars
+        items = [_format_search_result(r, preview) for r in filtered]
 
         log.info(
             "search_git_history: query=%r results=%d author=%s file=%s",
-            query, len(items), author, file_path,
+            query,
+            len(items),
+            author,
+            file_path,
         )
         return json.dumps(items, indent=2)
     except Exception:
@@ -383,46 +473,50 @@ async def get_context(
 
         if topic:
             results = await ctx.backend.search(
-                topic, category=category, limit=limit,
+                topic,
+                category=category,
+                limit=limit,
             )
             top_accessed = await ctx.backend.get_top_accessed(
-                limit=limit, days=30, category=category,
+                limit=limit,
+                days=30,
+                category=category,
             )
             access_map = {r["file_path"]: r["access_count"] for r in top_accessed}
             for r in results:
                 content = r["content"]
-                docs.append({
-                    "file_path": r["file_path"],
-                    "title": r["title"],
-                    "category": r.get("category"),
-                    "summary": (
-                        content[:preview] + "..."
-                        if len(content) > preview
-                        else content
-                    ),
-                    "access_count": access_map.get(r["file_path"], 0),
-                })
+                docs.append(
+                    {
+                        "file_path": r["file_path"],
+                        "title": r["title"],
+                        "category": r.get("category"),
+                        "summary": (
+                            content[:preview] + "..." if len(content) > preview else content
+                        ),
+                        "access_count": access_map.get(r["file_path"], 0),
+                    }
+                )
         else:
             top_accessed = await ctx.backend.get_top_accessed(
-                limit=limit, days=30, category=category,
+                limit=limit,
+                days=30,
+                category=category,
             )
             for r in top_accessed:
                 chunks = await ctx.backend.get_doc(r["file_path"])
                 summary = ""
                 if chunks:
                     content = chunks[0]["content"]
-                    summary = (
-                        content[:preview] + "..."
-                        if len(content) > preview
-                        else content
-                    )
-                docs.append({
-                    "file_path": r["file_path"],
-                    "title": r["title"],
-                    "category": r["category"],
-                    "summary": summary,
-                    "access_count": r["access_count"],
-                })
+                    summary = content[:preview] + "..." if len(content) > preview else content
+                docs.append(
+                    {
+                        "file_path": r["file_path"],
+                        "title": r["title"],
+                        "category": r["category"],
+                        "summary": summary,
+                        "access_count": r["access_count"],
+                    }
+                )
 
         stats_data = await ctx.backend.stats()
         stats = {
@@ -498,6 +592,11 @@ async def upsert_doc(
     if not cfg.writable:
         return json.dumps(
             {"error": "Write operations disabled. Set GNOSIS_MCP_WRITABLE=true to enable."}
+        )
+
+    if len(content.encode("utf-8")) > cfg.max_doc_bytes:
+        return json.dumps(
+            {"error": f"Content exceeds max_doc_bytes ({cfg.max_doc_bytes}). Split the document."}
         )
 
     # Auto-extract title from first heading if not provided
@@ -623,9 +722,7 @@ async def update_metadata(
 
         await _notify_webhook(ctx, "update_metadata", path)
         log.info("update_metadata: path=%s chunks_updated=%d", path, affected)
-        return json.dumps(
-            {"path": path, "chunks_updated": affected, "action": "metadata_updated"}
-        )
+        return json.dumps({"path": path, "chunks_updated": affected, "action": "metadata_updated"})
     except Exception:
         log.exception("update_metadata failed for path=%s", path)
         return json.dumps({"error": f"Failed to update metadata for: {path}"})

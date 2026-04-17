@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security report
+    url: https://github.com/nicholasglazer/gnosis-mcp/security/advisories/new
+    about: Report a vulnerability privately. Please do not open a public issue.
+  - name: Discussion or question
+    url: https://github.com/nicholasglazer/gnosis-mcp/discussions
+    about: General questions, configuration help, and ideas.

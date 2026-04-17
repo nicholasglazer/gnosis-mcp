@@ -30,12 +30,14 @@ __all__ = [
     "content_hash",
     "parse_frontmatter",
     "extract_relates_to",
+    "extract_typed_relations",
     "extract_content_links",
     "extract_title",
     "chunk_by_headings",
     "scan_files",
     "ingest_path",
     "diff_path",
+    "TYPED_RELATION_ALLOWLIST",
 ]
 
 log = logging.getLogger("gnosis_mcp")
@@ -48,11 +50,13 @@ def _supported_exts() -> frozenset[str]:
     exts = set(_BASE_EXTS)
     try:
         import docutils  # noqa: F401
+
         exts.add(".rst")
     except ImportError:
         pass
     try:
         import pypdf  # noqa: F401
+
         exts.add(".pdf")
     except ImportError:
         pass
@@ -173,6 +177,160 @@ def extract_relates_to(markdown: str) -> list[str]:
     return [p for p in paths if "*" not in p and "?" not in p]
 
 
+# ---------------------------------------------------------------------------
+# Typed relations (relations: frontmatter block)
+# ---------------------------------------------------------------------------
+
+#: Allowlist of valid relation types for the ``relations:`` frontmatter block.
+#: Extend this list to support new semantic edge types — no other changes needed.
+TYPED_RELATION_ALLOWLIST: frozenset[str] = frozenset(
+    {
+        "related",
+        "prerequisite",
+        "depends_on",
+        "summarizes",
+        "summarized_by",
+        "extends",
+        "extended_by",
+        "replaces",
+        "replaced_by",
+        "audited_by",
+        "audits",
+        "implements",
+        "implemented_by",
+        "tests",
+        "tested_by",
+        "example_of",
+        "references",
+    }
+)
+
+
+def extract_typed_relations(markdown: str) -> list[tuple[str, str]]:
+    """Extract typed relation entries from a ``relations:`` frontmatter block.
+
+    Supports YAML sequence-of-mappings entries in two equivalent notations::
+
+        relations:
+          - { path: "guides/billing-architecture.md", type: "prerequisite" }
+          - path: "audits/billing-audit-2026-03.md"
+            type: "audited_by"
+
+    Each entry must have both ``path`` and ``type`` keys.
+    Entries with an unknown ``type`` are warned and skipped.
+    Glob patterns in ``path`` are silently skipped.
+
+    Returns:
+        List of ``(path, relation_type)`` tuples.
+    """
+    if not markdown.startswith("---"):
+        return []
+
+    end = markdown.find("\n---", 3)
+    if end == -1:
+        return []
+
+    fm_block = markdown[4:end]
+    lines = fm_block.split("\n")
+
+    results: list[tuple[str, str]] = []
+    in_relations = False
+    # Accumulator for the current multi-line mapping entry
+    current_path: str | None = None
+    current_type: str | None = None
+
+    def _flush_entry() -> None:
+        """Validate and commit the current accumulated entry."""
+        nonlocal current_path, current_type
+        if current_path is None and current_type is None:
+            return
+        if current_path and current_type:
+            if "*" in current_path or "?" in current_path:
+                pass  # skip glob paths silently
+            elif current_type not in TYPED_RELATION_ALLOWLIST:
+                log.warning(
+                    "extract_typed_relations: unknown relation type %r (skipping). "
+                    "Allowed types: %s",
+                    current_type,
+                    ", ".join(sorted(TYPED_RELATION_ALLOWLIST)),
+                )
+            else:
+                results.append((current_path, current_type))
+        elif current_path or current_type:
+            log.warning(
+                "extract_typed_relations: incomplete entry (path=%r, type=%r) — skipping",
+                current_path,
+                current_type,
+            )
+        current_path = None
+        current_type = None
+
+    for line in lines:
+        # Detect "relations:" list header
+        if re.match(r"^relations\s*:\s*$", line):
+            in_relations = True
+            continue
+
+        # Any other top-level key ends the block
+        if in_relations and re.match(r"^\S", line) and not re.match(r"^\s*-", line):
+            _flush_entry()
+            in_relations = False
+            continue
+
+        if not in_relations:
+            continue
+
+        stripped = line.strip()
+        if not stripped:
+            continue
+
+        # New list item  ---------------------------------------------------
+        # Inline-brace form: - { path: "...", type: "..." }
+        brace_match = re.match(
+            r"^-\s*\{([^}]+)\}",
+            stripped,
+        )
+        if brace_match:
+            _flush_entry()
+            inner = brace_match.group(1)
+            p_match = re.search(r"""path\s*:\s*["']?([^"',}]+)["']?""", inner)
+            t_match = re.search(r"""type\s*:\s*["']?([^"',}]+)["']?""", inner)
+            if p_match and t_match:
+                path_val = p_match.group(1).strip().strip("\"'")
+                type_val = t_match.group(1).strip().strip("\"'")
+                current_path = path_val
+                current_type = type_val
+            _flush_entry()
+            continue
+
+        # New list item: bare "- " prefix starts a fresh entry
+        new_item_match = re.match(r"^-\s+(.+)$", stripped)
+        if new_item_match:
+            _flush_entry()
+            # Inline "- path: foo" or "- type: bar"
+            kv = new_item_match.group(1)
+            p_match = re.match(r"""path\s*:\s*["']?(.+?)["']?\s*$""", kv)
+            t_match = re.match(r"""type\s*:\s*["']?(.+?)["']?\s*$""", kv)
+            if p_match:
+                current_path = p_match.group(1).strip().strip("\"'")
+            elif t_match:
+                current_type = t_match.group(1).strip().strip("\"'")
+            continue
+
+        # Continuation key inside current entry (indented, no leading "-")
+        p_cont = re.match(r"""path\s*:\s*["']?(.+?)["']?\s*$""", stripped)
+        t_cont = re.match(r"""type\s*:\s*["']?(.+?)["']?\s*$""", stripped)
+        if p_cont:
+            current_path = p_cont.group(1).strip().strip("\"'")
+        elif t_cont:
+            current_type = t_cont.group(1).strip().strip("\"'")
+
+    # Flush the last accumulated entry
+    _flush_entry()
+
+    return results
+
+
 def extract_content_links(markdown: str) -> list[str]:
     """Extract markdown links ``[text](path.md)`` and ``[[wikilinks]]`` from body content.
 
@@ -181,16 +339,16 @@ def extract_content_links(markdown: str) -> list[str]:
     """
     if markdown.startswith("---"):
         end = markdown.find("\n---", 3)
-        body = markdown[end + 4:] if end != -1 else markdown
+        body = markdown[end + 4 :] if end != -1 else markdown
     else:
         body = markdown
 
     paths: list[str] = []
     # Standard markdown links: [text](path.md) or [text](../path.md)
-    for m in re.finditer(r'\[.*?\]\(([^)]+\.md)\)', body):
+    for m in re.finditer(r"\[.*?\]\(([^)]+\.md)\)", body):
         paths.append(m.group(1))
     # Wikilinks: [[path]] or [[path.md]]
-    for m in re.finditer(r'\[\[([^\]|]+)\]\]', body):
+    for m in re.finditer(r"\[\[([^\]|]+)\]\]", body):
         paths.append(m.group(1))
 
     # Dedupe, skip URLs, skip globs
@@ -285,7 +443,7 @@ def _split_paragraphs_safe(text: str, max_size: int) -> list[str]:
 
     # Build segments between split points
     boundaries = [0] + [sp + 2 for sp in split_points] + [len(text)]
-    segments = [text[boundaries[i]:boundaries[i + 1]] for i in range(len(boundaries) - 1)]
+    segments = [text[boundaries[i] : boundaries[i + 1]] for i in range(len(boundaries) - 1)]
 
     # Greedily pack segments into chunks
     chunks: list[str] = []
@@ -323,14 +481,21 @@ def _split_section_by_subheadings(
         # No sub-headings — split by paragraphs
         parts = _split_paragraphs_safe(content, max_size)
         if len(parts) == 1:
-            return [{"title": parent_title, "content": content.strip(), "section_path": f"{doc_title} > {parent_title}"}]
+            return [
+                {
+                    "title": parent_title,
+                    "content": content.strip(),
+                    "section_path": f"{doc_title} > {parent_title}",
+                }
+            ]
         return [
             {
                 "title": parent_title if i == 0 else f"{parent_title} (cont.)",
                 "content": p,
                 "section_path": f"{doc_title} > {parent_title}",
             }
-            for i, p in enumerate(parts) if p.strip()
+            for i, p in enumerate(parts)
+            if p.strip()
         ]
 
     chunks = []
@@ -345,20 +510,26 @@ def _split_section_by_subheadings(
 
         if len(section) > max_size and level + 1 < 4:
             # Recurse deeper
-            chunks.extend(_split_section_by_subheadings(section, doc_title, title, level + 1, max_size))
+            chunks.extend(
+                _split_section_by_subheadings(section, doc_title, title, level + 1, max_size)
+            )
         elif len(section) > max_size:
             # Deepest level — split by paragraphs
             parts = _split_paragraphs_safe(section, max_size)
             for j, p in enumerate(parts):
                 if not p.strip():
                     continue
-                chunks.append({
-                    "title": title if j == 0 else f"{title} (cont.)",
-                    "content": p,
-                    "section_path": f"{doc_title} > {title}",
-                })
+                chunks.append(
+                    {
+                        "title": title if j == 0 else f"{title} (cont.)",
+                        "content": p,
+                        "section_path": f"{doc_title} > {title}",
+                    }
+                )
         else:
-            chunks.append({"title": title, "content": section, "section_path": f"{doc_title} > {title}"})
+            chunks.append(
+                {"title": title, "content": section, "section_path": f"{doc_title} > {title}"}
+            )
 
     return chunks
 
@@ -390,7 +561,8 @@ def chunk_by_headings(markdown: str, file_path: str, max_chunk_size: int = 4000)
                 "content": p,
                 "section_path": doc_title,
             }
-            for i, p in enumerate(parts) if p.strip()
+            for i, p in enumerate(parts)
+            if p.strip()
         ] or [{"title": doc_title, "content": stripped, "section_path": doc_title}]
 
     chunks = []
@@ -405,35 +577,31 @@ def chunk_by_headings(markdown: str, file_path: str, max_chunk_size: int = 4000)
 
         if len(content) > max_chunk_size:
             # Oversized — try sub-heading split
-            chunks.extend(_split_section_by_subheadings(content, doc_title, title, 2, max_chunk_size))
+            chunks.extend(
+                _split_section_by_subheadings(content, doc_title, title, 2, max_chunk_size)
+            )
         else:
-            chunks.append({
-                "title": title,
-                "content": content,
-                "section_path": f"{doc_title} > {title}",
-            })
+            chunks.append(
+                {
+                    "title": title,
+                    "content": content,
+                    "section_path": f"{doc_title} > {title}",
+                }
+            )
 
     return chunks or [{"title": doc_title, "content": markdown.strip(), "section_path": doc_title}]
 
 
 def _convert_to_markdown(text: str, file_path: Path) -> str:
-    """Convert supported file formats to markdown for chunking.  No-op for .md."""
+    """Convert supported file formats to markdown for chunking. No-op for .md.
+
+    Dispatch is registry-driven so new formats plug in with a single map entry.
+    """
     ext = file_path.suffix.lower()
-    if ext == ".md":
+    converter = _CONVERTERS.get(ext)
+    if converter is None:
         return text
-    if ext == ".txt":
-        return _convert_txt(text, file_path)
-    if ext == ".ipynb":
-        return _convert_ipynb(text, file_path)
-    if ext == ".toml":
-        return _convert_toml(text, file_path)
-    if ext == ".csv":
-        return _convert_csv(text, file_path)
-    if ext == ".json":
-        return _convert_json(text, file_path)
-    if ext == ".rst":
-        return _convert_rst(text, file_path)
-    return text
+    return converter(text, file_path)
 
 
 def _convert_txt(text: str, file_path: Path) -> str:
@@ -455,9 +623,9 @@ def _convert_ipynb(text: str, file_path: Path) -> str:
 
     # Detect kernel language for code fences
     meta = nb.get("metadata", {})
-    lang = meta.get("kernelspec", {}).get("language", "") or meta.get(
-        "language_info", {}
-    ).get("name", "")
+    lang = meta.get("kernelspec", {}).get("language", "") or meta.get("language_info", {}).get(
+        "name", ""
+    )
 
     parts: list[str] = []
     for cell in cells:
@@ -586,6 +754,19 @@ def _convert_rst(text: str, file_path: Path) -> str:
         return f"# {file_path.stem}\n\n{text}"
 
 
+# Text-format converter registry. PDF is binary and dispatched separately.
+# Use .setdefault in case an optional dep failed to import at module load.
+_CONVERTERS: dict[str, "Callable[[str, Path], str]"] = {  # noqa: F821
+    ".md": lambda text, _path: text,
+    ".txt": _convert_txt,
+    ".ipynb": _convert_ipynb,
+    ".toml": _convert_toml,
+    ".csv": _convert_csv,
+    ".json": _convert_json,
+    ".rst": _convert_rst,
+}
+
+
 def _convert_pdf(raw_bytes: bytes, file_path: Path) -> str:
     """PDF: extract text via pypdf."""
     try:
@@ -637,7 +818,9 @@ async def ingest_path(
 
     files = scan_files(root_path)
     if not files:
-        return [IngestResult(path=root, chunks=0, action="skipped", detail="No supported files found")]
+        return [
+            IngestResult(path=root, chunks=0, action="skipped", detail="No supported files found")
+        ]
 
     # Determine base for relative paths
     base = root_path.parent if root_path.is_file() else root_path
@@ -651,12 +834,20 @@ async def ingest_path(
                 raw = f.read_bytes()
                 md_text = _convert_pdf(raw, f)
                 if not md_text or len(md_text.strip()) < 50:
-                    results.append(IngestResult(path=rel, chunks=0, action="skipped", detail="PDF empty or too small"))
+                    results.append(
+                        IngestResult(
+                            path=rel, chunks=0, action="skipped", detail="PDF empty or too small"
+                        )
+                    )
                     continue
             else:
                 text = f.read_text(encoding="utf-8", errors="replace")
                 if len(text.strip()) < 50:
-                    results.append(IngestResult(path=rel, chunks=0, action="skipped", detail="Too small (<50 chars)"))
+                    results.append(
+                        IngestResult(
+                            path=rel, chunks=0, action="skipped", detail="Too small (<50 chars)"
+                        )
+                    )
                     continue
                 md_text = _convert_to_markdown(text, f)
             _, body = parse_frontmatter(md_text)
@@ -690,12 +881,21 @@ async def ingest_path(
                     digest = hashlib.sha256(raw).hexdigest()[:16]
                     md_text = _convert_pdf(raw, f)
                     if not md_text or len(md_text.strip()) < 50:
-                        results.append(IngestResult(path=rel, chunks=0, action="skipped", detail="PDF empty or too small"))
+                        results.append(
+                            IngestResult(
+                                path=rel,
+                                chunks=0,
+                                action="skipped",
+                                detail="PDF empty or too small",
+                            )
+                        )
                         continue
                 else:
                     text = f.read_text(encoding="utf-8", errors="replace")
                     if len(text.strip()) < 50:
-                        results.append(IngestResult(path=rel, chunks=0, action="skipped", detail="Too small"))
+                        results.append(
+                            IngestResult(path=rel, chunks=0, action="skipped", detail="Too small")
+                        )
                         continue
                     digest = content_hash(text)
                     md_text = _convert_to_markdown(text, f)
@@ -712,12 +912,16 @@ async def ingest_path(
                 if existing == digest:
                     # Count existing chunks — use get_doc for chunk count
                     doc_chunks = await backend.get_doc(rel)
-                    results.append(IngestResult(path=rel, chunks=len(doc_chunks), action="unchanged"))
+                    results.append(
+                        IngestResult(path=rel, chunks=len(doc_chunks), action="unchanged")
+                    )
                     continue
 
             # Extract metadata
             title = extract_title(body) or frontmatter.get("title") or f.stem
-            category = frontmatter.get("category") or (f.parent.name if f.parent != base else "general")
+            category = frontmatter.get("category") or (
+                f.parent.name if f.parent != base else "general"
+            )
             audience = frontmatter.get("audience", "all")
             tags_str = frontmatter.get("tags", "")
             tags = [t.strip() for t in tags_str.split(",") if t.strip()] if tags_str else None
@@ -747,12 +951,36 @@ async def ingest_path(
                 except Exception:
                     log.debug("insert_links failed for %s (links table may not exist)", rel)
 
+            # Extract typed relations from frontmatter (relations: block)
+            typed_relations = extract_typed_relations(md_text)
+            if typed_relations:
+                # Group by relation_type for efficient batch inserts
+                by_type: dict[str, list[str]] = {}
+                for t_path, t_type in typed_relations:
+                    by_type.setdefault(t_type, []).append(t_path)
+                for t_type, t_targets in by_type.items():
+                    try:
+                        t_inserted = await backend.insert_links(
+                            rel, t_targets, relation_type=t_type
+                        )
+                        log.info(
+                            "typed_relations[%s]: %s -> %d targets", t_type, rel, t_inserted
+                        )
+                    except Exception:
+                        log.debug(
+                            "typed_relations insert failed for %s type=%s (links table may not exist)",
+                            rel,
+                            t_type,
+                        )
+
             # Extract content links from body (markdown links and wikilinks)
             content_links = extract_content_links(md_text)
             if content_links:
                 try:
                     cl_inserted = await backend.insert_links(
-                        rel, content_links, relation_type="content_link",
+                        rel,
+                        content_links,
+                        relation_type="content_link",
                     )
                     log.info("content_links: %s -> %d targets", rel, cl_inserted)
                 except Exception:

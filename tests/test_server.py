@@ -208,6 +208,25 @@ class TestSearchDocsTool:
         data = json.loads(result)
         assert len(data) <= 3
 
+    @pytest.mark.asyncio
+    async def test_rerank_without_extra_returns_unranked(self, writable_ctx, monkeypatch):
+        """If rerank=True but [reranking] missing, search still succeeds."""
+        await writable_ctx.backend.upsert_doc(
+            "a.md", ["Alpha content about search"], title="A", category="g"
+        )
+        await writable_ctx.backend.upsert_doc(
+            "b.md", ["Beta content about search"], title="B", category="g"
+        )
+
+        def _raise_import(*_a, **_kw):
+            raise ImportError("reranker not installed")
+
+        monkeypatch.setattr("gnosis_mcp.rerank.get_reranker", _raise_import, raising=False)
+        result = await search_docs("search", limit=2, rerank=True)
+        data = json.loads(result)
+        # Results come back regardless; no crash.
+        assert isinstance(data, list)
+
 
 # ---------------------------------------------------------------------------
 # MCP Tool tests — get_doc
@@ -405,9 +424,7 @@ class TestDeleteDocTool:
 class TestUpdateMetadataTool:
     @pytest.mark.asyncio
     async def test_update_title(self, writable_ctx):
-        await writable_ctx.backend.upsert_doc(
-            "meta.md", ["Content"], title="Old", category="test"
-        )
+        await writable_ctx.backend.upsert_doc("meta.md", ["Content"], title="Old", category="test")
         result = await update_metadata("meta.md", title="New Title")
         data = json.loads(result)
         assert data["action"] == "metadata_updated"
@@ -474,12 +491,8 @@ class TestListCategoriesResource:
 
     @pytest.mark.asyncio
     async def test_with_categories(self, writable_ctx):
-        await writable_ctx.backend.upsert_doc(
-            "a.md", ["Alpha"], title="A", category="guides"
-        )
-        await writable_ctx.backend.upsert_doc(
-            "b.md", ["Beta"], title="B", category="reference"
-        )
+        await writable_ctx.backend.upsert_doc("a.md", ["Alpha"], title="A", category="guides")
+        await writable_ctx.backend.upsert_doc("b.md", ["Beta"], title="B", category="reference")
         result = await list_categories()
         data = json.loads(result)
         categories = {r["category"] for r in data}
@@ -587,6 +600,7 @@ class TestNotifyWebhook:
             database_url=":memory:",
             backend="sqlite",
             webhook_url="http://localhost:9999/hook",
+            webhook_allow_private=True,
         )
         backend = SqliteBackend(config)
         ctx = AppContext(backend=backend, config=config)
@@ -598,9 +612,14 @@ class TestNotifyWebhook:
             captured["data"] = json.loads(req.data)
 
             class Resp:
-                def read(self): return b""
-                def __enter__(self): return self
-                def __exit__(self, *a): pass
+                def read(self):
+                    return b""
+
+                def __enter__(self):
+                    return self
+
+                def __exit__(self, *a):
+                    pass
 
             return Resp()
 
@@ -618,6 +637,7 @@ class TestNotifyWebhook:
             database_url=":memory:",
             backend="sqlite",
             webhook_url="http://localhost:9999/hook",
+            webhook_allow_private=True,
         )
         backend = SqliteBackend(config)
         ctx = AppContext(backend=backend, config=config)
@@ -628,6 +648,37 @@ class TestNotifyWebhook:
         monkeypatch.setattr(urllib.request, "urlopen", mock_urlopen)
         # Should not raise
         await _notify_webhook(ctx, "delete", "doc.md")
+
+    @pytest.mark.asyncio
+    async def test_refuses_private_address_by_default(self, monkeypatch):
+        config = GnosisMcpConfig(
+            database_url=":memory:",
+            backend="sqlite",
+            webhook_url="http://127.0.0.1:9999/hook",
+        )
+        backend = SqliteBackend(config)
+        ctx = AppContext(backend=backend, config=config)
+
+        called = {"n": 0}
+
+        def mock_urlopen(req, timeout=None):
+            called["n"] += 1
+
+            class Resp:
+                def read(self):
+                    return b""
+
+                def __enter__(self):
+                    return self
+
+                def __exit__(self, *a):
+                    pass
+
+            return Resp()
+
+        monkeypatch.setattr(urllib.request, "urlopen", mock_urlopen)
+        await _notify_webhook(ctx, "upsert", "doc.md")
+        assert called["n"] == 0, "Expected webhook POST to be refused for private address"
 
 
 # ---------------------------------------------------------------------------

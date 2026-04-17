@@ -14,6 +14,8 @@ Endpoints:
 from __future__ import annotations
 
 import logging
+import secrets
+import time
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
@@ -65,11 +67,48 @@ class ApiKeyMiddleware:
         if scope["type"] == "http":
             headers = dict(scope.get("headers", []))
             auth = headers.get(b"authorization", b"").decode()
-            if not auth.startswith("Bearer ") or auth[7:] != self.api_key:
+            valid = auth.startswith("Bearer ") and secrets.compare_digest(auth[7:], self.api_key)
+            if not valid:
                 response = JSONResponse({"error": "Unauthorized"}, status_code=401)
                 await response(scope, receive, send)
                 return
         await self.app(scope, receive, send)
+
+
+class RequestLoggingMiddleware:
+    """Log method, path, status, duration (ms). Skips /health."""
+
+    def __init__(self, app) -> None:
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        path = scope.get("path", "")
+        if path == "/health":
+            await self.app(scope, receive, send)
+            return
+        method = scope.get("method", "GET")
+        start = time.perf_counter()
+        status_holder = {"code": 0}
+
+        async def wrapped_send(message):
+            if message.get("type") == "http.response.start":
+                status_holder["code"] = message.get("status", 0)
+            await send(message)
+
+        try:
+            await self.app(scope, receive, wrapped_send)
+        finally:
+            duration_ms = (time.perf_counter() - start) * 1000
+            log.info(
+                "%s %s -> %d (%.1f ms)",
+                method,
+                path,
+                status_holder["code"],
+                duration_ms,
+            )
 
 
 class CorsMiddleware:
@@ -135,13 +174,18 @@ async def health(request: Request) -> JSONResponse:
     backend = _backend(request)
     cfg = _config(request)
     try:
+        from gnosis_mcp.server import _search_stats
+
         h = await backend.check_health()
-        return JSONResponse({
-            "status": "ok",
-            "version": __version__,
-            "backend": h.get("backend", cfg.backend),
-            "docs": h.get("chunks_count", 0),
-        })
+        return JSONResponse(
+            {
+                "status": "ok",
+                "version": __version__,
+                "backend": h.get("backend", cfg.backend),
+                "docs": h.get("chunks_count", 0),
+                "search_stats": dict(_search_stats),
+            }
+        )
     except Exception:
         log.exception("health check failed")
         return JSONResponse({"status": "error"}, status_code=500)
@@ -150,9 +194,7 @@ async def health(request: Request) -> JSONResponse:
 async def search(request: Request) -> JSONResponse:
     q = request.query_params.get("q", "").strip()
     if not q:
-        return JSONResponse(
-            {"error": "Query parameter 'q' is required"}, status_code=400
-        )
+        return JSONResponse({"error": "Query parameter 'q' is required"}, status_code=400)
 
     backend = _backend(request)
     cfg = _config(request)
@@ -171,31 +213,34 @@ async def search(request: Request) -> JSONResponse:
         try:
             from gnosis_mcp.embed import embed_texts
 
-            vectors = embed_texts(
-                [q], provider="local", model=cfg.embed_model, dim=cfg.embed_dim
-            )
+            vectors = embed_texts([q], provider="local", model=cfg.embed_model, dim=cfg.embed_dim)
             query_embedding = vectors[0] if vectors else None
         except ImportError:
             pass
 
     try:
         results = await backend.search(
-            q, category=category, limit=limit, query_embedding=query_embedding,
+            q,
+            category=category,
+            limit=limit,
+            query_embedding=query_embedding,
         )
         preview = cfg.content_preview_chars
         items = []
         for r in results:
             content = r["content"]
-            items.append({
-                "file_path": r["file_path"],
-                "title": r["title"],
-                "content_preview": (
-                    content[:preview] + "..." if len(content) > preview else content
-                ),
-                "score": round(float(r["score"]), 4),
-                "category": r.get("category"),
-                "highlight": r.get("highlight"),
-            })
+            items.append(
+                {
+                    "file_path": r["file_path"],
+                    "title": r["title"],
+                    "content_preview": (
+                        content[:preview] + "..." if len(content) > preview else content
+                    ),
+                    "score": round(float(r["score"]), 4),
+                    "category": r.get("category"),
+                    "highlight": r.get("highlight"),
+                }
+            )
         return JSONResponse({"results": items, "query": q, "count": len(items)})
     except Exception:
         log.exception("search failed")
@@ -213,14 +258,16 @@ async def get_doc(request: Request) -> JSONResponse:
 
         first = rows[0]
         content = "\n\n".join(r["content"] for r in rows)
-        return JSONResponse({
-            "title": first["title"],
-            "content": content,
-            "category": first.get("category"),
-            "audience": first.get("audience"),
-            "tags": first.get("tags"),
-            "chunks": len(rows),
-        })
+        return JSONResponse(
+            {
+                "title": first["title"],
+                "content": content,
+                "category": first.get("category"),
+                "audience": first.get("audience"),
+                "tags": first.get("tags"),
+                "chunks": len(rows),
+            }
+        )
     except Exception:
         log.exception("get_doc failed for path=%s", path)
         return JSONResponse({"error": "Failed to retrieve document"}, status_code=500)
@@ -293,21 +340,29 @@ async def get_context(request: Request) -> JSONResponse:
         if topic:
             results = await backend.search(topic, category=cat, limit=limit)
             top_accessed = await backend.get_top_accessed(
-                limit=limit, days=30, category=cat,
+                limit=limit,
+                days=30,
+                category=cat,
             )
             access_map = {r["file_path"]: r["access_count"] for r in top_accessed}
             for r in results:
                 content = r["content"]
-                docs.append({
-                    "file_path": r["file_path"],
-                    "title": r["title"],
-                    "category": r.get("category"),
-                    "summary": content[:preview] + "..." if len(content) > preview else content,
-                    "access_count": access_map.get(r["file_path"], 0),
-                })
+                docs.append(
+                    {
+                        "file_path": r["file_path"],
+                        "title": r["title"],
+                        "category": r.get("category"),
+                        "summary": content[:preview] + "..."
+                        if len(content) > preview
+                        else content,
+                        "access_count": access_map.get(r["file_path"], 0),
+                    }
+                )
         else:
             top_accessed = await backend.get_top_accessed(
-                limit=limit, days=30, category=cat,
+                limit=limit,
+                days=30,
+                category=cat,
             )
             for r in top_accessed:
                 chunks = await backend.get_doc(r["file_path"])
@@ -315,13 +370,15 @@ async def get_context(request: Request) -> JSONResponse:
                 if chunks:
                     c = chunks[0]["content"]
                     summary = c[:preview] + "..." if len(c) > preview else c
-                docs.append({
-                    "file_path": r["file_path"],
-                    "title": r["title"],
-                    "category": r["category"],
-                    "summary": summary,
-                    "access_count": r["access_count"],
-                })
+                docs.append(
+                    {
+                        "file_path": r["file_path"],
+                        "title": r["title"],
+                        "category": r["category"],
+                        "summary": summary,
+                        "access_count": r["access_count"],
+                    }
+                )
 
         stats_data = await backend.stats()
         stats = {
@@ -357,7 +414,10 @@ def create_rest_app(config: GnosisMcpConfig) -> Starlette:
     """Create a standalone Starlette app with REST API routes and its own backend lifespan."""
     app = Starlette(routes=_make_routes(), lifespan=_make_lifespan(config))
 
-    # Wrap with API key auth first (innermost after Starlette)
+    # Wrap with request logging (innermost — sees actual status codes)
+    app = RequestLoggingMiddleware(app)
+
+    # Wrap with API key auth (inside CORS so preflight bypasses auth)
     if config.api_key:
         app = ApiKeyMiddleware(app, config.api_key)
 
@@ -385,6 +445,8 @@ def create_combined_app(mcp_server, transport: str, config: GnosisMcpConfig) -> 
     routes.append(Mount("/", app=mcp_app))
 
     app = Starlette(routes=routes, lifespan=_make_lifespan(config))
+
+    app = RequestLoggingMiddleware(app)
 
     if config.api_key:
         app = ApiKeyMiddleware(app, config.api_key)

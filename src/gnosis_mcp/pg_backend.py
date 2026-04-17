@@ -74,7 +74,9 @@ class PostgresBackend:
 
     # -- helpers ---------------------------------------------------------------
 
-    def _union_select(self, select_clause: str, where_clause: str = "", order_clause: str = "") -> str:
+    def _union_select(
+        self, select_clause: str, where_clause: str = "", order_clause: str = ""
+    ) -> str:
         cfg = self._cfg
         tables = cfg.qualified_chunks_tables
         if len(tables) == 1:
@@ -100,6 +102,7 @@ class PostgresBackend:
         """Acquire a connection from the pool, or create a standalone connection."""
         if self._pool:
             return self._pool.acquire()
+
         # Standalone connection for CLI commands
         class _StandaloneCtx:
             def __init__(self, url):
@@ -108,6 +111,7 @@ class PostgresBackend:
 
             async def __aenter__(self):
                 import asyncpg as apg
+
                 self._conn = await apg.connect(self._url)
                 return self._conn
 
@@ -157,9 +161,7 @@ class PostgresBackend:
             )
             result["chunks_table_exists"] = chunks_exists
             if chunks_exists:
-                count = await conn.fetchval(
-                    f"SELECT count(*) FROM {cfg.qualified_chunks_table}"
-                )
+                count = await conn.fetchval(f"SELECT count(*) FROM {cfg.qualified_chunks_table}")
                 result["chunks_count"] = count
 
             links_exists = await conn.fetchval(
@@ -172,9 +174,7 @@ class PostgresBackend:
             )
             result["links_table_exists"] = links_exists
             if links_exists:
-                count = await conn.fetchval(
-                    f"SELECT count(*) FROM {cfg.qualified_links_table}"
-                )
+                count = await conn.fetchval(f"SELECT count(*) FROM {cfg.qualified_links_table}")
                 result["links_count"] = count
 
             if cfg.search_function:
@@ -229,6 +229,14 @@ class PostgresBackend:
         cfg = self._cfg
         if query_embedding:
             embedding_str = "[" + ",".join(str(f) for f in query_embedding) + "]"
+            # asyncpg.exceptions is the authoritative module for Postgres error classes
+            import asyncpg  # local import — asyncpg is an optional extra
+
+            _signature_mismatch = (
+                asyncpg.exceptions.UndefinedFunctionError,
+                asyncpg.exceptions.AmbiguousFunctionError,
+                asyncpg.exceptions.InvalidParameterValueError,
+            )
             try:
                 rows = await conn.fetch(
                     f"SELECT * FROM {cfg.search_function}("
@@ -239,7 +247,7 @@ class PostgresBackend:
                     [category] if category else None,
                     limit,
                 )
-            except Exception:
+            except _signature_mismatch:
                 log.debug("Custom search function doesn't accept p_embedding, falling back")
                 rows = await conn.fetch(
                     f"SELECT * FROM {cfg.search_function}("
@@ -424,12 +432,16 @@ class PostgresBackend:
                 idx = 2
 
                 if relation_type:
-                    rt_col = f"l.{cfg.col_relation_type}" if include_titles else cfg.col_relation_type
+                    rt_col = (
+                        f"l.{cfg.col_relation_type}" if include_titles else cfg.col_relation_type
+                    )
                     base_sql += f"AND {rt_col} = ${idx} "
                     params.append(relation_type)
                     idx += 1
 
-                rt_order = f"l.{cfg.col_relation_type}" if include_titles else cfg.col_relation_type
+                rt_order = (
+                    f"l.{cfg.col_relation_type}" if include_titles else cfg.col_relation_type
+                )
                 base_sql += f"ORDER BY {rt_order}, related_path"
 
                 rows = await conn.fetch(base_sql, *params)
@@ -579,8 +591,7 @@ class PostgresBackend:
         async with await self._acquire() as conn:
             async with conn.transaction():
                 await conn.execute(
-                    f"DELETE FROM {cfg.qualified_chunks_table} "
-                    f"WHERE {cfg.col_file_path} = $1",
+                    f"DELETE FROM {cfg.qualified_chunks_table} WHERE {cfg.col_file_path} = $1",
                     path,
                 )
                 for i, chunk in enumerate(chunks):
@@ -615,8 +626,7 @@ class PostgresBackend:
         cfg = self._cfg
         async with await self._acquire() as conn:
             result = await conn.execute(
-                f"DELETE FROM {cfg.qualified_chunks_table} "
-                f"WHERE {cfg.col_file_path} = $1",
+                f"DELETE FROM {cfg.qualified_chunks_table} WHERE {cfg.col_file_path} = $1",
                 path,
             )
             deleted = _row_count(result)
@@ -691,9 +701,7 @@ class PostgresBackend:
         has_embed_col = await self.has_column(qt.split(".")[-1], cfg.col_embedding)
         async with await self._acquire() as conn:
             total = await conn.fetchval(f"SELECT count(*) FROM {qt}")
-            docs = await conn.fetchval(
-                f"SELECT count(DISTINCT {cfg.col_file_path}) FROM {qt}"
-            )
+            docs = await conn.fetchval(f"SELECT count(DISTINCT {cfg.col_file_path}) FROM {qt}")
             cats = await conn.fetch(
                 f"SELECT {cfg.col_category} AS cat, count(DISTINCT {cfg.col_file_path}) AS docs, "
                 f"count(*) AS chunks "
@@ -713,14 +721,16 @@ class PostgresBackend:
                 cfg.links_table,
             )
             if links_exists:
-                links = await conn.fetchval(
-                    f"SELECT count(*) FROM {cfg.qualified_links_table}"
-                )
+                links = await conn.fetchval(f"SELECT count(*) FROM {cfg.qualified_links_table}")
 
             # Embedded chunks count (has_embed_col checked before acquiring conn)
-            embedded = await conn.fetchval(
-                f"SELECT count(*) FROM {qt} WHERE {cfg.col_embedding} IS NOT NULL"
-            ) if has_embed_col else 0
+            embedded = (
+                await conn.fetchval(
+                    f"SELECT count(*) FROM {qt} WHERE {cfg.col_embedding} IS NOT NULL"
+                )
+                if has_embed_col
+                else 0
+            )
 
         return {
             "table": qt,
@@ -729,8 +739,7 @@ class PostgresBackend:
             "embedded_chunks": embedded,
             "content_bytes": size,
             "categories": [
-                {"cat": r["cat"], "docs": r["docs"], "chunks": r["chunks"]}
-                for r in cats
+                {"cat": r["cat"], "docs": r["docs"], "chunks": r["chunks"]} for r in cats
             ],
             "links": links,
         }
@@ -977,9 +986,7 @@ class PostgresBackend:
             )
 
             # Total edges
-            total_edges = await conn.fetchval(
-                f"SELECT COUNT(*) FROM {lt}"
-            )
+            total_edges = await conn.fetchval(f"SELECT COUNT(*) FROM {lt}")
 
             # Relation type distribution
             rel_rows = await conn.fetch(
@@ -1003,8 +1010,12 @@ class PostgresBackend:
                 f"ORDER BY connections DESC LIMIT 10"
             )
             hubs = [
-                {"path": r["path"], "connections": r["connections"],
-                 "title": r["title"], "category": r["category"]}
+                {
+                    "path": r["path"],
+                    "connections": r["connections"],
+                    "title": r["title"],
+                    "category": r["category"],
+                }
                 for r in hub_rows
             ]
 
@@ -1062,15 +1073,17 @@ class PostgresBackend:
         qt = cfg.qualified_chunks_table
         async with await self._acquire() as conn:
             async with conn.transaction():
-                await conn.execute(
-                    f"DELETE FROM {qt} WHERE file_path = $1", rel_path
-                )
+                await conn.execute(f"DELETE FROM {qt} WHERE file_path = $1", rel_path)
                 for i, chunk in enumerate(chunks):
                     cols = "file_path, chunk_index, title, content, category, audience"
                     vals = "$1, $2, $3, $4, $5, $6"
                     params: list[Any] = [
-                        rel_path, i, chunk["title"], chunk["content"],
-                        category, audience,
+                        rel_path,
+                        i,
+                        chunk["title"],
+                        chunk["content"],
+                        category,
+                        audience,
                     ]
                     idx = 7
 

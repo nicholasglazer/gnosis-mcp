@@ -49,9 +49,7 @@ def get_provider_url(provider: str, custom_url: str | None = None) -> str:
         return custom_url
     url = _PROVIDER_URLS.get(provider)
     if url is None:
-        raise ValueError(
-            f"No default URL for provider {provider!r}. Set GNOSIS_MCP_EMBED_URL."
-        )
+        raise ValueError(f"No default URL for provider {provider!r}. Set GNOSIS_MCP_EMBED_URL.")
     return url
 
 
@@ -66,9 +64,7 @@ def _build_request_openai(
     return urllib.request.Request(url, data=payload, headers=headers, method="POST")
 
 
-def _build_request_ollama(
-    texts: list[str], model: str, url: str
-) -> urllib.request.Request:
+def _build_request_ollama(texts: list[str], model: str, url: str) -> urllib.request.Request:
     """Build an HTTP request for Ollama embedding API."""
     payload = json.dumps({"model": model, "input": texts}).encode()
     headers = {"Content-Type": "application/json"}
@@ -185,8 +181,7 @@ async def embed_pending(
 
             ids = [r["id"] for r in rows]
             texts = [
-                contextual_header(r["file_path"], r.get("title")) + r["content"]
-                for r in rows
+                contextual_header(r["file_path"], r.get("title")) + r["content"] for r in rows
             ]
 
             try:

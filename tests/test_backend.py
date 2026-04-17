@@ -23,18 +23,14 @@ class TestDocBackendProtocol:
         assert isinstance(backend, SqliteBackend)
 
     def test_create_backend_postgres(self):
-        config = GnosisMcpConfig(
-            database_url="postgresql://localhost/test", backend="postgres"
-        )
+        config = GnosisMcpConfig(database_url="postgresql://localhost/test", backend="postgres")
         backend = create_backend(config)
         # Can't import PostgresBackend without asyncpg installed,
         # but it should at least be a DocBackend
         assert isinstance(backend, DocBackend)
 
     def test_auto_detects_postgres_from_url(self):
-        config = GnosisMcpConfig(
-            database_url="postgresql://localhost/test", backend="auto"
-        )
+        config = GnosisMcpConfig(database_url="postgresql://localhost/test", backend="auto")
         assert config.backend == "postgres"
         backend = create_backend(config)
         assert isinstance(backend, DocBackend)
