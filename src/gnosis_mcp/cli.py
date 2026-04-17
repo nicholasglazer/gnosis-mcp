@@ -189,12 +189,56 @@ def cmd_check(args: argparse.Namespace) -> None:
 
 def cmd_ingest(args: argparse.Namespace) -> None:
     """Ingest files into the database."""
+    from gnosis_mcp.backend import create_backend
     from gnosis_mcp.config import GnosisMcpConfig
-    from gnosis_mcp.ingest import ingest_path
+    from gnosis_mcp.ingest import ingest_path, prune_stale
 
     config = GnosisMcpConfig.from_env()
 
+    async def _maybe_wipe() -> None:
+        if not getattr(args, "wipe", False):
+            return
+        backend = create_backend(config)
+        await backend.startup()
+        try:
+            docs = await backend.list_docs()
+            for d in docs:
+                try:
+                    await backend.delete_doc(d["file_path"])
+                except Exception:
+                    log.exception("wipe failed for %s", d["file_path"])
+            log.info("Wiped %d document(s) before re-ingest", len(docs))
+        finally:
+            await backend.shutdown()
+
+    async def _maybe_prune() -> None:
+        if not getattr(args, "prune", False):
+            return
+        backend = create_backend(config)
+        await backend.startup()
+        try:
+            report = await prune_stale(
+                backend,
+                args.path,
+                dry_run=getattr(args, "dry_run", False),
+                include_crawled=getattr(args, "include_crawled", False),
+            )
+            if report["pruned"]:
+                verb = "Would prune" if report["dry_run"] else "Pruned"
+                log.info("%s %d stale document(s):", verb, len(report["pruned"]))
+                for p in report["pruned"][:50]:
+                    log.info("  - %s", p)
+                if len(report["pruned"]) > 50:
+                    log.info("  ... and %d more", len(report["pruned"]) - 50)
+            else:
+                log.info(
+                    "No stale documents to prune (all %d in DB exist on disk).", report["kept"]
+                )
+        finally:
+            await backend.shutdown()
+
     async def _run() -> None:
+        await _maybe_wipe()
         results = await ingest_path(
             config=config,
             root=args.path,
@@ -264,6 +308,43 @@ def cmd_ingest(args: argparse.Namespace) -> None:
                 embed_result.total_null,
                 embed_result.errors,
             )
+
+    asyncio.run(_run())
+    # Prune after ingest so fresh chunks are kept and missing-file chunks go away.
+    asyncio.run(_maybe_prune())
+
+
+def cmd_prune(args: argparse.Namespace) -> None:
+    """Remove chunks from the DB whose source file no longer exists on disk."""
+    from gnosis_mcp.backend import create_backend
+    from gnosis_mcp.config import GnosisMcpConfig
+    from gnosis_mcp.ingest import prune_stale
+
+    config = GnosisMcpConfig.from_env()
+
+    async def _run() -> None:
+        backend = create_backend(config)
+        await backend.startup()
+        try:
+            report = await prune_stale(
+                backend,
+                args.path,
+                dry_run=args.dry_run,
+                include_crawled=args.include_crawled,
+            )
+            if report["pruned"]:
+                verb = "Would prune" if report["dry_run"] else "Pruned"
+                log.info("%s %d stale document(s):", verb, len(report["pruned"]))
+                for p in report["pruned"][:50]:
+                    log.info("  - %s", p)
+                if len(report["pruned"]) > 50:
+                    log.info("  ... and %d more", len(report["pruned"]) - 50)
+            else:
+                log.info(
+                    "No stale documents to prune (all %d in DB exist on disk).", report["kept"]
+                )
+        finally:
+            await backend.shutdown()
 
     asyncio.run(_run())
 
@@ -892,6 +973,34 @@ def main() -> None:
         action="store_true",
         help="Embed all chunks after ingestion (auto-detects local provider if installed)",
     )
+    p_ingest.add_argument(
+        "--prune",
+        action="store_true",
+        help="After ingest, delete chunks whose source file no longer exists on disk",
+    )
+    p_ingest.add_argument(
+        "--wipe",
+        action="store_true",
+        help="Delete ALL documents before re-ingesting (nuclear option — full reset)",
+    )
+    p_ingest.add_argument(
+        "--include-crawled",
+        action="store_true",
+        help="When pruning, also consider crawled URLs (default: leave them alone)",
+    )
+
+    # prune
+    p_prune = sub.add_parser(
+        "prune",
+        help="Delete DB chunks whose source file no longer exists on disk",
+    )
+    p_prune.add_argument("path", help="Directory (or file) whose corpus to prune")
+    p_prune.add_argument("--dry-run", action="store_true", help="Show what would be deleted")
+    p_prune.add_argument(
+        "--include-crawled",
+        action="store_true",
+        help="Also prune crawled URLs (default: leave them alone)",
+    )
 
     # search
     p_search = sub.add_parser("search", help="Search documents from the command line")
@@ -1062,5 +1171,6 @@ def main() -> None:
         "cleanup": cmd_cleanup,
         "fix-link-types": cmd_fix_link_types,
         "eval": cmd_eval,
+        "prune": cmd_prune,
     }
     commands[args.command](args)

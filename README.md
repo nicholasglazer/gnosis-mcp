@@ -81,6 +81,7 @@
 - **Multi-format** — `.md` `.txt` `.ipynb` `.toml` `.csv` `.json` + optional `.rst` `.pdf`
 - **Auto-linking** — `relates_to` frontmatter creates a navigable document graph
 - **Watch mode** — auto-re-ingest on file changes
+- **Prune stale docs** — `gnosis-mcp ingest --prune` removes chunks whose source file was deleted. `--wipe` for a full reset before re-ingest.
 - **Built-in eval harness** — `gnosis-mcp eval` prints Hit@K / MRR / Precision@K in one command
 - **PostgreSQL ready** — pgvector + tsvector when you need scale
 
@@ -95,6 +96,8 @@ gnosis-mcp serve                # starts MCP server
 That's it. Your AI agent can now search your docs.
 
 **Connect your editor** — see [`llms-install.md`](llms-install.md) for copy-paste JSON snippets for Claude Code, Claude Desktop, Cursor, Windsurf, VS Code, JetBrains, and Cline.
+
+**Re-organized your docs?** `gnosis-mcp ingest ./docs --prune` re-ingests and removes any DB chunk whose source file no longer exists. `--wipe` resets the entire index first. Or run `gnosis-mcp prune ./docs --dry-run` to preview what would be deleted.
 
 **Want semantic search?** Add local embeddings — no API key needed:
 

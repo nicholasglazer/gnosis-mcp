@@ -145,10 +145,17 @@ class TestApiKeyAuth:
         from gnosis_mcp.rest import create_rest_app
 
         with TestClient(create_rest_app(config)) as client:
-            r = client.get("/health")
+            # /api/* is gated; /health is intentionally public (see ApiKeyMiddleware).
+            r = client.get("/api/categories")
             assert r.status_code == 401
+            r_health = client.get("/health")
+            assert r_health.status_code == 200, "/health must bypass auth for monitoring"
 
     def test_accepts_with_key(self, monkeypatch, tmp_path):
+        import asyncio
+
+        from gnosis_mcp.sqlite_backend import SqliteBackend
+
         db_path = str(tmp_path / "auth.db")
         monkeypatch.setenv("GNOSIS_MCP_DATABASE_URL", db_path)
         monkeypatch.delenv("DATABASE_URL", raising=False)
@@ -156,10 +163,18 @@ class TestApiKeyAuth:
         monkeypatch.setenv("GNOSIS_MCP_API_KEY", "sk-secret")
         config = GnosisMcpConfig.from_env()
 
+        async def _init() -> None:
+            be = SqliteBackend(config)
+            await be.startup()
+            await be.init_schema()
+            await be.shutdown()
+
+        asyncio.run(_init())
+
         from gnosis_mcp.rest import create_rest_app
 
         with TestClient(create_rest_app(config)) as client:
-            r = client.get("/health", headers={"Authorization": "Bearer sk-secret"})
+            r = client.get("/api/categories", headers={"Authorization": "Bearer sk-secret"})
             assert r.status_code == 200
 
 

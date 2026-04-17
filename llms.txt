@@ -40,6 +40,19 @@ Add to your editor's MCP config (e.g. `.claude/mcp.json` for Claude Code):
 
 ### Read Tools (always available)
 
+### Re-indexing a re-organized corpus
+
+When your knowledge folder changes significantly (files moved or deleted), use one of:
+
+- `gnosis-mcp ingest ./docs --prune` — ingest new/changed, remove DB chunks whose source file no longer exists
+- `gnosis-mcp ingest ./docs --wipe` — full reset before re-ingest (nuclear)
+- `gnosis-mcp prune ./docs --dry-run` — preview what would be deleted without touching anything
+- `gnosis-mcp prune ./docs` — delete stale only, no ingest
+
+Pruning is scoped to the given root; crawled URLs are preserved unless `--include-crawled` is passed.
+
+---
+
 #### search_docs(query: str, category?: str, limit?: int, query_embedding?: list[float], rerank?: bool) -> JSON
 Search documentation using keyword (FTS5/tsvector) or hybrid semantic+keyword search.
 When `query_embedding` is provided, hybrid mode merges BM25 and cosine scores via Reciprocal Rank Fusion (tune via `GNOSIS_MCP_RRF_K`, default 60).

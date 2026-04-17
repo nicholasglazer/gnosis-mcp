@@ -37,6 +37,7 @@ __all__ = [
     "scan_files",
     "ingest_path",
     "diff_path",
+    "prune_stale",
     "TYPED_RELATION_ALLOWLIST",
 ]
 
@@ -795,6 +796,77 @@ def scan_files(root: Path) -> list[Path]:
     return sorted(set(found))
 
 
+async def prune_stale(
+    backend,
+    root: str,
+    *,
+    dry_run: bool = False,
+    include_crawled: bool = False,
+) -> dict:
+    """Remove DB docs whose source file no longer exists on disk.
+
+    Walks ``root`` to build the set of current file paths, then deletes every
+    document from the backend whose ``file_path`` isn't in that set.
+
+    A common failure mode: users re-organize their knowledge folder and old
+    chunks linger, polluting search results. This is the explicit cleanup.
+
+    Args:
+        backend: A ``DocBackend`` instance (started).
+        root: Directory or file that was used for ingest — pruning is scoped to
+            paths under this root so crawled URLs or unrelated ingests aren't
+            touched.
+        dry_run: If True, report what would be pruned without deleting.
+        include_crawled: If True, also consider crawl URLs (``http://`` prefixed
+            paths) for pruning. Default False — crawl lifecycles are separate.
+
+    Returns:
+        ``{"pruned": list[str], "kept": int, "dry_run": bool}``
+    """
+    root_path = Path(root).resolve()
+    base = root_path.parent if root_path.is_file() else root_path
+    on_disk = {str(f.relative_to(base)) for f in scan_files(root_path)}
+
+    docs = await backend.list_docs()
+    db_paths = [d["file_path"] for d in docs]
+
+    def _looks_like_url(p: str) -> bool:
+        return p.startswith(("http://", "https://"))
+
+    # Only consider DB paths that look like they came from this root:
+    # either relative (no leading slash) or URLs (if allowed).
+    candidates: list[str] = []
+    for p in db_paths:
+        if _looks_like_url(p):
+            if include_crawled:
+                candidates.append(p)
+            continue
+        # Keep paths that are absolute and outside our root alone.
+        if Path(p).is_absolute():
+            continue
+        candidates.append(p)
+
+    to_prune = [p for p in candidates if p not in on_disk]
+
+    pruned: list[str] = []
+    if not dry_run:
+        for p in to_prune:
+            try:
+                await backend.delete_doc(p)
+                pruned.append(p)
+                log.info("pruned stale doc: %s", p)
+            except Exception:
+                log.exception("prune failed for %s", p)
+    else:
+        pruned = list(to_prune)
+
+    return {
+        "pruned": pruned,
+        "kept": len(db_paths) - len(pruned),
+        "dry_run": dry_run,
+    }
+
+
 async def ingest_path(
     config,
     root: str,
@@ -963,9 +1035,7 @@ async def ingest_path(
                         t_inserted = await backend.insert_links(
                             rel, t_targets, relation_type=t_type
                         )
-                        log.info(
-                            "typed_relations[%s]: %s -> %d targets", t_type, rel, t_inserted
-                        )
+                        log.info("typed_relations[%s]: %s -> %d targets", t_type, rel, t_inserted)
                     except Exception:
                         log.debug(
                             "typed_relations insert failed for %s type=%s (links table may not exist)",

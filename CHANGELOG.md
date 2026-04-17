@@ -5,7 +5,7 @@ All notable changes to gnosis-mcp are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 Versioning follows [Semantic Versioning](https://semver.org/) (pre-1.0).
 
-## [Unreleased]
+## [0.10.13] - 2026-04-17
 
 ### Security
 - **Timing-safe Bearer token comparison** in REST API auth (`secrets.compare_digest`).
@@ -24,6 +24,9 @@ Versioning follows [Semantic Versioning](https://semver.org/) (pre-1.0).
 - **End-to-end MCP protocol tests** (`tests/test_mcp_e2e.py`): spawn `gnosis-mcp` subprocess, drive it through stdio MCP, assert 9 tools + 3 resources + write/read roundtrip + `gnosis-mcp check` integration.
 - **Three benchmark suites** in `tests/bench/`: `bench_search.py` (speed), `bench_rag.py` (retrieval quality — Precision@K, MRR, Hit Rate, keyword vs hybrid), `bench_mcp_e2e.py` (protocol round-trip latency).
 - **`gnosis-mcp eval` CLI subcommand** — runs the retrieval-quality harness and prints Hit@K / MRR / Precision@K in ~1 s. Short answer to "show me the numbers".
+- **`gnosis-mcp prune <path>`** — deletes DB chunks whose source file no longer exists on disk. Scoped to the given root so crawled URLs are untouched by default (`--include-crawled` to also prune them). `--dry-run` previews.
+- **`gnosis-mcp ingest --prune`** — after ingest, prune stale docs in the same pass.
+- **`gnosis-mcp ingest --wipe`** — nuke every document before re-ingesting (nuclear reset for re-organized knowledge folders).
 - **`[reranking]` optional extra** with ONNX cross-encoder reranker (`onnx-community/ms-marco-MiniLM-L6-v2-ONNX`, 22 M params, Apache 2.0). Off by default; enable via `GNOSIS_MCP_RERANK_ENABLED=true` or the `rerank=true` tool parameter.
 - **`GNOSIS_MCP_RRF_K`** env var to tune hybrid-search Reciprocal Rank Fusion (default 60, the canonical value).
 - `/health` REST endpoint now exposes `search_stats` (total / misses / hybrid / keyword counters).
@@ -46,6 +49,7 @@ Versioning follows [Semantic Versioning](https://semver.org/) (pre-1.0).
 - `_search_custom` PostgreSQL fallback narrowed to `asyncpg.UndefinedFunctionError`, `AmbiguousFunctionError`, `InvalidParameterValueError` (was catching every exception).
 
 ### Fixed
+- **`/health` now bypasses Bearer auth** even when `GNOSIS_MCP_API_KEY` is set — monitoring probes and load balancers were previously broken by returning 401. Regression test added in `tests/test_rest_auth.py`.
 - Documentation claim alignment: corrected test count, format count, and tool count across README, `llms.txt`, `llms-full.txt`, and `docs/show-hn.md`.
 - README links to `llms-install.md` from the Quick Start section.
 - `.coverage`, `htmlcov/`, `coverage.xml` added to `.gitignore`.

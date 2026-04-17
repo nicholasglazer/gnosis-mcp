@@ -162,13 +162,7 @@ class TestExtractTypedRelations:
         assert len(result) == 2
 
     def test_block_form(self):
-        md = (
-            "---\n"
-            "relations:\n"
-            "  - path: guides/old-billing.md\n"
-            "    type: replaces\n"
-            "---\nBody"
-        )
+        md = "---\nrelations:\n  - path: guides/old-billing.md\n    type: replaces\n---\nBody"
         result = extract_typed_relations(md)
         assert result == [("guides/old-billing.md", "replaces")]
 
@@ -187,26 +181,14 @@ class TestExtractTypedRelations:
         assert len(result) == 2
 
     def test_unknown_type_skipped(self):
-        md = (
-            "---\n"
-            "relations:\n"
-            "  - path: guides/a.md\n"
-            "    type: invented_type_xyz\n"
-            "---\nBody"
-        )
+        md = "---\nrelations:\n  - path: guides/a.md\n    type: invented_type_xyz\n---\nBody"
         result = extract_typed_relations(md)
         assert result == []
 
     def test_unknown_type_warns(self, caplog):
         import logging
 
-        md = (
-            "---\n"
-            "relations:\n"
-            "  - path: guides/a.md\n"
-            "    type: not_a_valid_type\n"
-            "---\nBody"
-        )
+        md = "---\nrelations:\n  - path: guides/a.md\n    type: not_a_valid_type\n---\nBody"
         with caplog.at_level(logging.WARNING, logger="gnosis_mcp"):
             extract_typed_relations(md)
         assert "not_a_valid_type" in caplog.text

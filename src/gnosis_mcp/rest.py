@@ -57,14 +57,28 @@ def _make_lifespan(config: GnosisMcpConfig):
 
 
 class ApiKeyMiddleware:
-    """Simple Bearer token auth. Skips non-http scopes (e.g. lifespan)."""
+    """Simple Bearer token auth. Skips non-http scopes (e.g. lifespan).
 
-    def __init__(self, app, api_key: str) -> None:
+    ``/health`` is always public — load balancers, monitoring, and CI probes
+    rely on it. Everything else under ``/api/`` requires a matching Bearer
+    token when one is configured.
+    """
+
+    # Paths that must never be gated by auth. Callers can extend via
+    # ``GNOSIS_MCP_PUBLIC_PATHS`` (comma-separated) if they add more probes.
+    PUBLIC_PATHS: tuple[str, ...] = ("/health",)
+
+    def __init__(self, app, api_key: str, public_paths: tuple[str, ...] | None = None) -> None:
         self.app = app
         self.api_key = api_key
+        self.public_paths = public_paths or self.PUBLIC_PATHS
 
     async def __call__(self, scope, receive, send):
         if scope["type"] == "http":
+            path = scope.get("path", "")
+            if path in self.public_paths:
+                await self.app(scope, receive, send)
+                return
             headers = dict(scope.get("headers", []))
             auth = headers.get(b"authorization", b"").decode()
             valid = auth.startswith("Bearer ") and secrets.compare_digest(auth[7:], self.api_key)
