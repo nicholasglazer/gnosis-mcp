@@ -196,3 +196,76 @@ jobs:
           else
             echo "Release $TAG already exists, skipping"
           fi
+
+  # ------------------------------------------------------------------------
+  # Post-release verification: poll PyPI until the new sdist is visible, then
+  # compute the Arch PKGBUILD sha256 and open a PR with the change. Keeps AUR
+  # packaging aligned without a manual Phase B on the maintainer's box.
+  # ------------------------------------------------------------------------
+  pypi-resolve-and-arch-pr:
+    needs: [check, publish-pypi]
+    if: needs.check.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Wait for PyPI to show the new version
+        run: |
+          set -euo pipefail
+          VERSION="${{ needs.check.outputs.version }}"
+          VERSION="${VERSION#v}"
+          URL="https://files.pythonhosted.org/packages/source/g/gnosis-mcp/gnosis_mcp-${VERSION}.tar.gz"
+          echo "Polling $URL"
+          # 12 tries × 30 s = up to 6 minutes
+          for i in $(seq 1 12); do
+            if curl -fsI "$URL" >/dev/null 2>&1; then
+              echo "PyPI has gnosis_mcp-${VERSION} (attempt $i)"
+              exit 0
+            fi
+            echo "  attempt $i — not yet, sleep 30s"
+            sleep 30
+          done
+          echo "ERROR: PyPI didn't show gnosis_mcp-${VERSION} within 6 min" >&2
+          exit 1
+
+      - name: Update Arch PKGBUILD sha256
+        run: |
+          set -euo pipefail
+          VERSION="${{ needs.check.outputs.version }}"
+          VERSION="${VERSION#v}"
+          bash scripts/update-arch-sums.sh "$VERSION"
+
+      - name: Open PR with PKGBUILD sha256 change
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          VERSION="${{ needs.check.outputs.version }}"
+          VERSION="${VERSION#v}"
+          BRANCH="release/arch-sums-${VERSION}"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          if git diff --quiet -- pkg/arch/; then
+            echo "No PKGBUILD changes needed — skipping PR"
+            exit 0
+          fi
+
+          git checkout -b "$BRANCH"
+          git add pkg/arch/PKGBUILD pkg/arch/.SRCINFO
+          git commit -m "pkg(arch): sha256 for ${VERSION}"
+          git push -u origin "$BRANCH"
+
+          gh pr create \
+            --title "pkg(arch): sha256 for ${VERSION}" \
+            --body "Auto-generated from publish.yml after PyPI upload of ${VERSION}.
+
+\`scripts/update-arch-sums.sh\` downloaded the sdist from PyPI and computed the sha256. Review + merge, then submit PKGBUILD/.SRCINFO to AUR (see docs/releasing.md §8)." \
+            --base main \
+            --head "$BRANCH"

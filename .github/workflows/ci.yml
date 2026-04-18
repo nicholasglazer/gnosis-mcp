@@ -90,3 +90,8 @@ jobs:
           python-version: "3.12"
       - name: Check version parity
         run: bash scripts/check-versions.sh
+      - name: Check llms.txt/llms-full.txt template drift
+        # Skips pytest collect (MCP numbers come from committed llms.txt).
+        # Any unresolved {{TOKEN}} or drift between template + rendered
+        # file fails the PR.
+        run: python3 scripts/render-llms.py --check

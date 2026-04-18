@@ -1,0 +1,312 @@
+# Gnosis MCP — Full Reference
+
+> Zero-config MCP server that makes your markdown docs searchable by AI agents.
+> SQLite default, PostgreSQL optional. Works with Claude Code, Cursor, Windsurf, Cline.
+> PyPI: gnosis-mcp | CLI: gnosis-mcp | Import: gnosis_mcp
+
+## Install
+
+```bash
+pip install gnosis-mcp               # SQLite (default, zero config)
+pip install gnosis-mcp[embeddings]  # + Local ONNX semantic search (no API key)
+pip install gnosis-mcp[postgres]     # + PostgreSQL support
+pip install gnosis-mcp[web]          # + Web crawl (httpx + trafilatura)
+```
+
+## Quick Setup (SQLite)
+
+```bash
+gnosis-mcp ingest ./docs/   # Auto-creates DB + loads markdown
+gnosis-mcp search "query"   # Test it works
+gnosis-mcp serve             # Start MCP server
+```
+
+## Quick Setup (SQLite + Semantic Search)
+
+```bash
+pip install gnosis-mcp[embeddings]
+gnosis-mcp ingest ./docs/ --embed   # Ingest + embed (downloads 23MB model on first run)
+gnosis-mcp serve                    # Hybrid keyword+semantic search auto-activated
+```
+
+## Quick Setup (PostgreSQL)
+
+```bash
+export GNOSIS_MCP_DATABASE_URL="postgresql://user:pass@localhost:5432/mydb"
+gnosis-mcp init-db          # Create tables (idempotent)
+gnosis-mcp ingest ./docs/   # Load markdown files
+gnosis-mcp check            # Verify connection + schema
+gnosis-mcp serve
+```
+
+## Editor Config
+
+The same JSON structure works in every editor. Add it to the appropriate config file:
+
+| Editor | Config File |
+|--------|------------|
+| Claude Code | `.claude/mcp.json` |
+| Cursor | `.cursor/mcp.json` |
+| VS Code (Copilot) | `.vscode/mcp.json` (note: uses `"servers"` not `"mcpServers"`) |
+| Windsurf | `~/.codeium/windsurf/mcp_config.json` |
+| JetBrains | Settings > Tools > AI Assistant > MCP Servers |
+| Cline | Cline MCP settings panel |
+
+SQLite (no env needed):
+
+```json
+{
+  "mcpServers": {
+    "docs": {
+      "command": "gnosis-mcp",
+      "args": ["serve"]
+    }
+  }
+}
+```
+
+PostgreSQL:
+
+```json
+{
+  "mcpServers": {
+    "docs": {
+      "command": "gnosis-mcp",
+      "args": ["serve"],
+      "env": {
+        "GNOSIS_MCP_DATABASE_URL": "postgresql://user:pass@localhost:5432/mydb"
+      }
+    }
+  }
+}
+```
+
+## Backends
+
+| | SQLite (default) | SQLite + embeddings | PostgreSQL |
+|---|---|---|---|
+| Install | `pip install gnosis-mcp` | `pip install gnosis-mcp[embeddings]` | `pip install gnosis-mcp[postgres]` |
+| Config | Nothing | Nothing | Set `DATABASE_URL` |
+| Search | FTS5 keyword (BM25) | Hybrid keyword+semantic (RRF) | tsvector + pgvector hybrid |
+| Embeddings | None | Local ONNX (23MB, no API) | Any provider + HNSW index |
+| Multi-table | No | No | Yes (UNION ALL) |
+
+Auto-detection: `DATABASE_URL` set to `postgresql://...` -> PostgreSQL. Not set -> SQLite. Override: `GNOSIS_MCP_BACKEND=sqlite|postgres`.
+
+The `[embeddings]` extra installs: onnxruntime, tokenizers, numpy, sqlite-vec. Default model: MongoDB/mdbr-leaf-ir (23M params, 23MB quantized). Model auto-downloads from HuggingFace via stdlib urllib on first use. Customize with `GNOSIS_MCP_EMBED_MODEL`.
+
+## Tools (6)
+
+### Read Tools (always available)
+
+1. **search_docs(query, category?, limit?, query_embedding?)** — Search docs using keyword (FTS5/tsvector) or hybrid semantic+keyword search. Returns `highlight` field with matched terms in `<mark>` tags.
+   - query: string (required) — search text
+   - category: string (optional) — filter by category
+   - limit: int (default 5, max configurable) — result count
+   - query_embedding: list[float] (optional) — pre-computed embedding for hybrid search (PostgreSQL)
+
+2. **get_doc(path, max_length?)** — Get full document by file path. Reassembles chunks in order.
+   - path: string (required) — e.g. "guides/quickstart.md"
+   - max_length: int (optional) — truncate at N characters
+
+3. **get_related(path)** — Find related documents via bidirectional link graph.
+   - path: string (required)
+
+### Write Tools (require GNOSIS_MCP_WRITABLE=true)
+
+4. **upsert_doc(path, content, title?, category?, audience?, tags?, embeddings?)** — Insert or replace document. Auto-chunks at paragraph boundaries. Optional `embeddings` accepts pre-computed vectors (one per chunk).
+
+5. **delete_doc(path)** — Delete document, its chunks, and links.
+
+6. **update_metadata(path, title?, category?, audience?, tags?)** — Update metadata fields on all chunks.
+
+## Resources (3)
+
+- **gnosis://docs** — List all documents with title, category, chunk count
+- **gnosis://docs/{path}** — Read document content by path
+- **gnosis://categories** — List categories with document counts
+
+## REST API (v0.10.0+)
+
+Enable native HTTP endpoints alongside MCP on the same port. Uses Starlette (bundled with mcp>=1.20, no new dependencies).
+
+Enable: `gnosis-mcp serve --transport streamable-http --rest`
+Or set: `GNOSIS_MCP_REST=true`
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /health` | `{"status": "ok", "version", "backend", "docs"}` |
+| `GET /api/search?q=&limit=&category=` | `{"results": [...], "query", "count"}` — auto-embeds with local provider |
+| `GET /api/docs/{path}` | `{"title", "content", "category", "audience", "tags", "chunks"}` |
+| `GET /api/docs/{path}/related` | `{"results": [{"related_path", "relation_type", "direction"}]}` |
+| `GET /api/categories` | `[{"category", "docs"}]` |
+
+| Env Variable | Description |
+|---|---|
+| `GNOSIS_MCP_REST` | `true`/`1`/`yes` to enable REST API |
+| `GNOSIS_MCP_CORS_ORIGINS` | `*` or comma-separated origins (e.g. `http://localhost:5174`) |
+| `GNOSIS_MCP_API_KEY` | Bearer token required in `Authorization: Bearer <key>` |
+
+## Configuration (Environment Variables)
+
+All settings via GNOSIS_MCP_* environment variables. Nothing required for SQLite.
+
+### Core Settings
+- GNOSIS_MCP_DATABASE_URL — PostgreSQL URL or SQLite file path (default: SQLite at ~/.local/share/gnosis-mcp/docs.db)
+- GNOSIS_MCP_BACKEND — Force backend: auto, sqlite, postgres (default: auto)
+- GNOSIS_MCP_SCHEMA — Database schema, PostgreSQL only (default: public)
+- GNOSIS_MCP_CHUNKS_TABLE — Chunks table name, comma-separated for multi-table on PG (default: documentation_chunks)
+- GNOSIS_MCP_LINKS_TABLE — Links table name (default: documentation_links)
+- GNOSIS_MCP_SEARCH_FUNCTION — Custom search function, PostgreSQL only (default: none)
+- GNOSIS_MCP_EMBEDDING_DIM — Embedding vector dimension for init-db (default: 1536)
+- GNOSIS_MCP_POOL_MIN — Min pool connections, PostgreSQL only (default: 1)
+- GNOSIS_MCP_POOL_MAX — Max pool connections, PostgreSQL only (default: 3)
+- GNOSIS_MCP_WRITABLE — Enable write tools: true/1/yes (default: false)
+- GNOSIS_MCP_WEBHOOK_URL — URL to POST on doc changes (default: none)
+
+### Embedding
+- GNOSIS_MCP_EMBED_PROVIDER — Embedding provider: openai, ollama, custom, or local (default: none, auto-detects local if [embeddings] installed)
+- GNOSIS_MCP_EMBED_MODEL — Embedding model name (default: text-embedding-3-small for remote, MongoDB/mdbr-leaf-ir for local)
+- GNOSIS_MCP_EMBED_DIM — Embedding dimension for local Matryoshka truncation and vec0 table width (default: 384)
+- GNOSIS_MCP_EMBED_API_KEY — API key for embedding provider (default: none)
+- GNOSIS_MCP_EMBED_URL — Custom embedding endpoint URL (default: none)
+- GNOSIS_MCP_EMBED_BATCH_SIZE — Chunks per embedding batch, min 1 (default: 50)
+
+### Tuning
+- GNOSIS_MCP_CONTENT_PREVIEW_CHARS — Characters in search previews, min 50 (default: 200)
+- GNOSIS_MCP_CHUNK_SIZE — Max chars per chunk, min 500 (default: 4000)
+- GNOSIS_MCP_SEARCH_LIMIT_MAX — Max search result limit, min 1 (default: 20)
+- GNOSIS_MCP_WEBHOOK_TIMEOUT — Webhook timeout seconds, min 1 (default: 5)
+- GNOSIS_MCP_TRANSPORT — Server transport: stdio, sse, or streamable-http (default: stdio)
+- GNOSIS_MCP_HOST — Bind address for HTTP transports (default: 127.0.0.1)
+- GNOSIS_MCP_PORT — Port for HTTP transports (default: 8000)
+- GNOSIS_MCP_LOG_LEVEL — Logging: DEBUG/INFO/WARNING/ERROR/CRITICAL (default: INFO)
+
+### Column Overrides (for existing tables with non-standard names)
+- GNOSIS_MCP_COL_FILE_PATH (default: file_path)
+- GNOSIS_MCP_COL_TITLE (default: title)
+- GNOSIS_MCP_COL_CONTENT (default: content)
+- GNOSIS_MCP_COL_CHUNK_INDEX (default: chunk_index)
+- GNOSIS_MCP_COL_CATEGORY (default: category)
+- GNOSIS_MCP_COL_AUDIENCE (default: audience)
+- GNOSIS_MCP_COL_TAGS (default: tags)
+- GNOSIS_MCP_COL_EMBEDDING (default: embedding)
+- GNOSIS_MCP_COL_TSV (default: tsv)
+- GNOSIS_MCP_COL_SOURCE_PATH (default: source_path)
+- GNOSIS_MCP_COL_TARGET_PATH (default: target_path)
+- GNOSIS_MCP_COL_RELATION_TYPE (default: relation_type)
+
+## Custom Search Function (PostgreSQL)
+
+Your function must accept:
+```sql
+(p_query_text text, p_categories text[], p_limit integer)
+```
+
+And return columns: file_path, title, content, category, combined_score.
+
+Optionally, your function can also accept `p_embedding vector(N)` for hybrid search. Gnosis will try passing it automatically when `query_embedding` is provided.
+
+## CLI
+
+```
+gnosis-mcp ingest <path> [--dry-run] [--force] [--embed]   # Load files (.md/.txt/.ipynb/.toml/.csv/.json)
+gnosis-mcp crawl <url> [--sitemap] [--depth N] [--include] [--exclude] [--dry-run] [--force] [--embed]
+gnosis-mcp serve [--transport stdio|sse|streamable-http] [--host H] [--port P] [--ingest PATH] [--watch PATH]
+gnosis-mcp search <query> [-n LIMIT] [-c CAT] [--embed]    # Search (--embed for hybrid semantic+keyword)
+gnosis-mcp stats                                           # Show document/chunk/embedding counts
+gnosis-mcp check                                           # Verify connection + sqlite-vec status
+gnosis-mcp embed [--provider P] [--model M] [--dry-run]    # Backfill embeddings (auto-detects local provider)
+gnosis-mcp init-db [--dry-run]                             # Create tables (or preview SQL)
+gnosis-mcp export [-f json|markdown|csv] [-c CAT]          # Export documents
+gnosis-mcp ingest-git <repo> [--since S] [--max-commits N] [--include P] [--exclude P] [--dry-run] [--embed] [--merges]
+gnosis-mcp diff <path>                                     # Show what would change on re-ingest
+gnosis-mcp --version                                       # Show version
+```
+
+## Git History Ingestion
+
+`gnosis-mcp ingest-git <repo-path>` converts git commit history into searchable markdown documents. Zero new dependencies — uses `git log` via subprocess.
+
+```bash
+gnosis-mcp ingest-git .                                      # Current repo, all files
+gnosis-mcp ingest-git /path/to/repo --since 6m               # Last 6 months only
+gnosis-mcp ingest-git . --include "src/*" --max-commits 5    # Filtered + limited
+gnosis-mcp ingest-git . --dry-run                            # Preview without ingesting
+gnosis-mcp ingest-git . --embed                              # Embed for semantic search
+```
+
+- One markdown document per file with meaningful commit history
+- Each commit becomes an H2 section with date, author, subject, body
+- Stored as `git-history/<file-path>` to avoid collision with source docs
+- Category set to `git-history` for scoped searches (`search_docs(query, category="git-history")`)
+- Auto-links to source file paths via `relates_to` graph
+- Content hashing for incremental re-ingest (skips files with unchanged history)
+- `--merges` flag includes merge commits (skipped by default)
+
+## Web Crawl
+
+`gnosis-mcp crawl <url>` fetches and ingests documentation from any website. Requires the `[web]` extra (`pip install gnosis-mcp[web]`).
+
+```bash
+gnosis-mcp crawl https://docs.stripe.com/ --sitemap           # Crawl via sitemap
+gnosis-mcp crawl https://fastapi.tiangolo.com/ --depth 2      # BFS link crawl with depth limit
+gnosis-mcp crawl https://docs.python.org/ --dry-run            # Preview discovered URLs
+gnosis-mcp crawl https://docs.example.com/ --sitemap --embed   # Crawl + embed for semantic search
+```
+
+- Sitemap.xml discovery (`--sitemap`) and BFS link crawling (`--depth N`)
+- robots.txt compliance — respects `Disallow` rules
+- ETag/Last-Modified HTTP caching for incremental re-crawl (304 Not Modified)
+- Content hashing: skips unchanged pages on re-crawl
+- URL path filtering with `--include` and `--exclude` glob patterns
+- Rate-limited concurrent fetching (5 concurrent, 0.2s delay)
+- SSRF protection: blocks private/internal IPs and checks redirect targets
+- Crawled pages stored with URL as `file_path`, hostname as `category`
+- Force re-crawl with `--force`, dry run with `--dry-run`, embed with `--embed`
+
+## Ingest
+
+`gnosis-mcp ingest <path>` scans a file or directory for supported files (`.md`, `.txt`, `.ipynb`, `.toml`, `.csv`, `.json`) and loads them into the database. Non-markdown formats are auto-converted using Python stdlib only — zero extra dependencies.
+
+- Chunks by H2 headers (H3/H4 for oversized sections). Never splits inside fenced code blocks or tables
+- Parses YAML-like frontmatter for title, category, audience, tags
+- Auto-linking: `relates_to` in frontmatter populates the links table (supports comma-separated and YAML list, skips glob patterns)
+- Content hashing: skips unchanged files on re-run
+- Watch mode: `gnosis-mcp serve --watch ./docs/` auto-re-ingests on file changes (mtime polling + debounce + auto-embed)
+- Category inferred from parent directory name
+- Title extracted from first H1 heading
+- Skips tiny files (<50 chars)
+- Use `--dry-run` to preview without writing
+
+## Architecture
+
+```
+src/gnosis_mcp/
+├── backend.py         # DocBackend Protocol + create_backend() factory
+├── pg_backend.py      # PostgreSQL backend — asyncpg, tsvector, pgvector, UNION ALL
+├── sqlite_backend.py  # SQLite backend — aiosqlite, FTS5 MATCH + bm25()
+├── sqlite_schema.py   # SQLite DDL — tables, FTS5, triggers, indexes
+├── config.py          # GnosisMcpConfig frozen dataclass, backend auto-detection
+├── db.py              # Backend lifecycle + FastMCP lifespan
+├── server.py          # FastMCP server: 6 tools + 3 resources + webhook helper
+├── ingest.py          # File scanner + converters: multi-format, smart chunking (H2/H3/H4), hashing
+├── crawl.py           # Web crawler — sitemap/BFS discovery, robots.txt, ETag caching, trafilatura
+├── parsers/           # Non-file ingest sources
+│   └── git_history.py # Git log → markdown documents per file (commit parsing, grouping, rendering)
+├── watch.py           # File watcher: mtime polling, auto-re-ingest on changes
+├── schema.py          # PostgreSQL DDL — tables, indexes, HNSW, hybrid search functions
+├── embed.py           # Embedding sidecar: provider abstraction (openai/ollama/custom/local)
+├── local_embed.py     # Local ONNX embedding engine — stdlib urllib model download
+└── cli.py             # argparse CLI: serve, init-db, ingest, ingest-git, crawl, search, embed, stats, export, diff, check
+```
+
+Default install deps: mcp + aiosqlite. Optional: asyncpg (via `[postgres]` extra), onnxruntime + tokenizers + numpy + sqlite-vec (via `[embeddings]` extra), httpx + trafilatura (via `[web]` extra). Model download uses stdlib urllib (no huggingface-hub dependency).
+
+## Performance
+
+9,463 QPS on 100 docs (300 chunks), 471 QPS on 10,000 docs (30,000 chunks) — SQLite FTS5 keyword. p95 under 6 ms at 10K corpus. End-to-end through the MCP stdio protocol: {{MCP_MEAN_MS}} ms mean, {{MCP_P95_MS}} ms p95 (v{{VERSION}}, after the mcp SDK 1.27 transport upgrade). {{TEST_COUNT}} tests, 10 RAG eval cases (Hit@5 = 1.00, MRR = 0.95, Precision@5 = 0.67). Install size: ~23MB with `[embeddings]` (ONNX model), ~5MB base. Benchmarks: `gnosis-mcp eval`, `python tests/bench/bench_search.py`, `python tests/bench/bench_rag.py`, `python tests/bench/bench_mcp_e2e.py`. See `docs/benchmarks.md` for methodology.
+
+## License
+
+MIT — https://github.com/nicholasglazer/gnosis-mcp
