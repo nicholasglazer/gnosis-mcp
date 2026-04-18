@@ -262,10 +262,14 @@ jobs:
           git commit -m "pkg(arch): sha256 for ${VERSION}"
           git push -u origin "$BRANCH"
 
+          cat > /tmp/pr-body.md <<PRBODY
+          Auto-generated from publish.yml after PyPI upload of ${VERSION}.
+
+          \`scripts/update-arch-sums.sh\` downloaded the sdist from PyPI and computed the sha256. Review + merge, then submit PKGBUILD/.SRCINFO to AUR (see docs/releasing.md §8).
+          PRBODY
+
           gh pr create \
             --title "pkg(arch): sha256 for ${VERSION}" \
-            --body "Auto-generated from publish.yml after PyPI upload of ${VERSION}.
-
-\`scripts/update-arch-sums.sh\` downloaded the sdist from PyPI and computed the sha256. Review + merge, then submit PKGBUILD/.SRCINFO to AUR (see docs/releasing.md §8)." \
+            --body-file /tmp/pr-body.md \
             --base main \
             --head "$BRANCH"
