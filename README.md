@@ -75,7 +75,7 @@
 
 - **Zero config** — SQLite by default, `pip install` and go
 - **Hybrid search** — keyword (BM25) + semantic (local ONNX embeddings, no API key). Tune RRF fusion with `GNOSIS_MCP_RRF_K`.
-- **Cross-encoder reranking** — optional `[reranking]` extra with a 22M-param ONNX model. Enable with `rerank=true` on the tool or `GNOSIS_MCP_RERANK_ENABLED=true`.
+- **Cross-encoder reranking** — optional `[reranking]` extra with a 22M-param ONNX model. Off by default. **[Test on your own corpus before enabling](docs/bench-experiments-2026-04-18.md)** — the bundled MS-MARCO reranker hurts dev-doc retrieval in our measurements.
 - **Git history** — ingest commit messages as searchable context (`ingest-git`)
 - **Web crawl** — ingest documentation from any website via sitemap or link crawl
 - **Multi-format** — `.md` `.txt` `.ipynb` `.toml` `.csv` `.json` + optional `.rst` `.pdf`
@@ -510,7 +510,7 @@ All settings via environment variables. Nothing required for SQLite — it works
 
 **Database:** `GNOSIS_MCP_SCHEMA` (public), `GNOSIS_MCP_CHUNKS_TABLE` (documentation_chunks), `GNOSIS_MCP_LINKS_TABLE` (documentation_links), `GNOSIS_MCP_SEARCH_FUNCTION` (custom search on PG).
 
-**Search & chunking:** `GNOSIS_MCP_CONTENT_PREVIEW_CHARS` (200), `GNOSIS_MCP_CHUNK_SIZE` (4000), `GNOSIS_MCP_SEARCH_LIMIT_MAX` (20), `GNOSIS_MCP_MAX_QUERY_CHARS` (10000), `GNOSIS_MCP_MAX_DOC_BYTES` (50_000_000), `GNOSIS_MCP_RRF_K` (60).
+**Search & chunking:** `GNOSIS_MCP_CONTENT_PREVIEW_CHARS` (200), `GNOSIS_MCP_CHUNK_SIZE` (2000 — peak on real dev-docs corpus, [bench-experiments](docs/bench-experiments-2026-04-18.md)), `GNOSIS_MCP_SEARCH_LIMIT_MAX` (20), `GNOSIS_MCP_MAX_QUERY_CHARS` (10000), `GNOSIS_MCP_MAX_DOC_BYTES` (50_000_000), `GNOSIS_MCP_RRF_K` (60).
 
 **Connection pool (PostgreSQL):** `GNOSIS_MCP_POOL_MIN` (1), `GNOSIS_MCP_POOL_MAX` (3).
 

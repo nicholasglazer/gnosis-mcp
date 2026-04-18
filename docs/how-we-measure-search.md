@@ -78,8 +78,9 @@ Average across all your questions and you get the **MRR**.
 | 0.5 | Usually around 2 |
 | 0.3 | Usually around 3-4 |
 
-**Our MRR on real dev docs is 0.78** — the right answer is the first
-result you click, most of the time.
+**Our MRR on real dev docs is 0.81** (after v0.11's chunk-size tune —
+it was 0.78 before). The right answer is the first result you click,
+most of the time.
 
 ---
 
@@ -101,8 +102,9 @@ book exactly in the right slot. Real systems live in 0.5–0.85.
 | 0.70 | Good — what most well-built systems hit |
 | 0.85+ | Very good — the librarian *knows* the collection |
 
-**Our keyword search hits 0.84 on real dev docs.** That's the "very
-good" tier without doing anything fancy.
+**Our keyword search hits 0.87 on real dev docs** (v0.11, with
+`GNOSIS_MCP_CHUNK_SIZE=2000`). That's firmly in "very good" territory
+without doing anything fancy.
 
 ---
 
@@ -190,12 +192,18 @@ We dogfooded on our own `/knowledge` corpus: 558 markdown files
 real-developer questions ("how do I deploy safely?", "how does the
 affiliate system work?", "where's the meta API reference?").
 
-| Metric | Score | Where this lands |
-|---|---:|---|
-| Hit@5 | **0.92** | The right doc is in the top 5 for 23 / 25 questions |
-| nDCG@10 | **0.84** | Top of the "very good" tier |
-| MRR | **0.78** | The right doc is usually result #1 or #2 |
-| p95 | **7 ms** | Imperceptible |
+v0.11 numbers (after the chunk-size tune):
+
+| Metric | Score | Where this lands | Δ vs v0.10 |
+|---|---:|---|---:|
+| Hit@5 | **0.92** | The right doc is in the top 5 for 23 / 25 questions | — |
+| nDCG@10 | **0.87** | Top of the "very good" tier | **+0.03** |
+| MRR | **0.81** | The right doc is usually result #1 or #2 | **+0.03** |
+| p95 | **7 ms** | Imperceptible | — |
+
+The +3-point lift came from changing one env var: `GNOSIS_MCP_CHUNK_SIZE`
+from 4000 to 2000 chars. See [bench-experiments-2026-04-18](bench-experiments-2026-04-18.md)
+for the full chunk-size sweep and why 2000 is the peak.
 
 When the corpus matches the queries — same words, same domain — BM25
 keyword search dominates. Embeddings help when queries are paraphrased
