@@ -223,7 +223,7 @@ async def main_async(args) -> int:
     await backend.init_schema()
 
     embedder = LocalEmbedder(dim=384)
-    reranker = get_reranker(model="cross-encoder/ms-marco-MiniLM-L6-v2")
+    reranker = get_reranker(model=args.rerank_model)
 
     print(f"  ingesting {corpus_root} (title_prepend={args.title_prepend}) …")
     t0 = time.perf_counter()
@@ -273,6 +273,9 @@ def main() -> int:
     ap.add_argument("--rerank-n", type=int, default=50)
     ap.add_argument("--title-prepend", action="store_true",
                     help="Prepend file title + path to each chunk (often +2-5 points)")
+    ap.add_argument("--rerank-model",
+                    default="cross-encoder/ms-marco-MiniLM-L6-v2",
+                    help="HF repo for the cross-encoder (e.g. BAAI/bge-reranker-base)")
     ap.add_argument("--out", default=None)
     args = ap.parse_args()
     return asyncio.run(main_async(args))

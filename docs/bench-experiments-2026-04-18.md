@@ -156,6 +156,23 @@ questions about specialised content."
   replace the default reranker model — separate experiment to size up
   CPU latency on the larger model.
 
+  **Update (same-day re-test, real corpus): BGE-reranker-base also hurts**:
+  nDCG drops to **0.5333** (vs MS-MARCO's 0.5674, vs keyword's 0.8407)
+  and p95 explodes to **15 819 ms** (vs MS-MARCO's 2 920 ms, vs keyword's
+  6 ms). Confirms that the dev-doc penalty is **not a model-choice
+  problem** — it's a fundamental mismatch between cross-encoders trained
+  on MS-MARCO web Q&A and our domain (technical documentation). Looking
+  at the top-3 hits per query, both rerankers consistently down-rank
+  reference / list / table content and up-rank prose-shaped passages
+  (changelog entries, SEO docs, completion notes) because those *look*
+  more like web Q&A answers.
+
+  **Practical conclusion**: until someone trains a reranker on a
+  developer-docs distribution, **enabling cross-encoder reranking on
+  technical documentation hurts retrieval quality and adds 500-2400×
+  latency**. Don't enable it. Don't ship it as the default. Document
+  the trap.
+
 ---
 
 ## What this changes in the codebase
