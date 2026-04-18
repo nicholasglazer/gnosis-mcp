@@ -14,7 +14,7 @@ relates_to:
 
 # Benchmarks
 
-Captured on gnosis-mcp v0.10.13, Python 3.14, Linux x86_64 laptop CPU.
+Captured on gnosis-mcp v0.11.0, Python 3.14, Linux x86_64 laptop CPU.
 
 Four distinct benchmark suites — each answers a different question.
 
@@ -28,7 +28,8 @@ Four distinct benchmark suites — each answers a different question.
 | Is retrieval accurate on our own corpus? | **Hit Rate@5 = 1.00, MRR = 0.95, P@5 = 0.67** on 10 eval cases |
 | Does hybrid search help? | Dataset-dependent. On SciFact (scientific) no lift over keyword. On real-world docs the local ONNX model contributes meaningfully |
 | What does an agent pay per tool call? | **~8.7 ms mean, 13.0 ms p95** end-to-end through the MCP stdio protocol |
-| How fast is ingest? | **~18–21 K chunks/s** keyword-only; ~29 docs/s with local ONNX embedding |
+| How fast is ingest? | **~18–21 K chunks/s** keyword-only (see §5). With local ONNX embeddings enabled, throughput is dominated by the embedder — budget ~30 docs/s on laptop CPU, varies with doc length |
+| What improved in v0.11? | **+3 points nDCG@10** on our real dev-docs corpus (0.8407 → 0.8702) — one config change: `GNOSIS_MCP_CHUNK_SIZE` lowered 4000 → 2000. Full sweep in [bench-experiments](bench-experiments-2026-04-18.md) |
 
 ---
 
@@ -71,7 +72,7 @@ Other BEIR datasets worth trying: `nfcorpus` (medical), `fiqa` (finance QA),
 
 ---
 
-## 1. Search speed — SQLite FTS5 (scale curve)
+## 2. Search speed — SQLite FTS5 (scale curve)
 
 Synthetic corpus, 1 000 queries each, median of 3 runs, in-memory DB.
 
@@ -93,7 +94,7 @@ uv run python tests/bench/bench_search.py --docs 1000 --queries 1000 --json
 
 ---
 
-## 2. Retrieval quality — RAG-native metrics
+## 3. Retrieval quality — RAG-native metrics
 
 Ten hand-authored query→expected-path cases (internal guides + git-history docs).
 
@@ -116,7 +117,7 @@ uv run python tests/bench/bench_rag.py --json       # machine-readable
 
 ---
 
-## 3. End-to-end MCP protocol latency
+## 4. End-to-end MCP protocol latency
 
 What a real MCP client (Claude Code, Cursor, Windsurf) pays per tool call —
 subprocess stdio transport, full JSON-RPC round trip.
@@ -140,7 +141,7 @@ uv run python tests/bench/bench_mcp_e2e.py --queries 100
 
 ---
 
-## 4. Ingest throughput
+## 5. Ingest throughput
 
 | Corpus | Chunks | Time (s) | Throughput |
 |--------|-------:|---------:|----------:|
@@ -155,7 +156,7 @@ for files that actually changed.
 
 ---
 
-## 5. PostgreSQL (pgvector)
+## 6. PostgreSQL (pgvector)
 
 PostgreSQL numbers are captured manually — no CI service container yet (PG CI
 is opt-in via `GNOSIS_MCP_CI_PG`). To reproduce:
@@ -190,13 +191,17 @@ full scan.
 
 ## Regression gates
 
-CI runs the bench suite nightly against the SQLite backend. A >10% regression
-in any of the following blocks a release:
+Benchmarks are run locally by the maintainer before each release (they are
+explicitly excluded from CI via the `bench` pytest marker so PR feedback
+stays fast). A >10 % regression in any of the following blocks a release:
 
 - QPS on 100- and 1 000-doc corpora
 - p95 latency on the scale curve
 - Hit Rate@5 on the eval cases
 - Ingest throughput
+
+Automating this (a scheduled workflow that runs the bench suite and posts
+numbers to a dashboard) is a v0.12 goal — tracked in the release plan.
 
 ## Methodology notes
 

@@ -24,7 +24,7 @@
   <a href="llms-full.txt">Full Reference</a>
 </p>
 
-<a href="#quick-start"><img src="https://raw.githubusercontent.com/nicholasglazer/gnosis-mcp/main/demo-hero.gif" alt="Gnosis MCP — ingest docs, search, view stats, serve" width="700"></a>
+<a href="#quick-start"><img src="https://raw.githubusercontent.com/nicholasglazer/gnosis-mcp/main/demo/demo-hero.gif" alt="Gnosis MCP — ingest docs, search, view stats, serve" width="700"></a>
 <br>
 <sub>Ingest docs &rarr; Search with highlights &rarr; Stats overview &rarr; Serve to AI agents</sub>
 
@@ -46,28 +46,13 @@
 
 ---
 
-## How gnosis-mcp compares
+## What makes gnosis-mcp different
 
-| Feature | gnosis-mcp | Context7 | Grounded Docs | mcp-local-rag |
-|---------|:---------:|:-------:|:------------:|:------------:|
-| **Your own docs** | Yes | No (public libs only) | Yes | Yes |
-| **Zero config** (pip + 2 commands) | Yes | Yes | Yes | Yes |
-| **Local embeddings** (no API key) | ONNX | No | Requires provider | Yes |
-| **Hybrid search** (keyword + semantic) | FTS5/tsvector + vector | No | Optional | Yes |
-| **PostgreSQL backend** | pgvector + HNSW | No | No | No |
-| **Web crawling** | Built-in | No | Yes | No |
-| **Git history indexing** | Yes | No | No | No |
-| **File watching** (auto re-ingest) | Yes | No | No | No |
-| **REST API** | Yes | No | No | No |
-| **Write tools** (upsert/delete) | Yes | No | No | No |
-| **Link graph** (get_related) | Yes | No | No | No |
-| **Smart chunking** (heading-aware) | Yes | N/A | Yes | Yes |
-| **Content hashing** (skip unchanged) | Yes | N/A | No | No |
-| **llms.txt** | Yes | No | No | No |
-| **Test count** | 610 | Unknown | Unknown | Unknown |
-| **Dependencies** | 2 (mcp + aiosqlite) | npm ecosystem | npm ecosystem | npm ecosystem |
+- **Your data stays on your machine.** SQLite by default, PostgreSQL at scale — nothing leaves the host.
+- **Index anything that's docs-shaped.** Markdown, git commit history, crawled websites — one index, one search API.
+- **Measured, not marketed.** Ships BEIR SciFact numbers (0.671 nDCG@10 — within 1 % of the Lucene BM25 baseline), a reproducible eval harness (`gnosis-mcp eval`), and a chunk-size sweep showing where the quality plateau actually sits.
 
-**TL;DR**: Context7 is a hosted SaaS that pre-crawls *public library docs* — convenient, but your queries leave your machine and you can't add private docs. gnosis-mcp ships its own crawler (`gnosis-mcp crawl https://docs.stripe.com`) so the same vendor docs land in your local SQLite alongside your own private docs and git history. One index, all yours.
+Full side-by-side vs Context7 / docs-mcp-server / mcp-local-rag: [gnosismcp.com#compare](https://gnosismcp.com/#compare).
 
 ---
 
@@ -157,7 +142,7 @@ uvx gnosis-mcp serve
 ## Web Crawl
 
 <div align="center">
-<img src="https://raw.githubusercontent.com/nicholasglazer/gnosis-mcp/main/demo-crawl.gif" alt="Gnosis MCP — crawl docs with dry-run, fetch, search, SSRF protection" width="700">
+<img src="https://raw.githubusercontent.com/nicholasglazer/gnosis-mcp/main/demo/demo-crawl.gif" alt="Gnosis MCP — crawl docs with dry-run, fetch, search, SSRF protection" width="700">
 <br>
 <sub>Dry-run discovery &rarr; Crawl &amp; ingest &rarr; Search crawled docs &rarr; SSRF protection</sub>
 </div>
@@ -648,54 +633,43 @@ src/gnosis_mcp/
 
 ## Performance
 
-Three benchmark suites, each answers a different question:
+Four questions, four measurements. Methodology, raw numbers, and reproduction commands: [`docs/benchmarks.md`](docs/benchmarks.md) · full write-up at [gnosismcp.com/#numbers](https://gnosismcp.com/#numbers).
 
-**1. Search speed** (SQLite FTS5, in-memory, median of 3 runs):
+**1. Fast enough for agents.** 8.7 ms mean, 13 ms p95 per MCP tool call (stdio round-trip). An agent calling `search_docs` twenty times in a response adds under a quarter-second.
 
-| Corpus | QPS | p50 | p95 | p99 | Hit Rate |
-|--------|----:|----:|----:|----:|---------:|
-| 100 docs / 300 chunks | 9,463 | 0.10 ms | 0.16 ms | 0.19 ms | 100% |
-| 1 000 docs / 3 000 chunks | 2,768 | 0.29 ms | 0.72 ms | 0.78 ms | 100% |
-| 5 000 docs / 15 000 chunks | 839 | 0.80 ms | 2.97 ms | 3.54 ms | 100% |
-| 10 000 docs / 30 000 chunks | 471 | 1.38 ms | 5.60 ms | 6.29 ms | 100% |
+**2. Scales past the laptop.** SQLite FTS5 keyword, median of 3 runs, in-memory:
 
-**2. Retrieval quality** (RAG-native metrics on 10 eval cases):
+| Corpus | QPS | p95 |
+|--------|----:|----:|
+| 100 docs | 9,463 | 0.16 ms |
+| 1,000 docs | 2,768 | 0.72 ms |
+| 5,000 docs | 839 | 3.0 ms |
+| 10,000 docs | 471 | 5.6 ms |
 
-| Mode | Hit@5 | MRR | P@5 |
-|------|------:|----:|----:|
-| Keyword (FTS5 + BM25) | 1.000 | 0.950 | 0.668 |
-| Hybrid (FTS5 + ONNX embeddings, RRF) | 1.000 | 0.950 | 0.668 |
+**3. Finds the right answer.** Two corpora, two stories:
 
-**3. End-to-end MCP protocol** (what Claude Code actually pays per tool call):
+- **Real developer docs** (558 docs, 25 hand-written golden queries): Hit@5 = **0.92**, nDCG@10 = **0.87**, MRR = **0.79**. v0.11 moved nDCG@10 from 0.8407 → 0.8702 by lowering the default `GNOSIS_MCP_CHUNK_SIZE` from 4000 → 2000 chars — peak of a 7-point sweep ([full write-up](docs/bench-experiments-2026-04-18.md)).
+- **BEIR SciFact** (5,183 docs, 300 test queries — public retrieval benchmark): nDCG@10 = **0.671**. Within 1 % of the Lucene BM25 reference baseline (0.679) that hybrid and dense retrievers historically struggle to beat on this dataset.
 
-| Operation | Mean | p50 | p95 | p99 |
-|-----------|-----:|----:|----:|----:|
-| `search_docs` through stdio MCP | **8.7 ms** | 8.1 ms | 13.0 ms | 15.8 ms |
+**4. Reproducible in one second.** `gnosis-mcp eval` runs the small internal RAG eval locally:
 
-(Improved from 13 ms mean in v0.10.12 via mcp SDK 1.27 upgrade.)
-
-Install size: ~23MB with `[embeddings]` (ONNX model). Base install is ~5MB.
-
-Run the benchmarks yourself:
+```
+$ gnosis-mcp eval
+  Hit Rate@5:       1.000
+  MRR:              0.950
+  Mean Precision@5: 0.668
+```
 
 ```bash
 uv run python tests/bench/bench_search.py           # speed, scale curve
 uv run python tests/bench/bench_rag.py              # quality, keyword vs hybrid
 uv run python tests/bench/bench_mcp_e2e.py          # protocol round-trip
+uv run python tests/bench/bench_real_corpus.py      # real-world retrieval on your own corpus
 ```
 
-See [`docs/benchmarks.md`](docs/benchmarks.md) for methodology, PostgreSQL numbers, and regression gates.
+Install size: ~23 MB with `[embeddings]` (ONNX model). Base install is ~5 MB. Test suite: 632 tests — most run without a database.
 
-632 tests, 10 RAG eval cases (Hit@5 = 1.00, MRR = 0.95), 3 end-to-end MCP protocol tests, 4 reranker tests. Most tests run without a database.
-
-Run `gnosis-mcp eval` yourself to reproduce the quality numbers:
-
-```bash
-$ gnosis-mcp eval
-  Hit Rate@5:       1.000
-  MRR:                0.950
-  Mean Precision@5: 0.668
-```
+**Reranker warning.** The bundled `[reranking]` extra stays off by default. On real dev-docs the MS-MARCO cross-encoder drops nDCG@10 by 27 points and adds 400× latency; BGE-reranker-v2-m3 drops it by 31 points at 2400× latency. Test on your corpus first. Full bench in [bench-experiments-2026-04-18](docs/bench-experiments-2026-04-18.md).
 
 ## Development
 
