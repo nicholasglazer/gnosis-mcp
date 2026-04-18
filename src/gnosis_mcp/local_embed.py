@@ -20,13 +20,19 @@ log = logging.getLogger("gnosis_mcp")
 _DEFAULT_MODEL = "MongoDB/mdbr-leaf-ir"
 _DEFAULT_DIM = 384
 
-# Files required for ONNX inference
-_MODEL_FILES = [
-    "onnx/model_quantized.onnx",
-    "onnx/model_quantized.onnx_data",
+# Required tokenizer + config files (present in every sentence-transformers repo).
+_TOKENIZER_FILES = [
     "tokenizer.json",
     "tokenizer_config.json",
     "special_tokens_map.json",
+]
+
+# ONNX filename candidates, tried in order. First one that HTTP 200s wins.
+# `model_quantized.onnx` is the usual small/fast variant (optimum export default);
+# `model.onnx` is the full-precision fallback.
+_ONNX_CANDIDATES = [
+    "onnx/model_quantized.onnx",
+    "onnx/model.onnx",
 ]
 
 _HF_BASE = "https://huggingface.co"
@@ -60,46 +66,80 @@ def _get_cache_dir() -> Path:
     return base / "gnosis-mcp" / "models"
 
 
-def _download_model(model_id: str, cache_dir: Path) -> Path:
+def _download_if_exists(url: str, dest: Path) -> bool:
+    """Try to download url to dest. Returns True on success, False on 404.
+    Raises on any other network error. Cleans up partial writes."""
+    if not url.startswith("https://huggingface.co/"):
+        raise RuntimeError(f"Refusing non-HuggingFace HTTPS URL: {url}")
+    try:
+        urllib.request.urlretrieve(url, str(dest))
+        return True
+    except urllib.error.HTTPError as exc:
+        dest.unlink(missing_ok=True)
+        if exc.code == 404:
+            return False
+        raise RuntimeError(f"Failed to download {url}: {exc}") from exc
+    except Exception as exc:
+        dest.unlink(missing_ok=True)
+        raise RuntimeError(f"Failed to download {url}: {exc}") from exc
+
+
+def _download_model(model_id: str, cache_dir: Path) -> tuple[Path, str]:
     """Download model files from HuggingFace using stdlib urllib.
 
-    Downloads each required file individually via the HF resolve endpoint.
-    Skips files that already exist in cache. Returns the model directory.
+    Returns (model_dir, onnx_rel_path) — which ONNX filename we landed on
+    (model_quantized.onnx or model.onnx).
     """
     # Sanitize model_id for filesystem: "MongoDB/mdbr-leaf-ir" -> "MongoDB--mdbr-leaf-ir"
     safe_name = model_id.replace("/", "--")
     model_dir = cache_dir / safe_name
     model_dir.mkdir(parents=True, exist_ok=True)
 
-    for rel_path in _MODEL_FILES:
+    # Tokenizer files — required.
+    for rel_path in _TOKENIZER_FILES:
         local_path = model_dir / rel_path
         if local_path.exists():
             continue
-
         local_path.parent.mkdir(parents=True, exist_ok=True)
         url = f"{_HF_BASE}/{model_id}/resolve/main/{rel_path}"
-        if not url.startswith("https://huggingface.co/"):
-            raise RuntimeError(f"Refusing non-HuggingFace HTTPS URL: {url}")
         log.info("Downloading %s ...", url)
-
-        try:
-            urllib.request.urlretrieve(url, str(local_path))
-        except Exception as exc:
-            # Clean up partial download
-            local_path.unlink(missing_ok=True)
-            raise RuntimeError(f"Failed to download {url}: {exc}") from exc
-
+        if not _download_if_exists(url, local_path):
+            raise RuntimeError(f"Missing required file: {url}")
         expected = _MODEL_CHECKSUMS.get((model_id, rel_path))
         if expected:
             actual = _sha256_file(local_path)
             if actual != expected:
                 local_path.unlink(missing_ok=True)
                 raise RuntimeError(
-                    f"Checksum mismatch for {rel_path}: expected {expected}, got {actual}. "
-                    f"Delete {local_path.parent} and re-run on a trusted network."
+                    f"Checksum mismatch for {rel_path}: expected {expected}, got {actual}"
                 )
 
-    return model_dir
+    # ONNX — try candidates in order. First one that exists wins.
+    onnx_rel: str | None = None
+    for candidate in _ONNX_CANDIDATES:
+        cache_path = model_dir / candidate
+        if cache_path.exists():
+            onnx_rel = candidate
+            break
+
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        url = f"{_HF_BASE}/{model_id}/resolve/main/{candidate}"
+        log.info("Trying %s ...", url)
+        if _download_if_exists(url, cache_path):
+            onnx_rel = candidate
+            # Try the .onnx_data sidecar (only present for models split >2GB)
+            sidecar_rel = candidate + "_data"
+            sidecar_url = f"{_HF_BASE}/{model_id}/resolve/main/{sidecar_rel}"
+            sidecar_path = model_dir / sidecar_rel
+            _download_if_exists(sidecar_url, sidecar_path)  # 404 is fine
+            break
+
+    if onnx_rel is None:
+        raise RuntimeError(
+            f"No ONNX file found for {model_id}. Tried: {', '.join(_ONNX_CANDIDATES)}"
+        )
+
+    return model_dir, onnx_rel
 
 
 class LocalEmbedder:
@@ -126,14 +166,14 @@ class LocalEmbedder:
         from tokenizers import Tokenizer
         import onnxruntime as ort
 
-        model_dir = _download_model(self._model_id, self._cache_dir)
+        model_dir, onnx_rel = _download_model(self._model_id, self._cache_dir)
 
         # Load tokenizer
         tokenizer_path = model_dir / "tokenizer.json"
         self._tokenizer = Tokenizer.from_file(str(tokenizer_path))
 
         # Load ONNX model with CPU provider
-        onnx_path = model_dir / "onnx" / "model_quantized.onnx"
+        onnx_path = model_dir / onnx_rel
         opts = ort.SessionOptions()
         opts.inter_op_num_threads = 1
         opts.intra_op_num_threads = 4

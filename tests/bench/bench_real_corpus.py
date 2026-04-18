@@ -221,15 +221,16 @@ async def main_async(args) -> int:
         database_url=f"sqlite:///{db_path}",
         backend="sqlite",
         writable=True,
-        embedding_dim=384,
-        embed_dim=384,
+        embedding_dim=args.embed_dim,
+        embed_dim=args.embed_dim,
         rrf_k=args.rrf_k,
     )
     backend = create_backend(cfg)
     await backend.startup()
     await backend.init_schema()
 
-    embedder = LocalEmbedder(dim=384)
+    print(f"  embedder: {args.embed_model} @ dim={args.embed_dim}")
+    embedder = LocalEmbedder(model_id=args.embed_model, dim=args.embed_dim)
     reranker = get_reranker(model=args.rerank_model)
 
     print(f"  ingesting {corpus_root} (chunk_size={args.chunk_size}, title_prepend={args.title_prepend}) …")
@@ -291,6 +292,10 @@ def main() -> int:
                     help="Max chars per chunk (default 4000; try 1000 for finer granularity)")
     ap.add_argument("--rrf-k", type=int, default=60,
                     help="RRF fusion constant (default 60)")
+    ap.add_argument("--embed-model", default="MongoDB/mdbr-leaf-ir",
+                    help="HuggingFace repo for the embedder (must ship ONNX)")
+    ap.add_argument("--embed-dim", type=int, default=384,
+                    help="Embedding dimension (Matryoshka truncate target for models that support it)")
     ap.add_argument("--out", default=None)
     args = ap.parse_args()
     return asyncio.run(main_async(args))
