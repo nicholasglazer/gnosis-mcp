@@ -5,6 +5,37 @@ All notable changes to gnosis-mcp are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 Versioning follows [Semantic Versioning](https://semver.org/) (pre-1.0).
 
+## [Unreleased]
+
+### Added
+### Changed
+### Fixed
+### Security
+
+## [0.11.0] - 2026-04-18
+
+### Changed
+- **Default chunk size lowered 4000 → 2000 chars** (`GNOSIS_MCP_CHUNK_SIZE`). Measured on a real 558-doc developer-docs corpus with 25 hand-written golden queries: 2000-char chunks sit on the peak nDCG@10 plateau (0.8702), up from 0.8416 at the old 4000-char default (+3 nDCG points, Hit@5 0.88 → 0.92). Existing corpora keep working; re-ingest with `--wipe` to regenerate at the new size. Full sweep in `docs/bench-experiments-2026-04-18.md`.
+- **Documentation hardened on reranker guidance.** The bundled `[reranking]` cross-encoder remains off by default. New measurements on the same corpus: MiniLM rerank drops nDCG@10 by 27 points and adds 400× latency; BGE-reranker-v2-m3 drops nDCG@10 by 31 points and adds 2400× latency. Search skill now warns explicitly before enabling. Prose-trained rerankers fight reference-style docs; measure on your corpus before turning it on.
+
+### Added
+- **Release pipeline** (`scripts/bump-version.sh`, `scripts/release.sh`, `scripts/update-arch-sums.sh`, `scripts/render-llms.py`, `docs/releasing.md`). Single-command version bump across 13 files — pyproject, `__init__.py`, `server.json`, `marketplace.json`, `SECURITY.md`, `CHANGELOG.md`, `pkg/arch/PKGBUILD`, `pkg/arch/.SRCINFO`, `docs/rest-api.md`, `docs/show-hn.md`, `demo/hero.tape`, `skills/setup/SKILL.md`, `uv.lock`. Extended `scripts/check-versions.sh` now gates all seven version-bearing files in CI and on every parity check. `scripts/release.sh verify <X.Y.Z>` polls PyPI / GHCR / MCP Registry / GitHub / AUR after a tag push and reports which are live.
+- **Post-release Arch-sums PR workflow**. A new job in `.github/workflows/publish.yml` polls PyPI until the new sdist resolves, computes the tarball sha256, and opens a PR with the PKGBUILD + `.SRCINFO` update. First-time AUR publish walkthrough in `docs/releasing.md` §8.
+- **Template-rendered `llms.txt` / `llms-full.txt`**. Source lives in `llms.txt.tmpl` and `llms-full.txt.tmpl` with `{{VERSION}}` / `{{TEST_COUNT}}` / `{{MCP_MEAN_MS}}` / `{{MCP_P95_MS}}` tokens; CI gates the rendered output for drift.
+- **Agents + skills refresh.** `agents/corpus-sync.md` (bulk ingest / prune / wipe / crawl / git-history lifecycle with playbooks), updated `agents/doc-keeper.md` (single-file CRUD lane), and rewritten skills: `skills/search/`, `skills/ingest/`, `skills/tune/`, `skills/manage/`. Users can drop these straight into `~/.claude/agents/` and `~/.claude/skills/`.
+- **Benchmark experiments log** (`docs/bench-experiments-2026-04-18.md`): full chunk-size sweep (1000 → 4000 chars), reranker comparison table (keyword, MiniLM, BGE-v2-m3, mxbai-large), hybrid-vs-keyword on vocabulary-matched corpora, with raw numbers and methodology.
+- **`tests/bench/bench_real_corpus.py --embed-model / --embed-dim` flags** — swap the embedder for A/B retrieval-quality shoot-outs against any model that ships an ONNX artefact on HuggingFace.
+- **`GNOSIS_MCP_ALLOW_PRIVATE_CRAWL=true` env override** for the crawl SSRF guard — useful for local dev, CI, and Docker-internal testing. Mirrors the existing `GNOSIS_MCP_WEBHOOK_ALLOW_PRIVATE` pattern. Off by default.
+- **ONNX filename fallback** in `local_embed.py` — tries `onnx/model_quantized.onnx` first, then `onnx/model.onnx`. Lets the embedder load any HF repo that ships either variant.
+- **`/eval` short-answer tooling** exposed through the `gnosis-mcp eval` CLI and the `tune` skill — measures Hit@K / MRR / Precision@K on a user's own corpus in under a second.
+- **Docker image** published to GHCR (`ghcr.io/nicholasglazer/gnosis-mcp`), multi-arch (linux/amd64, linux/arm64), built by `.github/workflows/docker.yml` on every tag push.
+- **Landing site refresh** at [gnosismcp.com](https://gnosismcp.com): honest feature copy, fact-checked benchmark card, graph visualization driven by live `documentation_links` data, `llms.txt` + `llms-full.txt` served at the root for AI-assistant ingestion.
+- **Rewritten demo GIFs.** `demo/demo-hero.gif` (440 KB) and `demo/demo-crawl.gif` (584 KB). Real commands only — no fake version echoes, no `pip install` during recording, no backgrounded-server noise. Source (VHS tape + staging scripts) lives in `.internal/demo-source/`.
+
+### Fixed
+- `llms.txt` and `llms-full.txt` now reflect the actual test count (632) and the current SDK version.
+- CHANGELOG ordering: `[Unreleased]` stays at the top; `All notable changes…` preamble moved out of the release block so it doesn't get rolled into a version section on the next bump.
+
 ## [0.10.13] - 2026-04-17
 
 ### Security
