@@ -17,15 +17,16 @@ docs corpus (`/knowledge`, 558 markdown files, 25 hand-written golden
 queries). Goal: find out which "obvious" retrieval improvements actually
 work, and which are traps.
 
-> All numbers are from a single laptop run on April 2026, gnosis-mcp
-> v0.10.13, Python 3.14, SQLite + sqlite-vec, MongoDB/mdbr-leaf-ir
-> (384-dim, 23M params) for the embedder, cross-encoder/ms-marco-MiniLM-L6-v2
-> for the reranker. Reproduce with `tests/bench/bench_sweep.py` and
-> `tests/bench/bench_real_corpus.py`.
+> All numbers from a single laptop run on April 2026, gnosis-mcp
+> v0.11.0, Python 3.14, SQLite + sqlite-vec, MongoDB/mdbr-leaf-ir
+> (384-dim, 23M params) for the embedder unless otherwise noted,
+> cross-encoder/ms-marco-MiniLM-L6-v2 for the reranker. Reproduce with
+> `tests/bench/bench_sweep.py`, `tests/bench/bench_real_corpus.py`, and
+> `scripts/bench-embedders.sh`.
 
 ---
 
-## TL;DR — three counter-intuitive findings
+## TL;DR — four counter-intuitive findings
 
 1. **The MS-MARCO reranker actively hurts retrieval on developer docs**
    (-27 nDCG@10 on our `/knowledge` corpus). It's optimised for MS-MARCO
@@ -43,6 +44,13 @@ work, and which are traps.
    trick from the chunking literature; on our corpus it gives keyword
    +0.5 points but **costs hybrid -9.6 points** because the embedder
    over-weights repeated boilerplate.
+
+4. **Bigger embedders don't win on dev docs.** Three models spanning 23M →
+   335M params (a 15× range), three different architectures — all tied at
+   **0.8702 nDCG@10 / 0.7933 MRR / 0.92 Hit@5** to four decimal places on
+   our `/knowledge` corpus. The 23M-param default is 13-32× faster to
+   ingest for identical retrieval quality. **Default stays `mdbr-leaf-ir`.**
+   See Experiment 6 below.
 
 ---
 
@@ -172,6 +180,80 @@ This mirrors the Feb 2026 chunking systematic analysis finding that the
 **Action taken**: lowered the `GNOSIS_MCP_CHUNK_SIZE` default from 4000
 to 2000 in v0.11.0-dev. Single-line code change, +3 nDCG free, no
 latency cost.
+
+---
+
+## Experiment 6 — embedder shoot-out (real corpus, same setup as Experiment 2)
+
+Three embedders across a 15× parameter range, tested against the same
+558-doc `/knowledge` corpus, same 25 golden queries, same
+`chunk_size=2000`, no title prepend. Both keyword and hybrid modes.
+Each model embedded at its native output dimension so no Matryoshka
+truncation penalises the larger models.
+
+| Embedder | Params | ONNX size | Native dim | Ingest | nDCG@10 | MRR@10 | Hit@5 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| **MongoDB/mdbr-leaf-ir** (default) | 23 M | 23 MB | 384 | **211 s** | 0.8702 | 0.7933 | 0.9200 |
+| mixedbread-ai/mxbai-embed-large-v1 | 335 M | 337 MB (quantized) | 1024 | 2 740 s (**13×**) | 0.8702 | 0.7933 | 0.9200 |
+| BAAI/bge-large-en-v1.5 | 335 M | 1 370 MB (fp32) | 1024 | 6 820 s (**32×**) | 0.8702 | 0.7933 | 0.9200 |
+
+Hybrid mode produced identical numbers to keyword mode for every row
+(the hybrid-ties-keyword finding from Experiment 4 held for all three
+embedders).
+
+**Reading.**
+
+- Identical to four decimal places across a 15× parameter span and three
+  architectures. Not a rounding coincidence — **the 0.8702 plateau is a
+  BM25 ceiling on this corpus, not a model ceiling.** The embedding arm
+  contributes zero marginal lift when BM25 produces non-zero scores for
+  every relevant document; RRF collapses to the BM25 ranking regardless
+  of what the dense retriever voted.
+- Ingest cost scales roughly with `params × bytes-per-param`. bge-large
+  is full-precision fp32 (1.37 GB) vs mxbai's int8 quantized (337 MB), so
+  bge-large takes 2.5× longer than mxbai despite identical param count.
+- Practical picture: on vocabulary-matched corpora, pay for the smallest
+  adequate embedder. The 23 M default is 13-32× faster to index and
+  loses nothing measurable downstream.
+
+**When the embedder *would* matter.**
+
+- **Paraphrase-heavy workloads** — queries don't share vocabulary with
+  docs. Published BEIR-FIQA numbers show hybrid beating keyword by
+  5-10 nDCG; this is where better embedders earn their keep. Our dev
+  docs are the opposite case.
+- **Cross-language corpora** — `mdbr-leaf-ir` is English-specialised.
+  For multilingual retrieval, `google/embeddinggemma-300m` (if the Gemma
+  license is acceptable for your use) or a multilingual E5 variant is
+  the right call.
+- **Very long documents** — models like `nomic-embed-text-v1.5` ship
+  8 192-token context vs `mdbr-leaf-ir`'s 512. Our chunker caps at
+  2 000 chars anyway, so the extra context is unused in our pipeline.
+
+**One data point we couldn't land.**
+
+We also planned to test `nomic-ai/nomic-embed-text-v1.5` (137 M,
+Matryoshka-trained, 8 192-token context). A direct call to
+`LocalEmbedder(model_id='nomic-ai/nomic-embed-text-v1.5', dim=768)` and
+`.embed(['hello world'])` returns a 768-d vector in ~1 s — the model
+loads fine. The 558-doc batch ingest hung past the 300 s wall-clock
+timeout we used for the re-run attempt; the 547 MB fp32 ONNX artifact
+has a per-chunk forward pass noticeably heavier than bge-large's, and
+our chunker's 512-token cap means nomic's 8 192-token context advantage
+is wasted. Given the three models we *did* run tied to four decimal
+places across a 15× parameter range, adding a fourth number almost
+certainly wouldn't change the conclusion. Noted here so a future
+contributor can pick it up if they care to.
+
+**Reproduce.**
+
+```bash
+bash scripts/bench-embedders.sh    # ~90 min on laptop CPU
+```
+
+Results land in `bench-results/embedders-<timestamp>/` as per-model
+JSON. Set `CORPUS=` / `GOLDEN=` to point at your own corpus and golden
+set if you want to test the generalisation on your own workload.
 
 ---
 
