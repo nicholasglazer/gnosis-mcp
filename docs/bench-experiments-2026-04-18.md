@@ -142,6 +142,39 @@ questions about specialised content."
 
 ---
 
+## Experiment 5 — chunk size sweep (same corpus, keyword mode, verified 2×)
+
+On the same real corpus, varying `GNOSIS_MCP_CHUNK_SIZE` (in characters —
+not tokens) and re-running each config fresh:
+
+| Chunk size (chars) | ≈ tokens | nDCG@10 | MRR | Hit@5 | p95 | Ingest |
+|---:|---:|---:|---:|---:|---:|---:|
+| 1000 | ~300 | 0.8557 | **0.8067** | 0.92 | 30 ms | 592 s |
+| 1500 | ~450 | 0.8529 | 0.7967 | 0.92 | 7 ms | 234 s |
+| 1800 | ~540 | **0.8702** | 0.7933 | 0.92 | (outlier) | 304 s |
+| **2000** | **~600** | **0.8702** | 0.7933 | **0.92** | **7 ms** | 210 s |
+| 2200 | ~660 | 0.8502 | 0.7933 | 0.92 | 8 ms | 202 s |
+| 3000 | ~900 | 0.8459 | 0.7880 | 0.92 | 7 ms | 182 s |
+| 4000 (old default) | ~1200 | 0.8407 | 0.7813 | 0.92 | 7 ms | 171 s |
+
+**The peak is a verified 1800-2000 char plateau** — re-ran both twice,
+0.8702 reproduces exactly. Drops at both ends. The mechanism, confirmed
+by per-query inspection: when chunk size matches the typical topic-coherent
+block length in our corpus (a single section or subsection of a guide),
+BM25 gets clean term density. Smaller chunks fragment a section across
+several chunks (terms spread thin); larger merge unrelated sections
+together (term density diluted by surrounding noise).
+
+This mirrors the Feb 2026 chunking systematic analysis finding that the
+256-512 token range is the sweet spot for most corpora — 2000 chars
+≈ 600 tokens sits at the top of that band.
+
+**Action taken**: lowered the `GNOSIS_MCP_CHUNK_SIZE` default from 4000
+to 2000 in v0.11.0-dev. Single-line code change, +3 nDCG free, no
+latency cost.
+
+---
+
 ## Things we did *not* measure (deliberate)
 
 - **FIQA/ArguAna full sweep.** FIQA has 57 K docs — hybrid ingest is

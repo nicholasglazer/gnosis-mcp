@@ -90,7 +90,12 @@ class GnosisMcpConfig:
 
     # Tuning knobs
     content_preview_chars: int = 200
-    chunk_size: int = 4000
+    # Default 2000 chars (~600 tokens) — sits at the peak of the Feb 2026
+    # chunking-size sweep on a real 558-doc developer-docs corpus: +3.0 nDCG@10
+    # over the old 4000 default, same p95, ~20% slower ingest. Range tested:
+    # 1000→0.8557, 1500→0.8529, 1800→0.8702, 2000→0.8702 (peak), 2200→0.8502,
+    # 3000→0.8459, 4000→0.8407. See docs/bench-experiments-2026-04-18.md.
+    chunk_size: int = 2000
     search_limit_max: int = 20
     webhook_timeout: int = 5
 
@@ -296,7 +301,7 @@ class GnosisMcpConfig:
             writable=env("WRITABLE", "").lower() in ("1", "true", "yes"),
             webhook_url=env("WEBHOOK_URL"),
             content_preview_chars=env_int("CONTENT_PREVIEW_CHARS", 200),
-            chunk_size=env_int("CHUNK_SIZE", 4000),
+            chunk_size=env_int("CHUNK_SIZE", 2000),
             search_limit_max=env_int("SEARCH_LIMIT_MAX", 20),
             webhook_timeout=env_int("WEBHOOK_TIMEOUT", 5),
             max_doc_bytes=env_int("MAX_DOC_BYTES", 50_000_000),

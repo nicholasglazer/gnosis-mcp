@@ -199,7 +199,7 @@ class TestTuningConfig:
         monkeypatch.setenv("GNOSIS_MCP_DATABASE_URL", "postgresql://localhost/db")
         cfg = GnosisMcpConfig.from_env()
         assert cfg.content_preview_chars == 200
-        assert cfg.chunk_size == 4000
+        assert cfg.chunk_size == 2000
         assert cfg.search_limit_max == 20
         assert cfg.webhook_timeout == 5
         assert cfg.transport == "stdio"

@@ -72,11 +72,27 @@ Default **`8000`**. Port for the HTTP transport.
 ## Ingestion & chunking
 
 ### `GNOSIS_MCP_CHUNK_SIZE`
-Default **`4000`**. Minimum `500`.
+Default **`2000`**. Minimum `500`. Unit: **characters** (not tokens, not
+words).
 
 Target character length for chunks. Chunks never split inside fenced code
 blocks or markdown tables; splits prefer H2, then H3/H4, then paragraph
 boundaries.
+
+Rough conversion: 2000 chars ≈ 600 tokens ≈ 300-350 English words.
+
+**Why 2000.** On a real 558-doc developer-docs corpus with 25 hand-written
+golden queries, we swept chunk sizes 1000 → 4000 chars in steps. The peak
+sits on an **1800-2000 char plateau** (0.8702 nDCG@10); both smaller
+(fragments sections, dilutes BM25 term density) and larger (merges
+unrelated content, same dilution in the other direction) score worse.
+2000 is chosen over 1800 as the high end of the plateau — same quality,
+fewer chunks, faster ingest. Full sweep in
+[bench-experiments-2026-04-18](bench-experiments-2026-04-18.md).
+
+Raise it to **3000-4000** for long-form prose (blog posts, ADRs) where
+sections are naturally bigger. Lower to **1000-1500** for API references
+or rows-of-tables content where each fact is short and standalone.
 
 ### `GNOSIS_MCP_MAX_DOC_BYTES`
 Default **`50_000_000`** (50 MB).

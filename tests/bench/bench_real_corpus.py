@@ -83,7 +83,13 @@ def _pctile(xs, p):
     return s[min(len(s) - 1, int(p * len(s)))]
 
 
-async def ingest_corpus(backend, corpus_root: Path, embedder, title_prepend: bool = False) -> int:
+async def ingest_corpus(
+    backend,
+    corpus_root: Path,
+    embedder,
+    title_prepend: bool = False,
+    chunk_size: int = 4000,
+) -> int:
     """Walk `corpus_root`, ingest every .md file as its own doc."""
     from gnosis_mcp.ingest import chunk_by_headings
 
@@ -119,7 +125,7 @@ async def ingest_corpus(backend, corpus_root: Path, embedder, title_prepend: boo
             continue
         rel = str(f.relative_to(corpus_root))
         title = f.stem.replace("-", " ").replace("_", " ").title()
-        chunk_dicts = chunk_by_headings(body, file_path=rel, max_chunk_size=4000)
+        chunk_dicts = chunk_by_headings(body, file_path=rel, max_chunk_size=chunk_size)
         chunks = [c.get("content", "") for c in chunk_dicts if c.get("content")]
         if not chunks:
             chunks = [body.strip()[:4000]]
@@ -217,6 +223,7 @@ async def main_async(args) -> int:
         writable=True,
         embedding_dim=384,
         embed_dim=384,
+        rrf_k=args.rrf_k,
     )
     backend = create_backend(cfg)
     await backend.startup()
@@ -225,9 +232,13 @@ async def main_async(args) -> int:
     embedder = LocalEmbedder(dim=384)
     reranker = get_reranker(model=args.rerank_model)
 
-    print(f"  ingesting {corpus_root} (title_prepend={args.title_prepend}) …")
+    print(f"  ingesting {corpus_root} (chunk_size={args.chunk_size}, title_prepend={args.title_prepend}) …")
     t0 = time.perf_counter()
-    doc_count = await ingest_corpus(backend, corpus_root, embedder, args.title_prepend)
+    doc_count = await ingest_corpus(
+        backend, corpus_root, embedder,
+        title_prepend=args.title_prepend,
+        chunk_size=args.chunk_size,
+    )
     ingest_s = time.perf_counter() - t0
     print(f"  ingested {doc_count} docs in {ingest_s:.1f}s")
 
@@ -276,6 +287,10 @@ def main() -> int:
     ap.add_argument("--rerank-model",
                     default="cross-encoder/ms-marco-MiniLM-L6-v2",
                     help="HF repo for the cross-encoder (e.g. BAAI/bge-reranker-base)")
+    ap.add_argument("--chunk-size", type=int, default=4000,
+                    help="Max chars per chunk (default 4000; try 1000 for finer granularity)")
+    ap.add_argument("--rrf-k", type=int, default=60,
+                    help="RRF fusion constant (default 60)")
     ap.add_argument("--out", default=None)
     args = ap.parse_args()
     return asyncio.run(main_async(args))
