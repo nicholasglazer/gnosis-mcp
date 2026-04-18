@@ -67,7 +67,7 @@
 | **Test count** | 610 | Unknown | Unknown | Unknown |
 | **Dependencies** | 2 (mcp + aiosqlite) | npm ecosystem | npm ecosystem | npm ecosystem |
 
-**TL;DR**: Context7 indexes *public library docs*. gnosis-mcp indexes *your own private docs*. They're complementary — use both.
+**TL;DR**: Context7 is a hosted SaaS that pre-crawls *public library docs* — convenient, but your queries leave your machine and you can't add private docs. gnosis-mcp ships its own crawler (`gnosis-mcp crawl https://docs.stripe.com`) so the same vendor docs land in your local SQLite alongside your own private docs and git history. One index, all yours.
 
 ---
 
@@ -114,6 +114,35 @@ gnosis-mcp search "getting started"           # keyword search
 gnosis-mcp search "how does auth work" --embed # hybrid semantic+keyword
 gnosis-mcp stats                               # see what was indexed
 ```
+
+<details>
+<summary>Run with Docker (zero install)</summary>
+
+Multi-arch image, ~140 MB, ships with local ONNX embeddings + REST:
+
+```bash
+# Serve your ./docs on http://localhost:8000 — MCP at /mcp, REST at /api/*
+docker run -p 8000:8000 \
+  -v "$PWD/docs:/docs:ro" -v gnosis-data:/data \
+  ghcr.io/nicholasglazer/gnosis-mcp:latest
+
+# First-run: ingest into the persistent volume
+docker run --rm \
+  -v "$PWD/docs:/docs:ro" -v gnosis-data:/data \
+  ghcr.io/nicholasglazer/gnosis-mcp:latest \
+  ingest /docs --embed
+```
+
+Or use the committed [`docker-compose.yaml`](docker-compose.yaml):
+
+```bash
+docker compose up -d
+docker compose exec gnosis gnosis-mcp ingest /docs --embed
+```
+
+Images tagged `:latest`, `:<version>`, `:<version-minor>`, `:main`, `:sha-<sha>`.
+
+</details>
 
 <details>
 <summary>Try without installing (uvx)</summary>
@@ -273,7 +302,8 @@ Web apps can now query your docs over plain HTTP — no MCP protocol required.
 |----------|-------------|
 | `GNOSIS_MCP_REST=true` | Enable REST API (same as `--rest`) |
 | `GNOSIS_MCP_CORS_ORIGINS` | CORS allowed origins: `*` or comma-separated list |
-| `GNOSIS_MCP_API_KEY` | Optional Bearer token auth |
+| `GNOSIS_MCP_API_KEY` | Optional Bearer token auth (timing-safe comparison) |
+| `GNOSIS_MCP_PUBLIC_PATHS` | Comma-separated auth-bypass paths. `/health` is always public. |
 
 **Examples:**
 
@@ -438,7 +468,7 @@ get_related("guides/auth.md", relation_type="relates_to")
 get_graph_stats()
 ```
 
-**Relation types:** `relates_to` (frontmatter), `content_link` (body markdown links), `git_co_change` (commit co-occurrence), `git_ref` (git history → source file), `links_to` (web crawl).
+**Relation types:** `related` (default frontmatter), `content_link` (body markdown links + `[[wikilinks]]`), `git_co_change` (commit co-occurrence), `git_ref` (git history → source file). Plus 16 typed edges via the `relations:` frontmatter block: `prerequisite`, `depends_on`, `summarizes` / `summarized_by`, `extends` / `extended_by`, `replaces` / `replaced_by`, `audited_by` / `audits`, `implements` / `implemented_by`, `tests` / `tested_by`, `example_of`, `references`.
 
 ## Embeddings
 
@@ -473,20 +503,28 @@ All settings via environment variables. Nothing required for SQLite — it works
 | `GNOSIS_MCP_BACKEND` | `auto` | Force `sqlite` or `postgres` |
 | `GNOSIS_MCP_WRITABLE` | `false` | Enable write tools |
 | `GNOSIS_MCP_TRANSPORT` | `stdio` | Transport: `stdio`, `sse`, or `streamable-http` |
-| `GNOSIS_MCP_EMBEDDING_DIM` | `1536` | Vector dimension for init-db |
+| `GNOSIS_MCP_EMBEDDING_DIM` | provider default | Vector dimension (OpenAI small: 1536; local ONNX: 384) |
 
 <details>
 <summary>All configuration variables</summary>
 
 **Database:** `GNOSIS_MCP_SCHEMA` (public), `GNOSIS_MCP_CHUNKS_TABLE` (documentation_chunks), `GNOSIS_MCP_LINKS_TABLE` (documentation_links), `GNOSIS_MCP_SEARCH_FUNCTION` (custom search on PG).
 
-**Search & chunking:** `GNOSIS_MCP_CONTENT_PREVIEW_CHARS` (200), `GNOSIS_MCP_CHUNK_SIZE` (4000), `GNOSIS_MCP_SEARCH_LIMIT_MAX` (20).
+**Search & chunking:** `GNOSIS_MCP_CONTENT_PREVIEW_CHARS` (200), `GNOSIS_MCP_CHUNK_SIZE` (4000), `GNOSIS_MCP_SEARCH_LIMIT_MAX` (20), `GNOSIS_MCP_MAX_QUERY_CHARS` (10000), `GNOSIS_MCP_MAX_DOC_BYTES` (50_000_000), `GNOSIS_MCP_RRF_K` (60).
 
 **Connection pool (PostgreSQL):** `GNOSIS_MCP_POOL_MIN` (1), `GNOSIS_MCP_POOL_MAX` (3).
 
-**Webhooks:** `GNOSIS_MCP_WEBHOOK_URL`, `GNOSIS_MCP_WEBHOOK_TIMEOUT` (5s).
+**Webhooks:** `GNOSIS_MCP_WEBHOOK_URL`, `GNOSIS_MCP_WEBHOOK_TIMEOUT` (5s), `GNOSIS_MCP_WEBHOOK_ALLOW_PRIVATE` (false — SSRF-guarded by default).
 
-**Embeddings:** `GNOSIS_MCP_EMBED_PROVIDER` (openai/ollama/custom/local), `GNOSIS_MCP_EMBED_MODEL`, `GNOSIS_MCP_EMBED_DIM` (384), `GNOSIS_MCP_EMBED_API_KEY`, `GNOSIS_MCP_EMBED_URL`, `GNOSIS_MCP_EMBED_BATCH_SIZE` (50).
+**Embeddings:** `GNOSIS_MCP_EMBED_PROVIDER` (openai/ollama/custom/local), `GNOSIS_MCP_EMBED_MODEL`, `GNOSIS_MCP_EMBED_DIM` (provider default), `GNOSIS_MCP_EMBED_API_KEY`, `GNOSIS_MCP_EMBED_URL`, `GNOSIS_MCP_EMBED_BATCH_SIZE` (50).
+
+**Reranking:** `GNOSIS_MCP_RERANK_ENABLED` (false — requires `[reranking]` extra).
+
+**Web crawl:** `GNOSIS_MCP_CRAWL_EXTRACT_TIMEOUT_S` (30s).
+
+**REST API:** `GNOSIS_MCP_REST` (false), `GNOSIS_MCP_API_KEY`, `GNOSIS_MCP_CORS_ORIGINS`, `GNOSIS_MCP_PUBLIC_PATHS` (comma-separated allowlist — `/health` is always public), `GNOSIS_MCP_HOST` (127.0.0.1), `GNOSIS_MCP_PORT` (8000).
+
+**Access log:** `GNOSIS_MCP_ACCESS_LOG` (true — tracks doc access for `get_context`).
 
 **Column overrides:** `GNOSIS_MCP_COL_FILE_PATH`, `GNOSIS_MCP_COL_TITLE`, `GNOSIS_MCP_COL_CONTENT`, `GNOSIS_MCP_COL_CHUNK_INDEX`, `GNOSIS_MCP_COL_CATEGORY`, `GNOSIS_MCP_COL_AUDIENCE`, `GNOSIS_MCP_COL_TAGS`, `GNOSIS_MCP_COL_EMBEDDING`, `GNOSIS_MCP_COL_TSV`, `GNOSIS_MCP_COL_SOURCE_PATH`, `GNOSIS_MCP_COL_TARGET_PATH`, `GNOSIS_MCP_COL_RELATION_TYPE`.
 
@@ -533,19 +571,25 @@ All tables must share the same schema. Reads use `UNION ALL`. Writes target the 
 <summary>CLI reference</summary>
 
 ```
-gnosis-mcp ingest <path> [--dry-run] [--force] [--embed]    Load files into database
-gnosis-mcp ingest-git <repo> [--since] [--max-commits] [--include] [--exclude] [--dry-run] [--embed]
-gnosis-mcp crawl <url> [--sitemap] [--depth N] [--include] [--exclude] [--dry-run] [--force] [--embed]
-gnosis-mcp serve [--transport stdio|sse|streamable-http] [--ingest PATH] [--watch PATH]
+gnosis-mcp ingest <path> [--dry-run] [--force] [--embed] [--prune] [--wipe] [--include-crawled]
+gnosis-mcp ingest-git <repo> [--since] [--until] [--author] [--max-commits-per-file]
+                             [--include] [--exclude] [--include-merges]
+                             [--dry-run] [--force] [--embed]
+gnosis-mcp crawl <url> [--sitemap] [--max-depth N] [--include] [--exclude] [--max-pages N]
+                       [--dry-run] [--force] [--embed]
+gnosis-mcp serve [--transport stdio|sse|streamable-http] [--host HOST] [--port PORT]
+                 [--ingest PATH] [--watch PATH] [--rest]
 gnosis-mcp search <query> [-n LIMIT] [-c CAT] [--embed]    Search docs
 gnosis-mcp stats                                           Document, chunk, and embedding counts
-gnosis-mcp check                                           Verify DB connection + sqlite-vec
-gnosis-mcp embed [--provider P] [--model M] [--dry-run]    Backfill embeddings
+gnosis-mcp check                                           Verify DB connection + extensions
+gnosis-mcp embed [--provider P] [--model M] [--batch-size N] [--dry-run]
 gnosis-mcp init-db [--dry-run]                             Create tables + indexes
-gnosis-mcp export [-f json|markdown|csv] [-c CAT]          Export documents
+gnosis-mcp export [-f json|markdown] [-c CAT]              Export documents
 gnosis-mcp diff <path>                                     Preview changes on re-ingest
+gnosis-mcp prune <path> [--dry-run] [--include-crawled]    Delete chunks for missing files
 gnosis-mcp cleanup [--days N]                              Purge old access log entries
-gnosis-mcp fix-link-types                                  Migrate git-history links to proper types
+gnosis-mcp eval [--json]                                   Retrieval quality harness (Hit@5, MRR, P@5)
+gnosis-mcp fix-link-types                                  Migrate pre-0.10 git-history links
 ```
 
 </details>
@@ -642,7 +686,7 @@ uv run python tests/bench/bench_mcp_e2e.py          # protocol round-trip
 
 See [`docs/benchmarks.md`](docs/benchmarks.md) for methodology, PostgreSQL numbers, and regression gates.
 
-610 tests, 10 RAG eval cases (Hit@5 = 1.00, MRR = 0.95), 3 end-to-end MCP protocol tests, 4 reranker tests. Most tests run without a database.
+632 tests, 10 RAG eval cases (Hit@5 = 1.00, MRR = 0.95), 3 end-to-end MCP protocol tests, 4 reranker tests. Most tests run without a database.
 
 Run `gnosis-mcp eval` yourself to reproduce the quality numbers:
 
@@ -660,7 +704,7 @@ git clone https://github.com/nicholasglazer/gnosis-mcp.git
 cd gnosis-mcp
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
-pytest                    # 610 tests, no database needed
+pytest                    # 632 tests, no database needed
 ruff check src/ tests/
 ```
 

@@ -1,0 +1,25 @@
+{"query": "how do we handle browser isolation for tests", "expected_paths": ["browser-cdp-guide"]}
+{"query": "what are the base16 colors used for design", "expected_paths": ["base16-color-reference", "design-system"]}
+{"query": "how to deploy safely to cloudflare pages", "expected_paths": ["deployment-safety-guide", "pre-production"]}
+{"query": "affiliate program commission structure", "expected_paths": ["affiliate-system"]}
+{"query": "connecting a shopify store for product sync", "expected_paths": ["shopify-overview", "shopify-integration-testing", "shopify-backend"]}
+{"query": "agent teams best practices", "expected_paths": ["agent-teams-best-practices"]}
+{"query": "claude code configuration and setup", "expected_paths": ["claude-code-configuration", "claude-code-setup"]}
+{"query": "signing NDA and IP agreement workflow", "expected_paths": ["agreement-signing-guide"]}
+{"query": "instagram bot session cleanup", "expected_paths": ["instagram-session-cleanup"]}
+{"query": "tiktok platform compliance and api usage", "expected_paths": ["tiktok-platform-compliance", "tiktok-api-endpoints"]}
+{"query": "meta facebook graph api endpoints", "expected_paths": ["meta-api-endpoints", "meta-quick-reference"]}
+{"query": "blog writing style rules", "expected_paths": ["blog-writing-rules"]}
+{"query": "canvas core library for image editing", "expected_paths": ["canvas-core-guide"]}
+{"query": "how does the dev environment work", "expected_paths": ["dev-environment-guide"]}
+{"query": "docker network orphan runbook", "expected_paths": ["docker-network-orphan-runbook"]}
+{"query": "code splitting patterns for large svelte components", "expected_paths": ["code-splitting-patterns"]}
+{"query": "staging environment setup and teardown", "expected_paths": ["staging-environment"]}
+{"query": "cloudflared tunnel setup", "expected_paths": ["cloudflared-setup"]}
+{"query": "error tracking and monitoring", "expected_paths": ["error-tracking-setup"]}
+{"query": "what is the api testing approach", "expected_paths": ["api-testing"]}
+{"query": "team access management and permissions", "expected_paths": ["team-access-management", "environment-access"]}
+{"query": "QA git integration workflow", "expected_paths": ["qa-git-integration"]}
+{"query": "bot config schema across platforms", "expected_paths": ["bot-config-schema", "multi-platform-bot"]}
+{"query": "ai commerce research findings", "expected_paths": ["ai-commerce-research", "agentic-commerce-roadmap"]}
+{"query": "how to write a demo script", "expected_paths": ["demo-guide"]}

@@ -26,7 +26,7 @@ __all__ = ["Reranker", "get_reranker"]
 
 log = logging.getLogger("gnosis_mcp")
 
-_DEFAULT_MODEL = "onnx-community/ms-marco-MiniLM-L6-v2-ONNX"
+_DEFAULT_MODEL = "cross-encoder/ms-marco-MiniLM-L6-v2"
 
 _MODEL_FILES = [
     "onnx/model.onnx",

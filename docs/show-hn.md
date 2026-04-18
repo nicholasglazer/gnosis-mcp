@@ -26,8 +26,8 @@ gnosis-mcp is an MCP server that indexes your documentation into a searchable da
 
 Numbers: v0.10.13, 601 tests, 8 input formats (6 built-in, 2 optional), 9 MCP tools, 3 MCP resources, SQLite + PostgreSQL backends, file watcher with auto-re-ingest.
 
-How I use it: I have ~214 docs (internal guides, vendor references, architecture decisions) indexed. Claude Code searches them via MCP instead of me pasting context. When I update a doc, the file watcher re-indexes automatically.
+How I use it: I have ~558 docs (internal guides, vendor references, architecture decisions, runbooks) indexed. Claude Code searches them via MCP instead of me pasting context. When I update a doc, the file watcher re-indexes automatically. On that real corpus we measure Hit@5 = 0.92 with keyword-only search at 7 ms p95.
 
-Compared to alternatives: Context7 indexes public library docs (npm/PyPI). gnosis-mcp indexes your private docs — internal guides, runbooks, architecture decisions, vendor docs your LLM hasn't seen. They complement each other.
+Compared to alternatives: Context7 is a hosted shortcut for public library docs — convenient, but queries leave your machine and you can't add private docs. gnosis-mcp ships its own crawler so the same vendor docs land in your local SQLite alongside private docs, git history, and runbooks. One index, all local, no API keys.
 
 `pip install gnosis-mcp` — PyPI, MIT license. Works with any MCP-compatible client (Claude Code, Claude Desktop, Cursor, Windsurf, etc.)

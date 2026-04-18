@@ -1,0 +1,44 @@
+# Minimal self-hosted gnosis-mcp stack.
+#
+# Serves MCP (streamable-http at /mcp) + REST at :8000.
+# Local ONNX embeddings. SQLite at /data/docs.db (persistent volume).
+#
+# Usage:
+#   docker compose up -d
+#   docker compose exec gnosis gnosis-mcp ingest /docs --embed
+#   docker compose exec gnosis gnosis-mcp stats
+#
+# Wire into Claude Code / Cursor / etc:
+#   { "mcpServers": { "gnosis": { "type": "url", "url": "http://localhost:8000/mcp" } } }
+
+services:
+  gnosis:
+    image: ghcr.io/nicholasglazer/gnosis-mcp:latest
+    # Or build locally with all extras:
+    # build:
+    #   context: .
+    #   args:
+    #     EXTRAS: embeddings,postgres,web,reranking
+    ports:
+      - "127.0.0.1:8000:8000"   # loopback-only by default; add a proxy for public
+    volumes:
+      - gnosis-data:/data              # SQLite DB + ONNX model cache
+      - ./docs:/docs:ro                # your docs, mounted read-only
+    environment:
+      # Set this once and commit the hash. Rotate by regenerating + restarting.
+      # Generate with: python -c 'import secrets; print(secrets.token_urlsafe(32))'
+      GNOSIS_MCP_API_KEY: ${GNOSIS_MCP_API_KEY:-}
+      GNOSIS_MCP_WRITABLE: "false"     # flip to true to allow upsert_doc via MCP
+      GNOSIS_MCP_RERANK_ENABLED: "false"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    # Optional: auto-re-ingest when /docs changes.
+    # command: ["serve", "--transport", "streamable-http", "--rest", "--watch", "/docs"]
+
+volumes:
+  gnosis-data:

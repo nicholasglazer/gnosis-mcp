@@ -18,3 +18,6 @@ sqlite:/
 .coverage
 htmlcov/
 coverage.xml
+
+# Local bench artefacts (BEIR caches, per-run JSON results)
+bench-results/
