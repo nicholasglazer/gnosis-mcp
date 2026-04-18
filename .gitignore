@@ -21,3 +21,6 @@ coverage.xml
 
 # Local bench artefacts (BEIR caches, per-run JSON results)
 bench-results/
+
+# Internal working docs -- articles, design, plans, demo source (not for public repo)
+.internal/
