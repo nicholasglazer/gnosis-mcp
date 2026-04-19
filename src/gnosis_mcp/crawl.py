@@ -115,6 +115,10 @@ class _FetchResult:
     html: str
     etag: str | None = None
     last_modified: str | None = None
+    is_plain_text: bool = False
+    # True when the response was text/plain or text/markdown — the body is already
+    # suitable as-is and trafilatura's HTML extraction should be skipped. Enables
+    # ingesting llms-full.txt, README.txt, and other plain-text doc bundles.
 
 
 # ---------------------------------------------------------------------------
@@ -324,7 +328,13 @@ async def fetch_page(
         return None
 
     content_type = response.headers.get("content-type", "")
-    if "text/html" not in content_type and "application/xhtml" not in content_type:
+    is_html = "text/html" in content_type or "application/xhtml" in content_type
+    is_plain = (
+        "text/plain" in content_type
+        or "text/markdown" in content_type
+        or "text/x-markdown" in content_type
+    )
+    if not (is_html or is_plain):
         return None
 
     return _FetchResult(
@@ -332,6 +342,7 @@ async def fetch_page(
         html=response.text,
         etag=response.headers.get("etag"),
         last_modified=response.headers.get("last-modified"),
+        is_plain_text=is_plain,
     )
 
 
@@ -687,20 +698,30 @@ async def _crawl_single(
         return CrawlResult(url=url, chunks=0, action=CrawlAction.BLOCKED, detail="robots.txt")
 
     try:
-        # Fetch with conditional request
+        # Fetch with conditional request. fetch_page returns None for 304, for
+        # unsupported content-types (pdf/binary), and for blocked private hosts —
+        # treat them all as "nothing to ingest this time". Cache state reliably
+        # distinguishes the 304 case from the others.
         fetch_result = await fetch_page(client, url, cache, force=config.force)
         if fetch_result is None:
+            was_cached = url in cache
+            detail = "304 Not Modified" if was_cached else "unsupported response"
             return CrawlResult(
                 url=url,
                 chunks=0,
                 action=CrawlAction.UNCHANGED,
-                detail="304 Not Modified",
+                detail=detail,
             )
 
-        # Extract content (with timeout to bound pathological pages)
-        markdown = await extract_content(
-            fetch_result.html, url, timeout_s=config.extract_timeout_s
-        )
+        # Extract content (with timeout to bound pathological pages).
+        # Plain-text responses (llms-full.txt, README.txt) are already markdown-
+        # ready — skip trafilatura which would mangle them.
+        if fetch_result.is_plain_text:
+            markdown = fetch_result.html.strip() or None
+        else:
+            markdown = await extract_content(
+                fetch_result.html, url, timeout_s=config.extract_timeout_s
+            )
         if markdown is None:
             return CrawlResult(
                 url=url,

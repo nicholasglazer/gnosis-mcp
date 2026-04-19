@@ -642,6 +642,45 @@ class TestFetchPage:
         assert result is None
 
     @pytest.mark.asyncio
+    async def test_accepts_plain_text(self):
+        """text/plain responses (like llms-full.txt) are ingestible — no trafilatura."""
+        from gnosis_mcp.crawl import fetch_page
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.text = "# Spec\n\nThis is the raw markdown."
+        mock_response.url = "https://example.com/llms-full.txt"
+        mock_response.headers = {"content-type": "text/plain; charset=utf-8"}
+        mock_response.raise_for_status = MagicMock()
+
+        client = AsyncMock()
+        client.get.return_value = mock_response
+
+        result = await fetch_page(client, "https://example.com/llms-full.txt", {})
+        assert result is not None
+        assert result.is_plain_text is True
+        assert "raw markdown" in result.html
+
+    @pytest.mark.asyncio
+    async def test_accepts_markdown(self):
+        """text/markdown responses are ingestible as-is."""
+        from gnosis_mcp.crawl import fetch_page
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.text = "# Title\n\nBody."
+        mock_response.url = "https://example.com/README.md"
+        mock_response.headers = {"content-type": "text/markdown"}
+        mock_response.raise_for_status = MagicMock()
+
+        client = AsyncMock()
+        client.get.return_value = mock_response
+
+        result = await fetch_page(client, "https://example.com/README.md", {})
+        assert result is not None
+        assert result.is_plain_text is True
+
+    @pytest.mark.asyncio
     async def test_force_ignores_cache(self):
         from gnosis_mcp.crawl import fetch_page
 

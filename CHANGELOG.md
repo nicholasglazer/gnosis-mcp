@@ -7,6 +7,13 @@ Versioning follows [Semantic Versioning](https://semver.org/) (pre-1.0).
 
 ## [Unreleased]
 
+### Added
+### Changed
+### Fixed
+### Security
+
+## [0.11.3] - 2026-04-19
+
 ### Removed
 - **`llms.txt.tmpl` + `llms-full.txt.tmpl` + `scripts/render-llms.py`** and the corresponding `render-llms.py --check` CI step. Over-engineered for 4 trivial tokens; `bump-version.sh` now does in-place `sed` on `llms.txt` + `llms-full.txt`. Measured numbers (test count, MCP latency ms) stay maintainer-edited when benchmarks are re-run. One file per concept instead of two. Rationale: the template/rendered pair was added in v0.11.0 assuming more tokens would accumulate; they didn't, so it's just extra surface.
 - **`.mcpregistry_github_token` + `.mcpregistry_registry_token`** — stale on-disk tokens from before v0.10.13's security hardening, which moved registry auth to GitHub Secrets. Files were gitignored but still on disk, confusing for anyone finding them. `.gitignore` entry dropped too (no longer needed).
@@ -27,6 +34,8 @@ Versioning follows [Semantic Versioning](https://semver.org/) (pre-1.0).
 
 ### Fixed
 - **Contact email unified to `info@nicgl.com`** across every metadata file. Previously: `pkg/arch/PKGBUILD` + `PKGBUILD-git` had an obsolete `nicholasglazer@protonmail.com`, and `marketplace.json` had a `nicholasglazer@gmail.com` that didn't match the SECURITY / CODE_OF_CONDUCT / CONTRIBUTING / pyproject canonicals. Added an `email` field to `.claude-plugin/plugin.json` as well. One email everywhere now.
+- **`sqlite://` URL prefix now stripped before opening the DB file** (`sqlite_backend.py`). Previously `GNOSIS_MCP_DATABASE_URL=sqlite:///path/docs.db` (the format shown in `docs/config.md`, `llms-install.md`, and used by every `tests/bench/*.py` helper) was passed to `aiosqlite.connect()` verbatim — Linux treated the colon as a valid filename character and created a `sqlite:` turd-dir relative to the process cwd, with the actual DB buried inside. The server's `bench_real_corpus.py` runs had been quietly leaving `~/prod/gnosis-mcp/sqlite:/tmp/gnosis-real-*.db` behind for months. New helper `_sqlite_path_from_url()` normalizes `sqlite:///abs`, `sqlite:////abs`, `sqlite://:memory:`, and bare paths alike; regression test asserts no `sqlite:` directory appears in cwd.
+- **Crawl now accepts `text/plain` and `text/markdown` responses** (`crawl.py`). Previously `fetch_page` silently returned `None` for any non-`text/html` content-type, which bubbled up as a misleading `[=] ... 304 Not Modified` log line and zero chunks ingested. This excluded the entire `llms-full.txt` pattern used by MCP, Anthropic docs, Vercel, and other LLM-ready single-file doc bundles. Plain-text bodies now flow through as pre-extracted markdown (trafilatura skipped). The `None`-means-304 ambiguity in the caller is also addressed — when a URL returns `None` without having a cache entry, the log now reads `unsupported response` instead of lying about a conditional request that never happened.
 
 ### Security
 

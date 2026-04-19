@@ -21,6 +21,21 @@ _RRF_K = 60
 _FTS5_SPECIAL = re.compile(r'["\*\(\)\-\+\^:]')
 
 
+def _sqlite_path_from_url(url: str) -> str:
+    """Normalize a sqlite connection string to a plain filesystem path.
+
+    Accepts bare paths (``/abs/path.db``, ``relative/path.db``, ``:memory:``) and
+    URL-style inputs (``sqlite:///abs/path.db``, ``sqlite:////abs/path.db``).
+    The ``sqlite://`` prefix is stripped; leftover double slashes collapse to a
+    single ``/`` on POSIX (the Linux kernel treats ``//tmp/x`` as ``/tmp/x``).
+    Without this, aiosqlite would open ``sqlite://...`` as a literal filename
+    and create a ``sqlite:`` turd-directory relative to the process cwd.
+    """
+    if url.startswith("sqlite://"):
+        return url[len("sqlite://") :]
+    return url
+
+
 def _to_fts5_query(text: str) -> str:
     """Convert natural language text to a safe FTS5 query.
 
@@ -50,7 +65,7 @@ class SqliteBackend:
 
         self._cfg: GnosisMcpConfig = config
         self._db = None
-        self._db_path: str = config.database_url  # For SQLite, this is the file path
+        self._db_path: str = _sqlite_path_from_url(config.database_url)
         self._has_vec: bool = False
 
     # -- lifecycle -------------------------------------------------------------
