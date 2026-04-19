@@ -85,9 +85,7 @@ class TestSqliteVecDetection:
             row = await cur.fetchone()
             return row[0]
 
-        await backend.upsert_doc(
-            "guide.md", ["first", "second"], title="G", category="test"
-        )
+        await backend.upsert_doc("guide.md", ["first", "second"], title="G", category="test")
         # Embed both chunks so they appear in vec0
         ids = [
             r[0]
@@ -103,9 +101,7 @@ class TestSqliteVecDetection:
         assert await _count("SELECT COUNT(*) FROM documentation_chunks_vec") == 2
 
         # Upsert with different content — triggers delete+reinsert of chunks
-        await backend.upsert_doc(
-            "guide.md", ["replacement"], title="G", category="test"
-        )
+        await backend.upsert_doc("guide.md", ["replacement"], title="G", category="test")
         new_id_row = await (
             await backend._db.execute(
                 "SELECT id FROM documentation_chunks WHERE file_path='guide.md'"

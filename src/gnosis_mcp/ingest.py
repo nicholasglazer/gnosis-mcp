@@ -954,9 +954,7 @@ async def ingest_path(
             else:
                 if _looks_binary(f):
                     results.append(
-                        IngestResult(
-                            path=rel, chunks=0, action="skipped", detail="Binary content"
-                        )
+                        IngestResult(path=rel, chunks=0, action="skipped", detail="Binary content")
                     )
                     continue
                 text = f.read_text(encoding="utf-8", errors="replace")

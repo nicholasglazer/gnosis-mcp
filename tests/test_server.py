@@ -136,9 +136,9 @@ class TestApplyMmr:
         ]
         q = [1.0, 0, 0, 0]
         docs = [
-            [1.0, 0, 0, 0],    # top relevance
+            [1.0, 0, 0, 0],  # top relevance
             [0.99, 0.01, 0, 0],  # near-duplicate of doc 0
-            [0.6, 0, 0.8, 0],    # less relevant but diverse
+            [0.6, 0, 0.8, 0],  # less relevant but diverse
         ]
         import numpy as np
 

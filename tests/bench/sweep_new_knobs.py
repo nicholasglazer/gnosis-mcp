@@ -71,9 +71,7 @@ async def run_config(
                 [case.query], provider="local", model=cfg.embed_model, dim=cfg.embed_dim
             )[0]
             t0 = time.perf_counter()
-            results = await backend.search(
-                case.query, limit=fetch_n, query_embedding=qvec
-            )
+            results = await backend.search(case.query, limit=fetch_n, query_embedding=qvec)
 
             if 0.0 < cfg.mmr_lambda < 1.0 and len(results) > 1:
                 doc_vecs = embed_texts(
@@ -100,7 +98,9 @@ async def run_config(
 
         hit5 = sum(_hit_at_k(ranked_map[c.query], c.expected_paths, 5) for c in cases) / len(cases)
         mrr = sum(_mrr(ranked_map[c.query], c.expected_paths) for c in cases) / len(cases)
-        ndcg = sum(_ndcg_at_k(ranked_map[c.query], c.expected_paths, k) for c in cases) / len(cases)
+        ndcg = sum(_ndcg_at_k(ranked_map[c.query], c.expected_paths, k) for c in cases) / len(
+            cases
+        )
 
         # Diversity: mean distinct file_paths in top-5 across goldens.
         div = sum(len(set(ranked_map[c.query][:5])) for c in cases) / len(cases)
@@ -122,10 +122,10 @@ async def run_config(
 async def main() -> int:
     golden = sys.argv[1] if len(sys.argv) > 1 else "tests/bench/golden-laptop.jsonl"
     configs = [
-        ("A  default",                 False, 1.0),
-        ("B  collapse_by_doc=true",    True,  1.0),
-        ("C  mmr=0.6",                 False, 0.6),
-        ("D  collapse + mmr=0.6",      True,  0.6),
+        ("A  default", False, 1.0),
+        ("B  collapse_by_doc=true", True, 1.0),
+        ("C  mmr=0.6", False, 0.6),
+        ("D  collapse + mmr=0.6", True, 0.6),
     ]
     rows = []
     for label, collapse, lmbda in configs:
@@ -135,7 +135,9 @@ async def main() -> int:
 
     print("\n  Hybrid-mode sweep, 30 goldens, same corpus + embedder (mdbr-leaf-ir @ 384)")
     print("  " + "=" * 88)
-    print(f"  {'config':<30}  {'nDCG@10':>8} {'MRR':>6} {'Hit@5':>6} {'p50ms':>7} {'p95ms':>7} {'div5':>6}")
+    print(
+        f"  {'config':<30}  {'nDCG@10':>8} {'MRR':>6} {'Hit@5':>6} {'p50ms':>7} {'p95ms':>7} {'div5':>6}"
+    )
     print("  " + "-" * 88)
     for r in rows:
         print(

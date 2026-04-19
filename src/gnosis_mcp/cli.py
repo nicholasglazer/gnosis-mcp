@@ -774,10 +774,14 @@ def cmd_savings(args: argparse.Namespace) -> None:
         if report["by_tool"]:
             sys.stdout.write("\n  By tool:\n")
             for t, stats in report["by_tool"].items():
-                sys.stdout.write(f"    {t:<22}{stats['calls']:>6,} calls  saved {stats['tokens_saved']:>10,}\n")
+                sys.stdout.write(
+                    f"    {t:<22}{stats['calls']:>6,} calls  saved {stats['tokens_saved']:>10,}\n"
+                )
         sys.stdout.write("\n")
         if report["calls"] == 0:
-            sys.stdout.write("  (no logged calls in window — is GNOSIS_MCP_ACCESS_LOG enabled?)\n\n")
+            sys.stdout.write(
+                "  (no logged calls in window — is GNOSIS_MCP_ACCESS_LOG enabled?)\n\n"
+            )
 
     asyncio.run(_run())
 
@@ -1206,9 +1210,7 @@ def main() -> None:
         "savings",
         help="Estimated token savings from logged MCP tool calls",
     )
-    p_savings.add_argument(
-        "--days", type=int, default=30, help="Look back N days (default: 30)"
-    )
+    p_savings.add_argument("--days", type=int, default=30, help="Look back N days (default: 30)")
     p_savings.add_argument("--json", action="store_true", help="Emit JSON only")
 
     args = parser.parse_args()

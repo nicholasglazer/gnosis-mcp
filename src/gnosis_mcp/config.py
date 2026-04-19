@@ -182,9 +182,7 @@ class GnosisMcpConfig:
         # indicate a typo in the env var; fail loudly rather than silently
         # clamping, which would mask the mistake.
         if not (0.0 <= self.mmr_lambda <= 1.0):
-            raise ValueError(
-                f"GNOSIS_MCP_MMR_LAMBDA must be in [0.0, 1.0], got {self.mmr_lambda}"
-            )
+            raise ValueError(f"GNOSIS_MCP_MMR_LAMBDA must be in [0.0, 1.0], got {self.mmr_lambda}")
 
         # Swap the OpenAI default embed model for the local one when provider=local
         # was set but no model was explicitly chosen. Without this, the server's

@@ -159,9 +159,7 @@ class SqliteBackend:
         # where the table exists but is owned by a parallel init).
         for col in ("tokens_returned", "tokens_baseline"):
             if not await self.has_column("search_access_log", col):
-                await self._db.execute(
-                    f"ALTER TABLE search_access_log ADD COLUMN {col} INTEGER"
-                )
+                await self._db.execute(f"ALTER TABLE search_access_log ADD COLUMN {col} INTEGER")
 
         if self._has_vec:
             vec0_statements = get_vec0_schema(dim=self._cfg.embed_dim)

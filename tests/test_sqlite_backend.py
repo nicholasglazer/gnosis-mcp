@@ -156,9 +156,7 @@ class TestSqliteBackendLifecycle:
             "a.md", tool="search_docs", tokens_returned=200, tokens_baseline=2000
         )
         # get_doc truncated: 500 returned vs 3000 full → save 2500
-        await backend.log_access(
-            "b.md", tool="get_doc", tokens_returned=500, tokens_baseline=3000
-        )
+        await backend.log_access("b.md", tool="get_doc", tokens_returned=500, tokens_baseline=3000)
         # row with missing tokens (pre-migration shape) should still count in `calls`
         await backend.log_access("c.md", tool="search_docs")
 

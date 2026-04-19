@@ -12,6 +12,13 @@ Versioning follows [Semantic Versioning](https://semver.org/) (pre-1.0).
 ### Fixed
 ### Security
 
+## [0.13.3] - 2026-04-19
+
+### Fixed
+- **Publish pipeline unblock** — every release since v0.11.3 had its `test` job fail on `ruff format --check` (I was running `ruff check` locally but not `ruff format`). Because `test` gates every downstream job in `publish.yml`, PyPI, MCP Registry, tag creation, GitHub Release, Codeberg mirror, and the Arch-sums auto-PR were all skipped for ten consecutive releases. Net effect: the main branch had code up to v0.13.2 while PyPI was stuck at 0.11.3 and gnosismcp.com rendered v0.11.2. Applied `ruff format` to the 9 files it flagged (no logic change, whitespace + line-break normalisation only) and cut this dead-simple patch so the pipeline gets another push to react to. No functional code change versus v0.13.2.
+
+### Security
+
 ## [0.13.2] - 2026-04-19
 
 ### Changed

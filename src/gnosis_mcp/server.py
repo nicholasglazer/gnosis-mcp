@@ -413,11 +413,7 @@ async def search_docs(
         # MMR runs *after* any rerank reordering (so it sees the best-scored
         # candidates) but *before* collapse-by-doc (so the collapse step still
         # enforces the hard one-per-file_path cap on the diversified output).
-        if (
-            0.0 < cfg.mmr_lambda < 1.0
-            and query_embedding is not None
-            and len(results) > 1
-        ):
+        if 0.0 < cfg.mmr_lambda < 1.0 and query_embedding is not None and len(results) > 1:
             try:
                 from gnosis_mcp.embed import embed_texts
 
@@ -522,8 +518,10 @@ async def get_doc(path: str, max_length: int | None = None) -> str:
         # skips the extra round-trip since we already have the full content here
         # and can compute the baseline inline.
         returned_tokens = _estimate_tokens(content)
-        full_tokens = returned_tokens if not truncated else _estimate_tokens(
-            "\n\n".join(r["content"] for r in rows)
+        full_tokens = (
+            returned_tokens
+            if not truncated
+            else _estimate_tokens("\n\n".join(r["content"] for r in rows))
         )
         try:
             await ctx.backend.log_access(
