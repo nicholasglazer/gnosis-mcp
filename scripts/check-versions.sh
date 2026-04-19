@@ -39,6 +39,13 @@ echo "marketplace.json:    $MARKET"
 [[ "$PYPROJECT" != "$SERVER_PKG" ]] && fail "server.json pkg: $SERVER_PKG ≠ $PYPROJECT"
 [[ "$PYPROJECT" != "$MARKET"     ]] && fail "marketplace.json: $MARKET ≠ $PYPROJECT"
 
+# ---- .claude-plugin/plugin.json ------------------------------------------
+if [[ -f .claude-plugin/plugin.json ]]; then
+  PLUGIN=$(python -c "import json; print(json.load(open('.claude-plugin/plugin.json'))['version'])")
+  echo "plugin.json:         $PLUGIN"
+  [[ "$PYPROJECT" != "$PLUGIN" ]] && fail ".claude-plugin/plugin.json: $PLUGIN ≠ $PYPROJECT"
+fi
+
 # ---- pkg/arch/PKGBUILD ---------------------------------------------------
 if [[ -f pkg/arch/PKGBUILD ]]; then
   PKGBUILD=$(grep -E '^pkgver=' pkg/arch/PKGBUILD | head -1 | sed 's/pkgver=//')

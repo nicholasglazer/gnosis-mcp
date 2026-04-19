@@ -106,6 +106,20 @@ open(path, "w").write(json.dumps(d, indent=2) + "\n")
 PY
 echo "✓ marketplace.json"
 
+# ---- 4b. .claude-plugin/plugin.json ---------------------------------------
+# Claude Code plugin marketplace metadata. Stale from 0.6.0 → 0.11.x until
+# this bump-script step was added. Now tracked in parity.
+if [[ -f .claude-plugin/plugin.json ]]; then
+  python3 - <<PY
+import json
+path = ".claude-plugin/plugin.json"
+d = json.load(open(path))
+d["version"] = "$NEW"
+open(path, "w").write(json.dumps(d, indent=2) + "\n")
+PY
+  echo "✓ .claude-plugin/plugin.json"
+fi
+
 # ---- 5. SECURITY.md supported-versions line ------------------------------
 OLD_XY=$(echo "$OLD" | cut -d. -f1,2)
 if [[ -f SECURITY.md ]]; then

@@ -10,11 +10,14 @@ Versioning follows [Semantic Versioning](https://semver.org/) (pre-1.0).
 ### Added
 - **Codeberg mirror automation** in `.github/workflows/publish.yml` — a new `mirror-codeberg` job pushes main + all tags to Codeberg on every tag release. Guarded so the workflow stays green when `CODEBERG_TOKEN` isn't set; enable by adding the secret plus optional `CODEBERG_REPO` / `CODEBERG_USER` repo variables.
 - **PKGBUILD ↔ .SRCINFO source-URL drift check** in `scripts/check-versions.sh`. Catches the class of bug that slipped between v0.11.1 and v0.11.2, where the sha256-only sed fallback left `.SRCINFO` pointing at a content-hash PyPI path while PKGBUILD had been bumped to the predictable `/source/g/` form. Normalizes `$pkgver` in the comparison so baseline state passes.
+- **`.claude-plugin/plugin.json` version-parity coverage**. The file was 5 minor versions stale (`0.6.0` while pyproject was `0.11.2`) because `bump-version.sh` never touched it. Now bumped in lockstep and gated by `check-versions.sh`.
 
 ### Changed
 - **Workflow permissions** on the repo now allow GitHub Actions to create and approve pull requests. This lets the existing `pypi-resolve-and-arch-pr` job finally complete its last step — opening the PR with the computed Arch sha256 — so AUR packaging stays aligned without a manual branch merge.
 
 ### Fixed
+- **Contact email unified to `info@nicgl.com`** across every metadata file. Previously: `pkg/arch/PKGBUILD` + `PKGBUILD-git` had an obsolete `nicholasglazer@protonmail.com`, and `marketplace.json` had a `nicholasglazer@gmail.com` that didn't match the SECURITY / CODE_OF_CONDUCT / CONTRIBUTING / pyproject canonicals. Added an `email` field to `.claude-plugin/plugin.json` as well. One email everywhere now.
+
 ### Security
 
 ## [0.11.2] - 2026-04-19
