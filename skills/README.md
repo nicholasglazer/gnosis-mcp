@@ -1,24 +1,18 @@
 # Skills for gnosis-mcp
 
-Copy-paste slash commands for [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
+Slash-command workflows for [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
 and other MCP clients that support the `skills/` folder convention.
-Each skill bundles a workflow that would otherwise require the user to
-memorise which `mcp__gnosis__*` tool to call with which arguments.
+Each skill bundles a workflow that would otherwise require memorising
+which `mcp__gnosis__*` tool to call with which arguments.
 
 Pair them with the agents in `../agents/` — agents own the reasoning,
 skills own the boilerplate.
 
----
+## Install
 
-## Quick setup
-
-```bash
-# From a clone of github.com/nicholasglazer/gnosis-mcp:
-cp -r skills/* /path/to/your/project/.claude/skills/
-cp   agents/*.md /path/to/your/project/.claude/agents/
-```
-
-Restart your MCP client and the commands become available.
+See [`../llms-install.md`](../llms-install.md) for the three install
+paths. This folder covers the skill-specific details (roster + decision
+table); install mechanics live in the single canonical guide.
 
 ---
 

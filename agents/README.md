@@ -1,41 +1,17 @@
 # Agents for gnosis-mcp
 
-Copy-paste agent definitions for [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
-(and any other MCP client that supports the `agents/` folder convention).
-Drop them into your project's `.claude/agents/` directory and they'll
-work with your gnosis-mcp index out of the box.
+Subagent definitions for [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
+(and any other MCP client that supports the `agents/` folder
+convention). The goal: you shouldn't have to write your own "how to
+talk to gnosis-mcp" prompt — these are the ones we use ourselves.
 
-The goal: you shouldn't have to write your own "how to talk to gnosis-mcp"
-prompt. These are the ones we use ourselves.
+## Install
 
----
-
-## Quick setup
-
-```bash
-# Copy the agents into your project
-cp agents/*.md /path/to/your/project/.claude/agents/
-
-# Copy the skills too (they pair with the agents)
-cp -r skills/* /path/to/your/project/.claude/skills/
-
-# Wire gnosis-mcp into your MCP client (once)
-cat > /path/to/your/project/.claude/mcp.json <<'JSON'
-{
-  "mcpServers": {
-    "gnosis": {
-      "command": "gnosis-mcp",
-      "args": ["serve"]
-    }
-  }
-}
-JSON
-
-# Populate the index
-gnosis-mcp ingest /path/to/your/project/docs --embed
-```
-
-Done. Restart Claude Code and the agents + skills are available.
+See [`../llms-install.md`](../llms-install.md). Three paths — plugin
+marketplace (one command), manual copy-paste (pick specific agents),
+or MCP-server-only (no agents at all). This folder covers the
+agent-specific details; install mechanics live in the single canonical
+guide.
 
 ---
 

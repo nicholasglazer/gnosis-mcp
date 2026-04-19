@@ -355,12 +355,18 @@ This gives you:
 
 | Component | What you get |
 |-----------|-------------|
-| **MCP server** | `gnosis-mcp serve` — auto-configured |
-| **`/gnosis:search`** | Search docs with keyword or `--semantic` hybrid mode |
-| **`/gnosis:status`** | Health check — connectivity, doc stats, troubleshooting |
-| **`/gnosis:manage`** | CRUD — add, delete, update metadata, bulk embed |
+| **MCP server** | `gnosis-mcp serve` — auto-configured, search tools in every chat |
+| **`/gnosis:setup`** | First-time wizard: install → init-db → ingest → wire your editor |
+| **`/gnosis:ingest`** | Bulk ingest (files, git history, web crawl) + re-ingest + prune |
+| **`/gnosis:search`** | Keyword / hybrid / git-history search, formatted output |
+| **`/gnosis:manage`** | Single-file CRUD — add, delete, update metadata |
+| **`/gnosis:tune`** | Chunk-size sweep against your own golden queries |
+| **`/gnosis:eval`** | Single-shot retrieval quality check with baseline tracking |
+| **`/gnosis:context`** | Usage-weighted topic primer for session startup |
+| **`/gnosis:status`** | Connectivity, schema, corpus health diagnostic |
+| 5 subagents | `doc-explorer`, `doc-keeper`, `corpus-sync`, `context-loader`, `doc-reviewer` |
 
-The plugin works with both SQLite and PostgreSQL backends.
+The plugin works with both SQLite and PostgreSQL backends. Prefer manual copy-paste over the plugin marketplace? See [`llms-install.md`](llms-install.md) Path B.
 
 <details>
 <summary>Manual setup (without plugin)</summary>

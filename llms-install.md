@@ -1,5 +1,15 @@
 # Gnosis MCP — Installation Guide
 
+Three install paths, pick the one that matches how you work:
+
+| You want… | Path | Effort |
+|---|---|---|
+| **Plugin for Claude Code** — agents, skills, hooks, and the MCP server auto-wired | Path A (plugin marketplace) | One command |
+| **Manual control** — cherry-pick which agents/skills land in your config, edit them first | Path B (copy-paste) | ~5 minutes |
+| **Just the MCP server** — you don't use Claude Code or don't want the plugin extras | Path C (MCP-only) | Per-editor JSON snippet |
+
+All three paths install the same underlying `gnosis-mcp` Python package. The difference is what wires up around it.
+
 ## Prerequisites
 
 - Python 3.11 or later
@@ -7,7 +17,85 @@
 
 No database server required — SQLite works out of the box.
 
-## Step 1: Install
+---
+
+## Path A — Claude Code plugin (recommended)
+
+If you use Claude Code, this is the one-command install. Gets you the MCP server **plus** 5 subagents, 8 slash commands, and a session-start health check.
+
+```bash
+# Install the Python package first
+pip install 'gnosis-mcp[embeddings,web]'
+
+# Tell Claude Code about this marketplace, then install the plugin
+claude plugin marketplace add nicholasglazer/gnosis-mcp
+claude plugin install gnosis
+
+# Index your docs
+gnosis-mcp ingest ./docs/ --embed
+```
+
+Restart Claude Code. You now have:
+
+| Component | What you get |
+|---|---|
+| MCP server | `gnosis-mcp serve` — auto-configured, search tools available in every chat |
+| `/gnosis:setup` | First-time wizard: install → init-db → ingest → wire your editor |
+| `/gnosis:ingest` | Bulk ingest (files, git history, web crawl) + re-ingest + prune |
+| `/gnosis:search` | Keyword / hybrid / git-history search, formatted output |
+| `/gnosis:manage` | Single-file CRUD (add, delete, update metadata, related) |
+| `/gnosis:tune` | Chunk-size sweep against your own golden queries |
+| `/gnosis:eval` | Single-shot retrieval quality check with baseline tracking |
+| `/gnosis:context` | Usage-weighted topic primer for session startup |
+| `/gnosis:status` | Connectivity, schema, corpus health diagnostic |
+| 5 agents | `doc-explorer`, `doc-keeper`, `corpus-sync`, `context-loader`, `doc-reviewer` |
+| Session hook | Checks DB connectivity on session start — warns loudly if unreachable |
+
+---
+
+## Path B — Manual copy-paste
+
+For users who want to pick specific agents/skills, edit them before installing, or use a non-plugin-capable MCP client.
+
+```bash
+# 1. Clone the repo to grab the agents + skills
+git clone https://github.com/nicholasglazer/gnosis-mcp /tmp/gnosis-mcp
+
+# 2. Install the Python package
+pip install 'gnosis-mcp[embeddings,web]'
+
+# 3. Copy whichever agents + skills you want into your project
+mkdir -p .claude/agents .claude/skills
+cp /tmp/gnosis-mcp/agents/*.md .claude/agents/           # all 5 — or pick specific ones
+cp -r /tmp/gnosis-mcp/skills/* .claude/skills/           # all 8 — or pick specific dirs
+
+# 4. Wire gnosis-mcp as an MCP server
+cat > .claude/mcp.json <<'JSON'
+{
+  "mcpServers": {
+    "gnosis": {
+      "command": "gnosis-mcp",
+      "args": ["serve"]
+    }
+  }
+}
+JSON
+
+# 5. Index your docs
+gnosis-mcp ingest ./docs --embed
+```
+
+Restart your Claude Code session. The agents and slash commands are available exactly as with Path A, just with whichever subset you chose to copy. Edit the `.md` files to customize prompts for your codebase before (or after) copying.
+
+To remove later: `rm .claude/agents/<name>.md` or `rm -rf .claude/skills/<name>/`.
+
+---
+
+## Path C — MCP server only (any editor)
+
+If you don't use Claude Code, don't want the agent/skill bundle, or want to wire gnosis-mcp as a plain MCP server in a different editor.
+
+### Step 1: Install
 
 ```bash
 pip install gnosis-mcp
@@ -37,7 +125,7 @@ For web crawling (ingest docs from websites):
 pip install gnosis-mcp[web]
 ```
 
-## Step 2: Load Your Docs
+### Step 2: Load Your Docs
 
 Point at a folder of markdown files:
 
@@ -63,7 +151,7 @@ Preview what would be indexed without writing anything:
 gnosis-mcp ingest ./docs/ --dry-run
 ```
 
-## Step 3: Verify
+### Step 3: Verify
 
 ```bash
 gnosis-mcp check    # verify database connection
@@ -71,7 +159,7 @@ gnosis-mcp stats    # see document and chunk counts
 gnosis-mcp search "getting started"   # test a search
 ```
 
-## Step 4: Connect to Your Editor
+### Step 4: Connect to Your Editor
 
 Add the MCP server config to your editor so your AI agent can search your docs.
 
@@ -148,6 +236,8 @@ For PostgreSQL, add an env block to any of the above:
   }
 }
 ```
+
+---
 
 ## Optional: Enable Write Mode
 

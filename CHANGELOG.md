@@ -13,6 +13,8 @@ Versioning follows [Semantic Versioning](https://semver.org/) (pre-1.0).
 
 ### Changed
 - **`.gitignore` narrowed from `.claude/` to `.claude/agent-memory/`**. Only per-session subagent notes are now ignored; a future `.claude/settings.json` or similar team-tooling config would be trackable without fighting the ignore. No behaviour change today (no such files exist), but removes a papercut for later.
+- **`llms-install.md` restructured** to cover three install paths explicitly — Path A (Claude Code plugin marketplace, one command), Path B (manual copy-paste for cherry-picking agents/skills), Path C (MCP-server-only for any editor). Previously 202 lines of MCP-only editor snippets with zero plugin coverage; now 292 lines with the plugin path front-loaded as the recommended option. Single canonical install guide — `agents/README.md` and `skills/README.md` no longer duplicate setup boilerplate, they just link here.
+- **`README.md` Claude Code Plugin table refreshed** — previously listed only 3 slash commands (`/search`, `/status`, `/manage`) out of the 8 we actually ship. Now covers all 8 skills plus the 5 subagents the plugin installs.
 
 ### Added
 - **`/gnosis:eval` skill** (`skills/eval/SKILL.md`) — single-shot retrieval quality check that wraps `gnosis-mcp eval`, interprets the numbers in plain English (Hit@5 / MRR / nDCG@10 / Precision@5), and compares to a saved baseline stored at `~/.local/share/gnosis-mcp/eval-baseline.json`. Three modes: default (run + compare + recommend), `quick` (numbers only), `save` (lock current as new baseline), `diff` (compare without advising). Complements `/gnosis:tune` (which sweeps configurations); eval is the faster health-check.
