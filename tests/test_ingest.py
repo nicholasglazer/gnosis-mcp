@@ -730,6 +730,63 @@ class TestConvertToMarkdownDispatch:
         text = "some content"
         assert _convert_to_markdown(text, Path("file.xyz")) == text
 
+    def test_empty_ipynb_returns_empty_string(self):
+        """Notebook with zero cells must not fall back to indexing raw JSON."""
+        nb_json = '{"cells": [], "metadata": {}, "nbformat": 4, "nbformat_minor": 5}'
+        result = _convert_to_markdown(nb_json, Path("empty.ipynb"))
+        assert result == ""
+
+
+class TestLooksBinary:
+    def test_png_header_detected(self, tmp_path):
+        """A PNG masquerading as .txt contains NUL bytes in its header."""
+        from gnosis_mcp.ingest import _looks_binary
+
+        f = tmp_path / "fake.txt"
+        f.write_bytes(b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR padding to fill the sample window")
+        assert _looks_binary(f) is True
+
+    def test_utf8_text_not_binary(self, tmp_path):
+        from gnosis_mcp.ingest import _looks_binary
+
+        f = tmp_path / "clean.txt"
+        f.write_text("Café résumé — 你好 🙂 — plain prose, no null bytes anywhere.")
+        assert _looks_binary(f) is False
+
+    def test_missing_file_returns_false(self, tmp_path):
+        """Silent-fail on OSError so the ingest loop still produces an IngestResult."""
+        from gnosis_mcp.ingest import _looks_binary
+
+        assert _looks_binary(tmp_path / "does-not-exist.txt") is False
+
+
+class TestParseTagsValue:
+    def test_comma_separated(self):
+        from gnosis_mcp.ingest import _parse_tags_value
+
+        assert _parse_tags_value("alpha, beta, gamma") == ["alpha", "beta", "gamma"]
+
+    def test_yaml_inline_list(self):
+        """Pre-fix this returned ['[alpha', 'beta]'] — brackets leaked through."""
+        from gnosis_mcp.ingest import _parse_tags_value
+
+        assert _parse_tags_value("[alpha, beta]") == ["alpha", "beta"]
+
+    def test_quoted_values(self):
+        from gnosis_mcp.ingest import _parse_tags_value
+
+        assert _parse_tags_value('"alpha", "beta"') == ["alpha", "beta"]
+
+    def test_single(self):
+        from gnosis_mcp.ingest import _parse_tags_value
+
+        assert _parse_tags_value("alpha") == ["alpha"]
+
+    def test_blanks_dropped(self):
+        from gnosis_mcp.ingest import _parse_tags_value
+
+        assert _parse_tags_value("alpha, , , beta") == ["alpha", "beta"]
+
 
 # ---------------------------------------------------------------------------
 # chunk_size wiring (config.chunk_size → chunk_by_headings)

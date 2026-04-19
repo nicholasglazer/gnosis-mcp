@@ -605,6 +605,42 @@ def _convert_to_markdown(text: str, file_path: Path) -> str:
     return converter(text, file_path)
 
 
+def _looks_binary(path: Path, sample_size: int = 2048) -> bool:
+    """Return True if the file's head contains NUL bytes — the strongest
+    unambiguous marker that this isn't text. Without this guard, binary files
+    mis-extensioned as ``.txt`` (a PNG written as ``image.txt``, a compiled
+    object, a zipped archive with no sniff hint) get UTF-8-replaced into
+    garbage (``� ^Z`` noise) and ingested as-if-markdown, polluting both
+    FTS5 and dense vector indexes with junk tokens.
+    """
+    try:
+        with path.open("rb") as fh:
+            head = fh.read(sample_size)
+    except OSError:
+        return False
+    return b"\x00" in head
+
+
+def _parse_tags_value(raw: str) -> list[str]:
+    """Normalize a frontmatter `tags:` value into a clean list.
+
+    Accepts:
+      - comma-separated:  ``tags: alpha, beta``
+      - YAML inline list: ``tags: [alpha, beta]`` (bracket-stripped before split)
+      - single value:     ``tags: alpha``
+
+    YAML block-list (``tags:\\n  - alpha\\n  - beta``) isn't handled here —
+    parse_frontmatter only retains the final line after the key, so block
+    syntax would need the same upgrade relates_to got. Callers that need it
+    should move to the typed-relations block or the dedicated `relates_to`
+    parser.
+    """
+    stripped = raw.strip()
+    if stripped.startswith("[") and stripped.endswith("]"):
+        stripped = stripped[1:-1]
+    return [t.strip().strip("\"'") for t in stripped.split(",") if t.strip()]
+
+
 def _convert_txt(text: str, file_path: Path) -> str:
     """Plain text: add H1 title from filename."""
     title = file_path.stem.replace("-", " ").replace("_", " ").title()
@@ -620,7 +656,10 @@ def _convert_ipynb(text: str, file_path: Path) -> str:
 
     cells = nb.get("cells", [])
     if not cells:
-        return text
+        # Empty notebook — return empty string so the post-convert size guard
+        # skips it. Falling back to the raw JSON blob here would index the
+        # notebook wrapper (`{"cells": [], ...}`) as content, polluting search.
+        return ""
 
     # Detect kernel language for code fences
     meta = nb.get("metadata", {})
@@ -913,6 +952,13 @@ async def ingest_path(
                     )
                     continue
             else:
+                if _looks_binary(f):
+                    results.append(
+                        IngestResult(
+                            path=rel, chunks=0, action="skipped", detail="Binary content"
+                        )
+                    )
+                    continue
                 text = f.read_text(encoding="utf-8", errors="replace")
                 if len(text.strip()) < 50:
                     results.append(
@@ -922,6 +968,16 @@ async def ingest_path(
                     )
                     continue
                 md_text = _convert_to_markdown(text, f)
+                if not md_text or len(md_text.strip()) < 50:
+                    results.append(
+                        IngestResult(
+                            path=rel,
+                            chunks=0,
+                            action="skipped",
+                            detail="Empty after conversion",
+                        )
+                    )
+                    continue
             _, body = parse_frontmatter(md_text)
             chunks = chunk_by_headings(body, rel, max_chunk_size=config.chunk_size)
             results.append(IngestResult(path=rel, chunks=len(chunks), action="dry-run"))
@@ -963,6 +1019,13 @@ async def ingest_path(
                         )
                         continue
                 else:
+                    if _looks_binary(f):
+                        results.append(
+                            IngestResult(
+                                path=rel, chunks=0, action="skipped", detail="Binary content"
+                            )
+                        )
+                        continue
                     text = f.read_text(encoding="utf-8", errors="replace")
                     if len(text.strip()) < 50:
                         results.append(
@@ -971,6 +1034,19 @@ async def ingest_path(
                         continue
                     digest = content_hash(text)
                     md_text = _convert_to_markdown(text, f)
+                    # Post-convert size check: some converters (empty ipynb,
+                    # CSVs with only a header) return tiny/empty output that
+                    # would otherwise reach FTS as a single dehydrated chunk.
+                    if not md_text or len(md_text.strip()) < 50:
+                        results.append(
+                            IngestResult(
+                                path=rel,
+                                chunks=0,
+                                action="skipped",
+                                detail="Empty after conversion",
+                            )
+                        )
+                        continue
             except OSError as e:
                 results.append(IngestResult(path=rel, chunks=0, action="error", detail=str(e)))
                 continue
@@ -996,7 +1072,7 @@ async def ingest_path(
             )
             audience = frontmatter.get("audience", "all")
             tags_str = frontmatter.get("tags", "")
-            tags = [t.strip() for t in tags_str.split(",") if t.strip()] if tags_str else None
+            tags = _parse_tags_value(tags_str) if tags_str else None
 
             # Chunk
             chunks = chunk_by_headings(body, rel, max_chunk_size=config.chunk_size)

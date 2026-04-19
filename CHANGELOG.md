@@ -12,6 +12,20 @@ Versioning follows [Semantic Versioning](https://semver.org/) (pre-1.0).
 ### Fixed
 ### Security
 
+## [0.11.5] - 2026-04-19
+
+### Added
+
+### Changed
+
+### Fixed
+- **Binary files with a text extension no longer ingest as garbled markdown** (`ingest.py`). A PNG mistakenly saved as `image.txt` used to pass the UTF-8-replace pathway, storing `# Image\n\n�PNG\n^Z…` as searchable content and polluting both FTS5 and dense indexes with junk tokens. New `_looks_binary()` helper samples the first 2KB and skips anything containing NUL bytes — the strongest unambiguous not-text signal.
+- **Empty Jupyter notebooks no longer index their raw JSON wrapper** (`ingest.py`). `_convert_ipynb` fell back to `return text` when `cells == []`, meaning `{"cells": [], "metadata": {}, "nbformat": 4, ...}` got stored as the document's content. Now returns `""` so the new post-convert size guard skips it cleanly.
+- **Post-convert size guard applied to every format, not just PDF** (`ingest.py`). The pre-convert 50-char threshold caught tiny raw files but let converters with vacuous output (empty ipynb, CSVs with only a header row) through to write a single empty chunk. Added the same `if len(md_text.strip()) < 50: skip` clause for plain-text / JSON / TOML / CSV / ipynb, mirroring PDF's existing path.
+- **`tags: [alpha, beta]` frontmatter now parses as `["alpha", "beta"]` instead of `["[alpha", "beta]"]`** (`ingest.py`). `parse_frontmatter` treats every value as a string and the downstream code did a naive `split(",")`, so YAML inline-list syntax leaked the literal `[` and `]` characters into the stored tags. New `_parse_tags_value()` strips enclosing brackets before splitting and also strips surrounding quotes on each entry; tests cover inline-list, comma-separated, quoted, and blank-dropping cases.
+
+### Security
+
 ## [0.11.4] - 2026-04-19
 
 ### Added

@@ -131,7 +131,7 @@ Tables are auto-created on first `ingest`. Run `gnosis-mcp init-db` to create th
 
 ## Performance
 
-9,463 QPS on 100 docs (300 chunks), 471 QPS on 10,000 docs (30,000 chunks). p95 under 0.2 ms at 100 docs, under 6 ms at 10,000. End-to-end through the MCP stdio protocol: 8.7 ms mean, 13.0 ms p95 (v0.11.4 SDK 1.27 transport). 632 tests, 10 RAG eval cases (Hit@5 = 1.00, MRR = 0.95, Precision@5 = 0.67). Install size: ~23MB with `[embeddings]` (ONNX model), ~5MB base. Reproduce with `gnosis-mcp eval`, `python tests/bench/bench_search.py`, `python tests/bench/bench_rag.py`, `python tests/bench/bench_mcp_e2e.py`.
+9,463 QPS on 100 docs (300 chunks), 471 QPS on 10,000 docs (30,000 chunks). p95 under 0.2 ms at 100 docs, under 6 ms at 10,000. End-to-end through the MCP stdio protocol: 8.7 ms mean, 13.0 ms p95 (v0.11.5 SDK 1.27 transport). 632 tests, 10 RAG eval cases (Hit@5 = 1.00, MRR = 0.95, Precision@5 = 0.67). Install size: ~23MB with `[embeddings]` (ONNX model), ~5MB base. Reproduce with `gnosis-mcp eval`, `python tests/bench/bench_search.py`, `python tests/bench/bench_rag.py`, `python tests/bench/bench_mcp_e2e.py`.
 
 ## Documentation
 
