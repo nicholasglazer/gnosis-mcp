@@ -3,8 +3,12 @@ name: CI
 on:
   pull_request:
   push:
-    branches-ignore:
-      - main
+    # Run on every branch including main. publish.yml path-filters on
+    # pyproject.toml changes, so lint/test regressions on main (like the
+    # one that slipped into v0.11.0) used to reach releases unvalidated.
+    # Letting CI run on main closes that loophole.
+    branches:
+      - "**"
 
 jobs:
   lint:

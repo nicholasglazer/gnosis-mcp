@@ -12,6 +12,12 @@ Versioning follows [Semantic Versioning](https://semver.org/) (pre-1.0).
 ### Fixed
 ### Security
 
+## [0.11.2] - 2026-04-19
+
+### Fixed
+- **Ruff lint + format failures on `main`** that gated the v0.11.1 publish workflow. `tests/bench/bench_beir.py` and `tests/bench/bench_sweep.py` had unused `import os` (F401) and a stray `f"..."` with no placeholders (F541). Eight files were also overdue for `ruff format`. All auto-fixable. Net effect of v0.11.1: same as v0.11.0 — Docker shipped, PyPI didn't. v0.11.2 is the first version to exercise PyPI + MCP Registry end-to-end.
+- **CI trigger for `main` branch** (`.github/workflows/ci.yml`). Previous rule `branches-ignore: [main]` meant main pushes never ran lint/pytest; v0.11.0 and v0.11.1 both shipped broken because of regressions that CI would have caught on a PR. Switched to `branches: ["**"]` so CI runs on every push, closing the loophole.
+
 ## [0.11.1] - 2026-04-19
 
 ### Fixed

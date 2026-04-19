@@ -168,10 +168,16 @@ async def run_mode(
                 break
         ranked_map[case.query] = deduped
 
-    hit5 = sum(_hit_at_k(ranked_map[c.query], c.expected_paths, 5) for c in cases) / max(len(cases), 1)
-    hit10 = sum(_hit_at_k(ranked_map[c.query], c.expected_paths, 10) for c in cases) / max(len(cases), 1)
+    hit5 = sum(_hit_at_k(ranked_map[c.query], c.expected_paths, 5) for c in cases) / max(
+        len(cases), 1
+    )
+    hit10 = sum(_hit_at_k(ranked_map[c.query], c.expected_paths, 10) for c in cases) / max(
+        len(cases), 1
+    )
     mrr = sum(_mrr(ranked_map[c.query], c.expected_paths) for c in cases) / max(len(cases), 1)
-    ndcg = sum(_ndcg_at_k(ranked_map[c.query], c.expected_paths, k) for c in cases) / max(len(cases), 1)
+    ndcg = sum(_ndcg_at_k(ranked_map[c.query], c.expected_paths, k) for c in cases) / max(
+        len(cases), 1
+    )
 
     return {
         "mode": mode,
@@ -182,9 +188,7 @@ async def run_mode(
         "ndcg_at_10": round(ndcg, 4),
         "p50_ms": round(_pctile(lats, 0.5), 2),
         "p95_ms": round(_pctile(lats, 0.95), 2),
-        "per_query": {
-            c.query: ranked_map[c.query] for c in cases
-        },
+        "per_query": {c.query: ranked_map[c.query] for c in cases},
     }
 
 
@@ -233,10 +237,14 @@ async def main_async(args) -> int:
     embedder = LocalEmbedder(model_id=args.embed_model, dim=args.embed_dim)
     reranker = get_reranker(model=args.rerank_model)
 
-    print(f"  ingesting {corpus_root} (chunk_size={args.chunk_size}, title_prepend={args.title_prepend}) …")
+    print(
+        f"  ingesting {corpus_root} (chunk_size={args.chunk_size}, title_prepend={args.title_prepend}) …"
+    )
     t0 = time.perf_counter()
     doc_count = await ingest_corpus(
-        backend, corpus_root, embedder,
+        backend,
+        corpus_root,
+        embedder,
         title_prepend=args.title_prepend,
         chunk_size=args.chunk_size,
     )
@@ -246,7 +254,9 @@ async def main_async(args) -> int:
     results = []
     for mode in args.modes.split(","):
         mode = mode.strip()
-        r = await run_mode(backend, embedder, reranker, cases, mode=mode, k=args.k, rerank_n=args.rerank_n)
+        r = await run_mode(
+            backend, embedder, reranker, cases, mode=mode, k=args.k, rerank_n=args.rerank_n
+        )
         print(
             f"  {mode:18s}  nDCG={r['ndcg_at_10']:.4f}  MRR={r['mrr']:.4f}  Hit@5={r['hit_at_5']:.4f}  "
             f"Hit@10={r['hit_at_10']:.4f}  p95={r['p95_ms']}ms"
@@ -265,7 +275,11 @@ async def main_async(args) -> int:
         "title_prepend": args.title_prepend,
         "results": results,
     }
-    out_path = Path(args.out) if args.out else Path("bench-results") / f"real-corpus-{int(time.time())}.json"
+    out_path = (
+        Path(args.out)
+        if args.out
+        else Path("bench-results") / f"real-corpus-{int(time.time())}.json"
+    )
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with out_path.open("w") as f:
         json.dump(out, f, indent=2)
@@ -274,28 +288,46 @@ async def main_async(args) -> int:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("--corpus", required=True, help="Root of markdown corpus")
     ap.add_argument("--golden", required=True, help="golden.jsonl — query/expected_paths")
     ap.add_argument(
-        "--modes", default="keyword,hybrid,hybrid+rerank",
+        "--modes",
+        default="keyword,hybrid,hybrid+rerank",
         help="Comma-separated modes to test",
     )
     ap.add_argument("--k", type=int, default=10)
     ap.add_argument("--rerank-n", type=int, default=50)
-    ap.add_argument("--title-prepend", action="store_true",
-                    help="Prepend file title + path to each chunk (often +2-5 points)")
-    ap.add_argument("--rerank-model",
-                    default="cross-encoder/ms-marco-MiniLM-L6-v2",
-                    help="HF repo for the cross-encoder (e.g. BAAI/bge-reranker-base)")
-    ap.add_argument("--chunk-size", type=int, default=4000,
-                    help="Max chars per chunk (default 4000; try 1000 for finer granularity)")
-    ap.add_argument("--rrf-k", type=int, default=60,
-                    help="RRF fusion constant (default 60)")
-    ap.add_argument("--embed-model", default="MongoDB/mdbr-leaf-ir",
-                    help="HuggingFace repo for the embedder (must ship ONNX)")
-    ap.add_argument("--embed-dim", type=int, default=384,
-                    help="Embedding dimension (Matryoshka truncate target for models that support it)")
+    ap.add_argument(
+        "--title-prepend",
+        action="store_true",
+        help="Prepend file title + path to each chunk (often +2-5 points)",
+    )
+    ap.add_argument(
+        "--rerank-model",
+        default="cross-encoder/ms-marco-MiniLM-L6-v2",
+        help="HF repo for the cross-encoder (e.g. BAAI/bge-reranker-base)",
+    )
+    ap.add_argument(
+        "--chunk-size",
+        type=int,
+        default=4000,
+        help="Max chars per chunk (default 4000; try 1000 for finer granularity)",
+    )
+    ap.add_argument("--rrf-k", type=int, default=60, help="RRF fusion constant (default 60)")
+    ap.add_argument(
+        "--embed-model",
+        default="MongoDB/mdbr-leaf-ir",
+        help="HuggingFace repo for the embedder (must ship ONNX)",
+    )
+    ap.add_argument(
+        "--embed-dim",
+        type=int,
+        default=384,
+        help="Embedding dimension (Matryoshka truncate target for models that support it)",
+    )
     ap.add_argument("--out", default=None)
     args = ap.parse_args()
     return asyncio.run(main_async(args))

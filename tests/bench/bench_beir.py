@@ -29,7 +29,6 @@ import argparse
 import asyncio
 import json
 import math
-import os
 import sys
 import tempfile
 import time
@@ -218,7 +217,9 @@ async def run(dataset: str, mode: str, split: str, k: int, dataset_dir: Path) ->
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("--dataset", default="scifact", help="BEIR dataset name (default: scifact)")
     ap.add_argument("--split", default="test", help="Query split (default: test)")
     ap.add_argument("--mode", choices=["keyword", "hybrid"], default="hybrid")
@@ -227,7 +228,9 @@ def main() -> int:
     ap.add_argument("--json", action="store_true", help="Emit JSON only")
     args = ap.parse_args()
 
-    dataset_dir = Path(args.data_dir) if args.data_dir else Path(tempfile.gettempdir()) / "beir-cache"
+    dataset_dir = (
+        Path(args.data_dir) if args.data_dir else Path(tempfile.gettempdir()) / "beir-cache"
+    )
     dataset_dir.mkdir(parents=True, exist_ok=True)
 
     metrics = asyncio.run(run(args.dataset, args.mode, args.split, args.k, dataset_dir))
@@ -247,7 +250,7 @@ def main() -> int:
     else:
         print()
         print(f"  BEIR/{args.dataset}  —  {args.mode.upper()}")
-        print(f"  ───────────────────────────────────────────")
+        print("  ───────────────────────────────────────────")
         print(f"  queries         {result['queries']:>10}")
         print(f"  nDCG@10         {result['ndcg_at_10']:>10.4f}")
         print(f"  MRR@10          {result['mrr_at_10']:>10.4f}")

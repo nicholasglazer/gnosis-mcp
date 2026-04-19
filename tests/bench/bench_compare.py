@@ -136,8 +136,9 @@ async def _gnosis_keyword(corpus, queries, qrels, k, data_dir):
         ranked_cache[qid] = [h["file_path"] for h in hits]
     await backend.shutdown()
 
-    return _score_from_cache(ranked_cache, queries, qrels, lats, k,
-                             tool="gnosis-mcp (keyword)", ingest_s=ingest_s)
+    return _score_from_cache(
+        ranked_cache, queries, qrels, lats, k, tool="gnosis-mcp (keyword)", ingest_s=ingest_s
+    )
 
 
 def _score_from_cache(ranked_cache, queries, qrels, lats, k, *, tool, ingest_s):
@@ -219,8 +220,9 @@ async def _gnosis_hybrid(corpus, queries, qrels, k, data_dir):
         ranked_cache[qid] = [h["file_path"] for h in hits]
     await backend.shutdown()
 
-    return _score_from_cache(ranked_cache, queries, qrels, lats, k,
-                             tool="gnosis-mcp (hybrid)", ingest_s=ingest_s)
+    return _score_from_cache(
+        ranked_cache, queries, qrels, lats, k, tool="gnosis-mcp (hybrid)", ingest_s=ingest_s
+    )
 
 
 # ─── txtai ────────────────────────────────────────────────────────────────
@@ -309,7 +311,9 @@ def _load_beir(dataset, split, data_dir):
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("--dataset", default="scifact")
     ap.add_argument("--split", default="test")
     ap.add_argument("--k", type=int, default=10)

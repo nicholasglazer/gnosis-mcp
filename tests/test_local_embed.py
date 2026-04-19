@@ -208,6 +208,7 @@ class TestDownloadModel:
 
     def test_cleans_up_partial_on_error(self, tmp_path, monkeypatch):
         """Generic network errors bubble as RuntimeError and clean up the partial file."""
+
         def mock_urlretrieve(url, path):
             Path(path).write_text("partial")
             raise OSError("network error")

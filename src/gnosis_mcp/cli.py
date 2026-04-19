@@ -773,7 +773,9 @@ def cmd_eval(args: argparse.Namespace) -> None:
             await backend.startup()
             await backend.init_schema()
             for doc in SAMPLE_DOCS + SAMPLE_GIT_HISTORY_DOCS:
-                chunks = chunk_by_headings(doc["content"], doc["path"], max_chunk_size=cfg.chunk_size)
+                chunks = chunk_by_headings(
+                    doc["content"], doc["path"], max_chunk_size=cfg.chunk_size
+                )
                 await backend.upsert_doc(
                     doc["path"],
                     [c["content"] for c in chunks],

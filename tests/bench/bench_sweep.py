@@ -29,7 +29,6 @@ import argparse
 import asyncio
 import json
 import math
-import os
 import sys
 import tempfile
 import time
@@ -82,9 +81,9 @@ def _pctile(xs, p):
 class Config:
     dataset: str = "scifact"
     split: str = "test"
-    mode: str = "keyword"       # keyword | hybrid | dense | keyword+rerank | hybrid+rerank
-    chunk: str = "whole"        # whole | N where N ∈ {500,1000,2000}
-    title: bool = False          # prepend title to content
+    mode: str = "keyword"  # keyword | hybrid | dense | keyword+rerank | hybrid+rerank
+    chunk: str = "whole"  # whole | N where N ∈ {500,1000,2000}
+    title: bool = False  # prepend title to content
     rrf_k: int = 60
     embed_model: str = "MongoDB/mdbr-leaf-ir"
     embed_dim: int = 384
@@ -328,29 +327,29 @@ def preset_title_ablation(dataset: str) -> list[Config]:
 
 def preset_rrf_k_sweep(dataset: str) -> list[Config]:
     """Optimal RRF k on this dataset?"""
-    return [
-        Config(dataset=dataset, mode="hybrid", rrf_k=k)
-        for k in (20, 40, 60, 80, 100)
-    ]
+    return [Config(dataset=dataset, mode="hybrid", rrf_k=k) for k in (20, 40, 60, 80, 100)]
 
 
 def preset_chunk_ablation(dataset: str) -> list[Config]:
     """Chunk size effect on hybrid retrieval."""
     return [
-        Config(dataset=dataset, mode="hybrid", chunk=c)
-        for c in ("whole", "2000", "1000", "500")
+        Config(dataset=dataset, mode="hybrid", chunk=c) for c in ("whole", "2000", "1000", "500")
     ]
 
 
 def preset_embed_model() -> list[Config]:
     """Different embedders — apples-to-apples on SciFact."""
     return [
-        Config(dataset="scifact", mode="hybrid",
-               embed_model="MongoDB/mdbr-leaf-ir", embed_dim=384),
+        Config(
+            dataset="scifact", mode="hybrid", embed_model="MongoDB/mdbr-leaf-ir", embed_dim=384
+        ),
         # Teacher (snowflake, 109M) — aligned by construction
-        Config(dataset="scifact", mode="hybrid",
-               embed_model="Snowflake/snowflake-arctic-embed-m-v1.5",
-               embed_dim=768),
+        Config(
+            dataset="scifact",
+            mode="hybrid",
+            embed_model="Snowflake/snowflake-arctic-embed-m-v1.5",
+            embed_dim=768,
+        ),
     ]
 
 
@@ -370,7 +369,9 @@ PRESETS = {
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("--preset", required=True, choices=list(PRESETS))
     ap.add_argument("--data-dir", default=None)
     ap.add_argument("--out", default=None, help="Output JSONL file")
@@ -382,14 +383,20 @@ def main() -> int:
     configs = PRESETS[args.preset]()
 
     # Group by dataset so we only load each BEIR corpus once
-    out_path = Path(args.out) if args.out else Path("bench-results") / f"{args.preset}-{int(time.time())}.jsonl"
+    out_path = (
+        Path(args.out)
+        if args.out
+        else Path("bench-results") / f"{args.preset}-{int(time.time())}.jsonl"
+    )
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
     cached_datasets: dict[str, tuple] = {}
     results: list[Result] = []
 
     for i, cfg in enumerate(configs, 1):
-        print(f"\n  [{i}/{len(configs)}] {cfg.dataset} · {cfg.mode} · chunk={cfg.chunk} · title={cfg.title} · rrf_k={cfg.rrf_k} · {cfg.embed_model.split('/')[-1]}")
+        print(
+            f"\n  [{i}/{len(configs)}] {cfg.dataset} · {cfg.mode} · chunk={cfg.chunk} · title={cfg.title} · rrf_k={cfg.rrf_k} · {cfg.embed_model.split('/')[-1]}"
+        )
         if cfg.dataset not in cached_datasets:
             cached_datasets[cfg.dataset] = load_beir(cfg.dataset, cfg.split, data_dir)
         corpus, queries, qrels = cached_datasets[cfg.dataset]
@@ -402,7 +409,15 @@ def main() -> int:
             )
             results.append(res)
             with out_path.open("a") as f:
-                f.write(json.dumps({"config": res.config, **{k: v for k, v in asdict(res).items() if k != 'config'}}) + "\n")
+                f.write(
+                    json.dumps(
+                        {
+                            "config": res.config,
+                            **{k: v for k, v in asdict(res).items() if k != "config"},
+                        }
+                    )
+                    + "\n"
+                )
         except Exception as exc:  # noqa: BLE001
             print(f"    ✗ ERROR: {type(exc).__name__}: {exc}")
 

@@ -23,6 +23,7 @@ Usage:
 The `--check` mode is what CI uses to ensure committed files match the
 templates + current pyproject version.
 """
+
 from __future__ import annotations
 
 import os
@@ -53,9 +54,7 @@ def pytest_test_count() -> str | None:
         ["pytest", "--collect-only", "-q"],
     ):
         try:
-            out = subprocess.run(
-                cmd, cwd=ROOT, capture_output=True, text=True, timeout=60
-            )
+            out = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, timeout=60)
         except (FileNotFoundError, subprocess.TimeoutExpired):
             continue
         m = re.search(r"(\d+) tests? collected", out.stdout + out.stderr)

@@ -307,7 +307,11 @@ async def fetch_page(
     response.raise_for_status()
 
     # SSRF: check final URL after redirects (skip if private crawl explicitly enabled)
-    allow_private = os.environ.get("GNOSIS_MCP_ALLOW_PRIVATE_CRAWL", "").lower() in ("1", "true", "yes")
+    allow_private = os.environ.get("GNOSIS_MCP_ALLOW_PRIVATE_CRAWL", "").lower() in (
+        "1",
+        "true",
+        "yes",
+    )
     final_host = urlparse(str(response.url)).hostname or ""
     if _is_private_host(final_host) and not allow_private:
         log.warning("Blocked redirect to private host: %s", final_host)
@@ -493,7 +497,11 @@ async def crawl_url(
     httpx = _require_httpx()
 
     # SSRF: block private base URLs unless explicitly overridden (local dev / CI).
-    allow_private = os.environ.get("GNOSIS_MCP_ALLOW_PRIVATE_CRAWL", "").lower() in ("1", "true", "yes")
+    allow_private = os.environ.get("GNOSIS_MCP_ALLOW_PRIVATE_CRAWL", "").lower() in (
+        "1",
+        "true",
+        "yes",
+    )
     base_host = urlparse(url).hostname or ""
     if _is_private_host(base_host) and not allow_private:
         return [
