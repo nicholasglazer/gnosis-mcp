@@ -54,6 +54,27 @@ if [[ -f pkg/arch/.SRCINFO ]]; then
   if ! grep -qE "gnosis_mcp-$PYPROJECT\.tar\.gz" pkg/arch/.SRCINFO; then
     fail "pkg/arch/.SRCINFO source filename does not mention gnosis_mcp-$PYPROJECT.tar.gz"
   fi
+  # URL drift: PKGBUILD and .SRCINFO must point at the same PyPI URL.
+  # Content-hash paths from old releases silently persist if only sha256 gets
+  # updated (happened v0.11.1 → v0.11.2). Enforce the predictable /source/g/
+  # PyPI path in both files.
+  if [[ -f pkg/arch/PKGBUILD ]]; then
+    PKGBUILD_URL=$(grep -oE 'https://files\.pythonhosted\.org/packages/[^"]+' pkg/arch/PKGBUILD | head -1)
+    SRCINFO_URL=$(grep -oE 'https://files\.pythonhosted\.org/packages/[^[:space:]]+' pkg/arch/.SRCINFO | head -1)
+    # Normalize: expand PKGBUILD's $pkgver shell var to the actual version so we
+    # can compare to .SRCINFO's literal expansion.
+    PKGBUILD_URL_EXPANDED="${PKGBUILD_URL//\$pkgver/$PYPROJECT}"
+    if [[ -n "$PKGBUILD_URL_EXPANDED" && -n "$SRCINFO_URL" && "$PKGBUILD_URL_EXPANDED" != "$SRCINFO_URL" ]]; then
+      fail "PKGBUILD and .SRCINFO disagree on source URL (drift).
+  PKGBUILD (expanded): $PKGBUILD_URL_EXPANDED
+  .SRCINFO:            $SRCINFO_URL
+  Regenerate with: (cd pkg/arch && makepkg --printsrcinfo > .SRCINFO)"
+    fi
+    # Both should use the predictable /source/g/ path, not a content-hash path.
+    if [[ -n "$PKGBUILD_URL" && "$PKGBUILD_URL" != *"/source/g/gnosis-mcp/"* ]]; then
+      fail "PKGBUILD source URL is not the predictable /source/g/gnosis-mcp/ form — $PKGBUILD_URL"
+    fi
+  fi
 fi
 
 # ---- docs/rest-api.md example JSON --------------------------------------

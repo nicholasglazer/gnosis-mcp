@@ -8,7 +8,12 @@ Versioning follows [Semantic Versioning](https://semver.org/) (pre-1.0).
 ## [Unreleased]
 
 ### Added
+- **Codeberg mirror automation** in `.github/workflows/publish.yml` — a new `mirror-codeberg` job pushes main + all tags to Codeberg on every tag release. Guarded so the workflow stays green when `CODEBERG_TOKEN` isn't set; enable by adding the secret plus optional `CODEBERG_REPO` / `CODEBERG_USER` repo variables.
+- **PKGBUILD ↔ .SRCINFO source-URL drift check** in `scripts/check-versions.sh`. Catches the class of bug that slipped between v0.11.1 and v0.11.2, where the sha256-only sed fallback left `.SRCINFO` pointing at a content-hash PyPI path while PKGBUILD had been bumped to the predictable `/source/g/` form. Normalizes `$pkgver` in the comparison so baseline state passes.
+
 ### Changed
+- **Workflow permissions** on the repo now allow GitHub Actions to create and approve pull requests. This lets the existing `pypi-resolve-and-arch-pr` job finally complete its last step — opening the PR with the computed Arch sha256 — so AUR packaging stays aligned without a manual branch merge.
+
 ### Fixed
 ### Security
 

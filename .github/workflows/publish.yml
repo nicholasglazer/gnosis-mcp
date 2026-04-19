@@ -198,6 +198,40 @@ jobs:
           fi
 
   # ------------------------------------------------------------------------
+  # Mirror main + tags to Codeberg so the offsite backup stays current
+  # without the maintainer running `git push codeberg` on every release.
+  # Guarded: if CODEBERG_TOKEN isn't set, the step logs + exits 0 so the
+  # workflow stays green until the secret lands.
+  # ------------------------------------------------------------------------
+  mirror-codeberg:
+    needs: [check, tag]
+    if: needs.check.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0           # full history + tags
+      - name: Push to Codeberg
+        env:
+          CODEBERG_TOKEN: ${{ secrets.CODEBERG_TOKEN }}
+          # Repo slug on Codeberg. Override via repo var if owner/name differs there.
+          CODEBERG_REPO: ${{ vars.CODEBERG_REPO || 'ng/gnosis-mcp' }}
+          CODEBERG_USER: ${{ vars.CODEBERG_USER || 'ng' }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${CODEBERG_TOKEN:-}" ]]; then
+            echo "::warning::CODEBERG_TOKEN secret not set — skipping Codeberg mirror"
+            echo "To enable: generate a Codeberg personal access token with write scope"
+            echo "and add it to GitHub repo secrets as CODEBERG_TOKEN."
+            exit 0
+          fi
+          git remote add codeberg "https://${CODEBERG_USER}:${CODEBERG_TOKEN}@codeberg.org/${CODEBERG_REPO}.git"
+          # Push main branch and all tags. Codeberg is a mirror — no force needed
+          # for linear histories, and if there's divergence we want to know, not overwrite.
+          git push codeberg HEAD:main
+          git push codeberg --tags
+
+  # ------------------------------------------------------------------------
   # Post-release verification: poll PyPI until the new sdist is visible, then
   # compute the Arch PKGBUILD sha256 and open a PR with the change. Keeps AUR
   # packaging aligned without a manual Phase B on the maintainer's box.
