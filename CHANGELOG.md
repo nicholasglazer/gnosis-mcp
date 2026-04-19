@@ -8,6 +8,7 @@ Versioning follows [Semantic Versioning](https://semver.org/) (pre-1.0).
 ## [Unreleased]
 
 ### Added
+- **`/gnosis:eval` skill** (`skills/eval/SKILL.md`) — single-shot retrieval quality check that wraps `gnosis-mcp eval`, interprets the numbers in plain English (Hit@5 / MRR / nDCG@10 / Precision@5), and compares to a saved baseline stored at `~/.local/share/gnosis-mcp/eval-baseline.json`. Three modes: default (run + compare + recommend), `quick` (numbers only), `save` (lock current as new baseline), `diff` (compare without advising). Complements `/gnosis:tune` (which sweeps configurations); eval is the faster health-check.
 - **Codeberg mirror automation** in `.github/workflows/publish.yml` — a new `mirror-codeberg` job pushes main + all tags to Codeberg on every tag release. Guarded so the workflow stays green when `CODEBERG_TOKEN` isn't set; enable by adding the secret plus optional `CODEBERG_REPO` / `CODEBERG_USER` repo variables.
 - **PKGBUILD ↔ .SRCINFO source-URL drift check** in `scripts/check-versions.sh`. Catches the class of bug that slipped between v0.11.1 and v0.11.2, where the sha256-only sed fallback left `.SRCINFO` pointing at a content-hash PyPI path while PKGBUILD had been bumped to the predictable `/source/g/` form. Normalizes `$pkgver` in the comparison so baseline state passes.
 - **`.claude-plugin/plugin.json` version-parity coverage**. The file was 5 minor versions stale (`0.6.0` while pyproject was `0.11.2`) because `bump-version.sh` never touched it. Now bumped in lockstep and gated by `check-versions.sh`.

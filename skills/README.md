@@ -28,7 +28,8 @@ Restart your MCP client and the commands become available.
 |---|---|---|
 | [`/gnosis:setup`](setup/SKILL.md) | First-time wizard: install → init-db → ingest → wire your editor | — |
 | [`/gnosis:ingest`](ingest/SKILL.md) | **Bulk** ingest (files, git history, web crawl) + re-ingest + prune | `corpus-sync` |
-| [`/gnosis:tune`](tune/SKILL.md) | Chunk-size sweep against your own golden queries | — |
+| [`/gnosis:tune`](tune/SKILL.md) | Chunk-size **sweep** to find the optimum for your corpus | — |
+| [`/gnosis:eval`](eval/SKILL.md) | Single-shot retrieval quality check (Hit@5 / MRR / nDCG) + regression gate | — |
 | [`/gnosis:search`](search/SKILL.md) | Keyword / hybrid / git-history search, formatted | `doc-explorer` |
 | [`/gnosis:manage`](manage/SKILL.md) | **Single-file** CRUD (add, delete, update metadata, related) | `doc-keeper` |
 | [`/gnosis:context`](context/SKILL.md) | Usage-weighted topic primer for session startup | `context-loader` |
