@@ -886,23 +886,107 @@ class PostgresBackend:
 
                 return count
 
+    async def savings_report(self, *, days: int = 30) -> dict[str, Any]:
+        """See `DocBackend.savings_report` protocol docstring."""
+        cfg = self._cfg
+        async with await self._acquire() as conn:
+            has_tokens = await conn.fetchval(
+                "SELECT EXISTS ("
+                "  SELECT 1 FROM information_schema.columns"
+                "  WHERE table_schema = $1 AND table_name = 'search_access_log'"
+                "    AND column_name = 'tokens_returned'"
+                ")",
+                cfg.schema,
+            )
+            if not has_tokens:
+                return {
+                    "days": days,
+                    "calls": 0,
+                    "tokens_returned": 0,
+                    "tokens_baseline": 0,
+                    "tokens_saved": 0,
+                    "by_tool": {},
+                }
+            row = await conn.fetchrow(
+                f"SELECT "
+                f"  count(*) AS calls, "
+                f"  COALESCE(SUM(tokens_returned), 0) AS returned, "
+                f"  COALESCE(SUM(tokens_baseline), 0) AS baseline "
+                f"FROM {cfg.schema}.search_access_log "
+                f"WHERE accessed_at >= (NOW() - ($1 || ' days')::interval)",
+                str(days),
+            )
+            by_tool: dict[str, dict[str, int]] = {}
+            tool_rows = await conn.fetch(
+                f"SELECT tool, count(*), "
+                f"       COALESCE(SUM(GREATEST(tokens_baseline - tokens_returned, 0)), 0) "
+                f"FROM {cfg.schema}.search_access_log "
+                f"WHERE accessed_at >= (NOW() - ($1 || ' days')::interval) "
+                f"  AND tokens_baseline IS NOT NULL AND tokens_returned IS NOT NULL "
+                f"GROUP BY tool "
+                f"ORDER BY 2 DESC",
+                str(days),
+            )
+            for tr in tool_rows:
+                by_tool[tr[0]] = {"calls": int(tr[1]), "tokens_saved": int(tr[2])}
+
+            calls = int(row["calls"])
+            returned = int(row["returned"])
+            baseline = int(row["baseline"])
+            return {
+                "days": days,
+                "calls": calls,
+                "tokens_returned": returned,
+                "tokens_baseline": baseline,
+                "tokens_saved": max(0, baseline - returned),
+                "by_tool": by_tool,
+            }
+
     async def log_access(
         self,
         file_path: str,
         tool: str,
         query: str | None = None,
+        tokens_returned: int | None = None,
+        tokens_baseline: int | None = None,
     ) -> None:
-        """Log a document access event. Fire-and-forget, never raises."""
+        """Log a document access event. Fire-and-forget, never raises.
+
+        Token fields match the SQLite backend's shape — see that backend's
+        docstring for semantics. If the target schema doesn't yet have the
+        v0.11.8 columns, the INSERT falls back to the old three-column form
+        so an old pgvector DB keeps logging access without failing the write.
+        """
         try:
             cfg = self._cfg
             async with await self._acquire() as conn:
-                await conn.execute(
-                    f"INSERT INTO {cfg.schema}.search_access_log "
-                    f"(file_path, tool, query) VALUES ($1, $2, $3)",
-                    file_path,
-                    tool,
-                    query,
+                has_tokens = await conn.fetchval(
+                    "SELECT EXISTS ("
+                    "  SELECT 1 FROM information_schema.columns"
+                    "  WHERE table_schema = $1 AND table_name = 'search_access_log'"
+                    "    AND column_name = 'tokens_returned'"
+                    ")",
+                    cfg.schema,
                 )
+                if has_tokens:
+                    await conn.execute(
+                        f"INSERT INTO {cfg.schema}.search_access_log "
+                        f"(file_path, tool, query, tokens_returned, tokens_baseline) "
+                        f"VALUES ($1, $2, $3, $4, $5)",
+                        file_path,
+                        tool,
+                        query,
+                        tokens_returned,
+                        tokens_baseline,
+                    )
+                else:
+                    await conn.execute(
+                        f"INSERT INTO {cfg.schema}.search_access_log "
+                        f"(file_path, tool, query) VALUES ($1, $2, $3)",
+                        file_path,
+                        tool,
+                        query,
+                    )
         except Exception:
             log.debug("access_log.write_failed", exc_info=True)
 

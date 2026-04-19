@@ -106,6 +106,37 @@ class TestSqliteBackendLifecycle:
         assert health["fts_table_exists"] is True
         assert health["links_table_exists"] is True
 
+    async def test_savings_report_empty_window(self, backend):
+        """No logged calls → all zeros, no by_tool entries."""
+        report = await backend.savings_report(days=7)
+        assert report["calls"] == 0
+        assert report["tokens_returned"] == 0
+        assert report["tokens_baseline"] == 0
+        assert report["tokens_saved"] == 0
+        assert report["by_tool"] == {}
+
+    async def test_savings_report_aggregates(self, backend):
+        """Seeded calls produce the expected saved-tokens totals per tool."""
+        # search_docs: 200 tokens returned, would have cost 2000 → save 1800
+        await backend.log_access(
+            "a.md", tool="search_docs", tokens_returned=200, tokens_baseline=2000
+        )
+        # get_doc truncated: 500 returned vs 3000 full → save 2500
+        await backend.log_access(
+            "b.md", tool="get_doc", tokens_returned=500, tokens_baseline=3000
+        )
+        # row with missing tokens (pre-migration shape) should still count in `calls`
+        await backend.log_access("c.md", tool="search_docs")
+
+        report = await backend.savings_report(days=7)
+        assert report["calls"] == 3
+        # tokens_returned sum only counts rows that recorded it; row 3 is NULL
+        assert report["tokens_returned"] == 700
+        assert report["tokens_baseline"] == 5000
+        assert report["tokens_saved"] == 4300
+        assert report["by_tool"]["search_docs"]["tokens_saved"] == 1800
+        assert report["by_tool"]["get_doc"]["tokens_saved"] == 2500
+
     async def test_upsert_and_get_doc(self, backend):
         count = await backend.upsert_doc(
             "guides/test.md",

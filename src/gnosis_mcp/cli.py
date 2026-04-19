@@ -733,6 +733,55 @@ def cmd_cleanup(args: argparse.Namespace) -> None:
     asyncio.run(_run())
 
 
+def cmd_savings(args: argparse.Namespace) -> None:
+    """Report estimated token savings from logged tool calls.
+
+    For every logged call we store `tokens_returned` (what the caller got)
+    and `tokens_baseline` (what a naive full-doc Read would have cost).
+    Summing `baseline - returned` across rows approximates the cumulative
+    savings. Estimator uses 4 chars/token — close enough for relative numbers,
+    off by ~15 % vs the caller's real tokeniser.
+    """
+    from gnosis_mcp.backend import create_backend
+    from gnosis_mcp.config import GnosisMcpConfig
+
+    config = GnosisMcpConfig.from_env()
+
+    async def _run() -> None:
+        backend = create_backend(config)
+        await backend.startup()
+        try:
+            report = await backend.savings_report(days=args.days)
+        finally:
+            await backend.shutdown()
+
+        if args.json:
+            sys.stdout.write(json.dumps(report, indent=2))
+            sys.stdout.write("\n")
+            return
+
+        window = f"last {args.days} day{'s' if args.days != 1 else ''}"
+        sys.stdout.write(f"\n  Retrieval savings — {window}\n")
+        sys.stdout.write("  " + "=" * 48 + "\n")
+        sys.stdout.write(f"  Tool calls:       {report['calls']:>10,}\n")
+        sys.stdout.write(f"  Tokens returned:  {report['tokens_returned']:>10,}\n")
+        sys.stdout.write(f"  Tokens baseline:  {report['tokens_baseline']:>10,}\n")
+        sys.stdout.write(f"  Tokens saved:     {report['tokens_saved']:>10,}\n")
+        if report["tokens_baseline"] > 0:
+            ratio = report["tokens_baseline"] / max(1, report["tokens_returned"])
+            sys.stdout.write(f"  Ratio:            {ratio:>10.1f}×\n")
+        sys.stdout.write("  " + "=" * 48 + "\n")
+        if report["by_tool"]:
+            sys.stdout.write("\n  By tool:\n")
+            for t, stats in report["by_tool"].items():
+                sys.stdout.write(f"    {t:<22}{stats['calls']:>6,} calls  saved {stats['tokens_saved']:>10,}\n")
+        sys.stdout.write("\n")
+        if report["calls"] == 0:
+            sys.stdout.write("  (no logged calls in window — is GNOSIS_MCP_ACCESS_LOG enabled?)\n\n")
+
+    asyncio.run(_run())
+
+
 def cmd_eval(args: argparse.Namespace) -> None:
     """Run the bundled retrieval-quality eval harness and print metrics.
 
@@ -1153,6 +1202,15 @@ def main() -> None:
     p_eval = sub.add_parser("eval", help="Run retrieval quality eval (Hit@K, MRR, Precision@K)")
     p_eval.add_argument("--json", action="store_true", help="Emit JSON only")
 
+    p_savings = sub.add_parser(
+        "savings",
+        help="Estimated token savings from logged MCP tool calls",
+    )
+    p_savings.add_argument(
+        "--days", type=int, default=30, help="Look back N days (default: 30)"
+    )
+    p_savings.add_argument("--json", action="store_true", help="Emit JSON only")
+
     args = parser.parse_args()
     if not args.command:
         parser.print_help()
@@ -1174,5 +1232,6 @@ def main() -> None:
         "fix-link-types": cmd_fix_link_types,
         "eval": cmd_eval,
         "prune": cmd_prune,
+        "savings": cmd_savings,
     }
     commands[args.command](args)

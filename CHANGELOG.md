@@ -12,6 +12,16 @@ Versioning follows [Semantic Versioning](https://semver.org/) (pre-1.0).
 ### Fixed
 ### Security
 
+## [0.12.0] - 2026-04-19
+
+### Added
+- **`gnosis-mcp savings` CLI** and `savings_report()` backend method. Aggregates the new `tokens_returned` + `tokens_baseline` columns on `search_access_log` into a per-tool breakdown of estimated tokens saved. Token count uses a 4-chars-per-token heuristic — close enough to GPT/Claude tokenisers for relative trend tracking without needing a tiktoken dependency. Per-call savings accumulate over time; `--days N` windows the aggregation, `--json` emits the raw shape for piping into observability dashboards. When `access_log` is disabled (`GNOSIS_MCP_ACCESS_LOG=false`) the CLI reports zero with a hint explaining why.
+- **`search_access_log.tokens_returned` + `tokens_baseline` columns** (`sqlite_schema.py`). Populated by `search_docs` and `get_doc` on every call. `tokens_returned` is what the caller received; `tokens_baseline` is what the caller would have spent reading the full document naively. `ALTER TABLE ADD COLUMN` migration in `SqliteBackend.init_schema()` retrofits existing databases idempotently; `PostgresBackend.log_access()` feature-detects the columns via `information_schema` and falls back to the old three-column INSERT so pre-0.12 PG schemas keep writing access rows while the user rolls out the new DDL.
+- **README tagline + before/after contrast updated** to surface the concrete numbers (5–10× token savings, 92 % Hit@5) up top. Quick Start section now shows both `pip install` and `uv tool install` — the two install paths most users actually take in 2026.
+- **Landing-page (gnosismcp.com) metrics paragraph** gained one sentence quantifying the token-cost delta (~300–800 returned vs 3,000–15,000 for a full Read, ~5–10× savings). Structural layout untouched.
+
+### Security
+
 ## [0.11.7] - 2026-04-19
 
 ### Added

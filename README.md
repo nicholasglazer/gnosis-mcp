@@ -3,7 +3,7 @@
 
 <h1>Gnosis MCP</h1>
 
-<p><strong>Turn your docs into a searchable knowledge base for AI agents.<br>pip install, ingest, serve.</strong></p>
+<p><strong>Stop pasting files into context. Your AI agent searches your local docs instead.<br>5–10× fewer tokens per lookup. 92 % Hit@5 on real dev docs. Zero cloud dependencies.</strong></p>
 
 <p>
   <a href="https://pypi.org/project/gnosis-mcp/"><img src="https://img.shields.io/pypi/v/gnosis-mcp?color=blue" alt="PyPI"></a>
@@ -35,14 +35,16 @@
 ### Without a docs server
 
 - LLMs hallucinate API signatures that don't exist
-- Entire files dumped into context — 3,000 to 8,000+ tokens each
+- Entire files dumped into context — 3,000–15,000 tokens per doc
 - Architecture decisions buried across dozens of files
+- Every repeated lookup pays full context cost
 
 ### With Gnosis MCP
 
-- `search_docs` returns ranked, highlighted excerpts (~600 tokens)
-- Real answers grounded in your actual documentation
-- Works across hundreds of docs instantly
+- `search_docs` returns ranked, highlighted excerpts — typically 300–800 tokens
+- Real answers grounded in your actual docs, not guesses from training data
+- One local index across hundreds of files — instant multi-doc search
+- **5–10× token savings** per lookup when your corpus covers the question
 
 ---
 
@@ -73,9 +75,9 @@ Full side-by-side vs Context7 / docs-mcp-server / mcp-local-rag: [gnosismcp.com#
 ## Quick Start
 
 ```bash
-pip install gnosis-mcp
-gnosis-mcp ingest ./docs/       # loads docs into SQLite (auto-created)
-gnosis-mcp serve                # starts MCP server
+pip install gnosis-mcp           # or: uv tool install gnosis-mcp
+gnosis-mcp ingest ./docs/        # loads docs into SQLite (auto-created)
+gnosis-mcp serve                 # starts MCP server
 ```
 
 That's it. Your AI agent can now search your docs.

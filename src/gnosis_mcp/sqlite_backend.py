@@ -124,6 +124,16 @@ class SqliteBackend:
         for stmt in statements:
             await self._db.execute(stmt)
 
+        # Idempotent migration for DBs initialised before v0.11.8 that are
+        # missing the two token-savings columns. ALTER TABLE ADD COLUMN is
+        # cheap on SQLite and failing-safe (re-raises surface the rare case
+        # where the table exists but is owned by a parallel init).
+        for col in ("tokens_returned", "tokens_baseline"):
+            if not await self.has_column("search_access_log", col):
+                await self._db.execute(
+                    f"ALTER TABLE search_access_log ADD COLUMN {col} INTEGER"
+                )
+
         if self._has_vec:
             vec0_statements = get_vec0_schema(dim=self._cfg.embed_dim)
             try:
@@ -834,12 +844,24 @@ class SqliteBackend:
         file_path: str,
         tool: str,
         query: str | None = None,
+        tokens_returned: int | None = None,
+        tokens_baseline: int | None = None,
     ) -> None:
-        """Log a document access event. Fire-and-forget, never raises."""
+        """Log a document access event. Fire-and-forget, never raises.
+
+        `tokens_returned` is the approximate token count we handed back to the
+        caller for this row (preview + metadata, estimated at 4 chars/token).
+        `tokens_baseline` estimates what the caller would have spent without
+        gnosis-mcp — the full content length of the referenced document.
+        Both are optional so older call sites still work; `gnosis-mcp savings`
+        aggregates `tokens_baseline - tokens_returned` over rows that have both.
+        """
         try:
             await self._db.execute(
-                "INSERT INTO search_access_log (file_path, tool, query) VALUES (?, ?, ?)",
-                (file_path, tool, query),
+                "INSERT INTO search_access_log "
+                "(file_path, tool, query, tokens_returned, tokens_baseline) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (file_path, tool, query, tokens_returned, tokens_baseline),
             )
             await self._db.commit()
         except Exception:
@@ -896,6 +918,47 @@ class SqliteBackend:
         )
         await self._db.commit()
         return cursor.rowcount
+
+    async def savings_report(self, *, days: int = 30) -> dict[str, Any]:
+        """See `DocBackend.savings_report` protocol docstring."""
+        cutoff = f"-{days} days"
+        # Summary in one pass. COALESCE keeps sums numeric when the columns are
+        # absent (pre-migration rows) or the window is empty.
+        row = await (
+            await self._db.execute(
+                "SELECT "
+                "  COUNT(*) AS calls, "
+                "  COALESCE(SUM(tokens_returned), 0) AS returned, "
+                "  COALESCE(SUM(tokens_baseline), 0) AS baseline "
+                "FROM search_access_log "
+                "WHERE accessed_at >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', ?)",
+                (cutoff,),
+            )
+        ).fetchone()
+        calls, returned, baseline = int(row[0]), int(row[1]), int(row[2])
+
+        by_tool: dict[str, dict[str, int]] = {}
+        cursor = await self._db.execute(
+            "SELECT tool, COUNT(*), "
+            "       COALESCE(SUM(MAX(tokens_baseline - tokens_returned, 0)), 0) "
+            "FROM search_access_log "
+            "WHERE accessed_at >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', ?) "
+            "  AND tokens_baseline IS NOT NULL AND tokens_returned IS NOT NULL "
+            "GROUP BY tool "
+            "ORDER BY 2 DESC",
+            (cutoff,),
+        )
+        for t, n, saved in await cursor.fetchall():
+            by_tool[t] = {"calls": int(n), "tokens_saved": int(saved)}
+
+        return {
+            "days": days,
+            "calls": calls,
+            "tokens_returned": returned,
+            "tokens_baseline": baseline,
+            "tokens_saved": max(0, baseline - returned),
+            "by_tool": by_tool,
+        }
 
     async def get_graph_stats(
         self,

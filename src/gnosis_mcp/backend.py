@@ -182,8 +182,27 @@ class DocBackend(Protocol):
         file_path: str,
         tool: str,
         query: str | None = None,
+        tokens_returned: int | None = None,
+        tokens_baseline: int | None = None,
     ) -> None:
-        """Log a document access event. Fire-and-forget, never raises."""
+        """Log a document access event. Fire-and-forget, never raises.
+
+        `tokens_returned` and `tokens_baseline` are optional estimates that
+        feed the `gnosis-mcp savings` ledger. Implementations that don't track
+        tokens (older schemas) should accept the kwargs and silently ignore
+        them so callers stay backend-agnostic.
+        """
+        ...
+
+    async def savings_report(self, *, days: int = 30) -> dict[str, Any]:
+        """Aggregate token savings from the access log over the last `days`.
+
+        Returns a dict with keys: `calls`, `tokens_returned`, `tokens_baseline`,
+        `tokens_saved` (= baseline - returned, floored at 0), and `by_tool`
+        (a {tool_name: {calls, tokens_saved}} breakdown). Rows without
+        `tokens_baseline` are counted in `calls` but contribute 0 to savings
+        — pre-0.11.8 history doesn't deflate the ratio.
+        """
         ...
 
     async def get_top_accessed(

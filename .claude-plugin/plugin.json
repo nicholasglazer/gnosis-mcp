@@ -1,6 +1,6 @@
 {
   "name": "gnosis",
-  "version": "0.11.7",
+  "version": "0.12.0",
   "description": "Zero-config knowledge base MCP server \u2014 search, manage, and embed documentation (SQLite default, PostgreSQL optional)",
   "author": {
     "name": "Nicholas Glazer",

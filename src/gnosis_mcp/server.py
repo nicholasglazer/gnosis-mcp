@@ -127,18 +127,66 @@ def _format_search_result(row: dict, preview_chars: int) -> dict:
     return item
 
 
+def _estimate_tokens(text: str | None) -> int:
+    """Cheap proxy — 4 chars per token is close enough for aggregate accounting.
+
+    Accurate tokenisation would need the caller-specific tokeniser (GPT-4o, Claude,
+    etc.) which varies and isn't available here. The 4-char approximation is
+    within ~15 % of GPT/Claude tokenisers on English prose and within ~30 % on
+    code. Savings are aggregated over many calls, so the bias averages out for
+    relative comparisons.
+    """
+    if not text:
+        return 0
+    return max(1, len(text) // 4)
+
+
+async def _baseline_tokens_for(ctx: AppContext, file_path: str) -> int:
+    """Estimate the baseline: tokens the caller would have spent on a naive
+    read of the whole document referenced by `file_path`. Falls back to zero
+    on any backend error so log_access stays fire-and-forget.
+    """
+    try:
+        chunks = await ctx.backend.get_doc(file_path)
+    except Exception:
+        return 0
+    total = 0
+    for ch in chunks or []:
+        content = ch.get("content") if isinstance(ch, dict) else None
+        total += _estimate_tokens(content)
+    return total
+
+
 async def _log_access(
     ctx: AppContext,
     file_paths: list[str],
     tool: str,
     query: str | None = None,
+    *,
+    tokens_returned: list[int] | None = None,
+    measure_baseline: bool = True,
 ) -> None:
-    """Log document access events. Fire-and-forget, never raises."""
+    """Log document access events and (optionally) the per-call savings ledger.
+
+    `tokens_returned` aligns with `file_paths` — index i holds the approximate
+    token count the caller received for row i of the results. When `measure_baseline`
+    is true (default), we also look up each doc's full size so
+    `tokens_baseline - tokens_returned` is a sensible proxy for what the
+    caller saved by using search_docs instead of a full Read.
+    """
     if not ctx.config.access_log:
         return
     try:
-        for fp in file_paths:
-            await ctx.backend.log_access(fp, tool=tool, query=query)
+        for i, fp in enumerate(file_paths):
+            t_ret = tokens_returned[i] if tokens_returned and i < len(tokens_returned) else None
+            t_base = await _baseline_tokens_for(ctx, fp) if measure_baseline else None
+            await ctx.backend.log_access(
+                fp,
+                tool=tool,
+                query=query,
+                tokens_returned=t_ret,
+                tokens_baseline=t_base,
+            )
     except Exception:
         log.debug("access log failed", exc_info=True)
 
@@ -316,9 +364,19 @@ async def search_docs(
             category,
         )
 
-        # Log top result paths for access tracking
+        # Log top-3 paths plus per-row token estimates for the savings ledger.
+        # tokens_returned ≈ preview_chars/4 (title + path are ~5-10 tokens of
+        # overhead; ignoring them understates savings by a few %, which is fine
+        # since the baseline full-doc read is the dominant term).
         if items:
-            await _log_access(ctx, [it["file_path"] for it in items[:3]], "search_docs", query)
+            top = items[:3]
+            await _log_access(
+                ctx,
+                [it["file_path"] for it in top],
+                "search_docs",
+                query,
+                tokens_returned=[_estimate_tokens(it.get("content_preview", "")) for it in top],
+            )
 
         return json.dumps(items, indent=2)
     except Exception as e:
@@ -364,7 +422,24 @@ async def get_doc(path: str, max_length: int | None = None) -> str:
         }
         if truncated:
             result["truncated"] = True
-        await _log_access(ctx, [path], "get_doc")
+        # get_doc's savings are non-zero only when `max_length` is set — the
+        # caller asked for a truncated slice and got one. `measure_baseline=False`
+        # skips the extra round-trip since we already have the full content here
+        # and can compute the baseline inline.
+        returned_tokens = _estimate_tokens(content)
+        full_tokens = returned_tokens if not truncated else _estimate_tokens(
+            "\n\n".join(r["content"] for r in rows)
+        )
+        try:
+            await ctx.backend.log_access(
+                path,
+                tool="get_doc",
+                query=None,
+                tokens_returned=returned_tokens,
+                tokens_baseline=full_tokens,
+            )
+        except Exception:
+            log.debug("access log failed", exc_info=True)
         return json.dumps(result, indent=2)
     except Exception:
         log.exception("get_doc failed for path=%s", path)
