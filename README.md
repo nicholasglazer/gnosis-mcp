@@ -72,6 +72,27 @@ Full side-by-side vs Context7 / docs-mcp-server / mcp-local-rag: [gnosismcp.com#
 - **Built-in eval harness** — `gnosis-mcp eval` prints Hit@K / MRR / Precision@K in one command
 - **PostgreSQL ready** — pgvector + tsvector when you need scale
 
+## Performance
+
+**Fast.** 8.7 ms mean MCP round-trip. Hybrid search p50 < 30 ms on a 700-doc corpus. Keyword QPS scales from 9,463 @ 100 docs to 471 @ 10,000 docs ([full numbers](https://gnosismcp.com/#numbers)).
+
+**Finds the right answer.** On 558 real dev docs with 25 hand-written golden queries: Hit@5 = **0.92**, nDCG@10 = **0.87**, MRR = **0.79**. On BEIR SciFact (5,183 docs, public retrieval benchmark): nDCG@10 = **0.671** — within 1 % of the Lucene BM25 baseline.
+
+**Tokens saved.** Each `search_docs` call returns 200–500 tokens of on-point snippets instead of the 3,000–15,000 tokens a full-file Read would have cost. Measured on the author's live Claude Code session: **55× compression** on a typical 3-result query. Track your own with `gnosis-mcp savings` (v0.12.0+) — the ledger writes to `search_access_log` on every call and aggregates per tool per `--days N`:
+
+```
+$ gnosis-mcp savings --days 7
+  Tool calls:               142
+  Tokens returned:        7,104
+  Tokens baseline:      231,580
+  Tokens saved:         224,476
+  Ratio:                   32.6×
+```
+
+**Reproducible.** `gnosis-mcp eval` runs a RAG eval harness locally in one second. `tests/bench/*.py` reproduce every number. Methodology: [`docs/benchmarks.md`](docs/benchmarks.md).
+
+**Rerankers stay off by default.** The bundled MS-MARCO cross-encoder drops nDCG@10 by 27 points on dev-docs and adds 400× latency; BGE-reranker-v2-m3 drops it 31 points at 2400×. Test on your corpus before enabling — full write-up: [bench-experiments-2026-04-18](docs/bench-experiments-2026-04-18.md).
+
 ## Quick Start
 
 ```bash
@@ -228,82 +249,39 @@ Also discoverable via the VS Code MCP gallery — search `@mcp gnosis` in the Ex
 
 </details>
 
-## Transport: Stdio vs HTTP
+## Transport
 
-Gnosis supports two MCP transports. Which one you pick changes how sessions connect:
-
-| | Stdio (default) | Streamable HTTP |
-|---|---|---|
-| **Start** | `gnosis-mcp serve` | `gnosis-mcp serve --transport streamable-http` |
-| **Connection** | One parent process owns stdin/stdout | Any number of clients connect via HTTP |
-| **Sharing** | 1:1 — each editor/session spawns its own server | N:1 — one server, many sessions |
-| **State** | DB, file watcher, embeddings per-process | Shared across all clients |
-| **Best for** | Single editor, quick start | Multiple terminals, CI/CD, remote access |
-
-**Why this matters:** Gnosis maintains persistent state — a SQLite/PostgreSQL database, an embedding cache, and (with `--watch`) a file system watcher. With stdio, each editor session spawns a separate server process with its own state. With HTTP, you start the server once and every session shares the same database and watcher.
-
-For AI coding tools that open multiple sessions (e.g., Claude Code with agent teams, or parallel terminal tabs), HTTP avoids duplicate processes and keeps all sessions reading from the same index:
-
-```json
-{
-  "mcpServers": {
-    "docs": {
-      "type": "url",
-      "url": "http://127.0.0.1:8000/mcp"
-    }
-  }
-}
-```
-
-Start the server separately (or via systemd/Docker):
+Stdio (default) spawns one server per editor session — simplest. HTTP shares one process across every client so the DB, embedding cache, and file watcher stay in sync across sessions:
 
 ```bash
 gnosis-mcp serve --transport streamable-http --host 0.0.0.0 --port 8000
 ```
 
-Stdio MCP servers like `@modelcontextprotocol/server-postgres` are stateless proxies — they forward a SQL query and return results, so per-session spawning is fine. Gnosis is stateful, which is why HTTP transport is the better choice for multi-session setups.
+```json
+{ "mcpServers": { "docs": { "type": "url", "url": "http://127.0.0.1:8000/mcp" } } }
+```
+
+Pick HTTP for multi-session agent setups (Claude Code with agent teams, parallel terminals, CI). Full write-up: **[gnosismcp.com/doc/docs/deployment](https://gnosismcp.com/doc/docs/deployment)**.
 
 ## REST API
 
-> v0.10.0+ — Enable native HTTP endpoints alongside MCP on the same port.
+> v0.10.0+ — HTTP endpoints alongside MCP on the same port.
 
 ```bash
 gnosis-mcp serve --transport streamable-http --rest
 ```
 
-Web apps can now query your docs over plain HTTP — no MCP protocol required.
+| Endpoint | Returns |
+|----------|---------|
+| `GET /health` | status, version, distinct-doc + chunk counts |
+| `GET /api/search?q=` | hybrid search (auto-embeds with `local` provider) |
+| `GET /api/docs/{path}` | full document |
+| `GET /api/docs/{path}/related` | graph neighbours |
+| `GET /api/categories` | category → doc count |
+| `GET /api/context?topic=` | usage-weighted topic primer |
+| `GET /api/graph/stats` | orphans, hubs, relation distribution |
 
-| Endpoint | Description |
-|----------|-------------|
-| `GET /health` | Server status, version, doc count |
-| `GET /api/search?q=&limit=&category=` | Search docs (auto-embeds with local provider) |
-| `GET /api/docs/{path}` | Get document by file path |
-| `GET /api/docs/{path}/related` | Get related documents |
-| `GET /api/categories` | List categories with counts |
-| `GET /api/context?topic=&limit=&category=` | Usage-weighted context summary |
-| `GET /api/graph/stats?category=` | Knowledge graph topology |
-
-**Environment variables:**
-
-| Variable | Description |
-|----------|-------------|
-| `GNOSIS_MCP_REST=true` | Enable REST API (same as `--rest`) |
-| `GNOSIS_MCP_CORS_ORIGINS` | CORS allowed origins: `*` or comma-separated list |
-| `GNOSIS_MCP_API_KEY` | Optional Bearer token auth (timing-safe comparison) |
-| `GNOSIS_MCP_PUBLIC_PATHS` | Comma-separated auth-bypass paths. `/health` is always public. |
-
-**Examples:**
-
-```bash
-# Health check
-curl http://127.0.0.1:8000/health
-
-# Search
-curl "http://127.0.0.1:8000/api/search?q=authentication&limit=5"
-
-# With API key
-curl -H "Authorization: Bearer sk-secret" "http://127.0.0.1:8000/api/search?q=setup"
-```
+CORS, Bearer auth, custom public-path allowlist — full reference: **[`docs/rest-api.md`](docs/rest-api.md)** · **[gnosismcp.com/doc/docs/rest-api](https://gnosismcp.com/doc/docs/rest-api)**.
 
 ## Backends
 
@@ -488,42 +466,17 @@ gnosis-mcp embed --provider ollama      # uses local Ollama server
 
 ## Configuration
 
-All settings via environment variables. Nothing required for SQLite — it works with zero config.
+Nothing required for SQLite — zero config works. Override via `GNOSIS_MCP_*` env vars. Most-used:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `GNOSIS_MCP_DATABASE_URL` | SQLite auto | PostgreSQL URL or SQLite file path |
-| `GNOSIS_MCP_BACKEND` | `auto` | Force `sqlite` or `postgres` |
-| `GNOSIS_MCP_WRITABLE` | `false` | Enable write tools |
-| `GNOSIS_MCP_TRANSPORT` | `stdio` | Transport: `stdio`, `sse`, or `streamable-http` |
-| `GNOSIS_MCP_EMBEDDING_DIM` | provider default | Vector dimension (OpenAI small: 1536; local ONNX: 384) |
+| `GNOSIS_MCP_WRITABLE` | `false` | Enable `upsert_doc` / `delete_doc` / `update_metadata` |
+| `GNOSIS_MCP_EMBED_PROVIDER` | unset | `local` turns on hybrid search (needs `[embeddings]` extra) |
+| `GNOSIS_MCP_COLLAPSE_BY_DOC` | `false` | Dedup top-K by file_path (+2 nDCG on mixed corpora) |
+| `GNOSIS_MCP_RERANK_ENABLED` | `false` | Cross-encoder rerank — **test first**, hurts dev-docs |
 
-<details>
-<summary>All configuration variables</summary>
-
-**Database:** `GNOSIS_MCP_SCHEMA` (public), `GNOSIS_MCP_CHUNKS_TABLE` (documentation_chunks), `GNOSIS_MCP_LINKS_TABLE` (documentation_links), `GNOSIS_MCP_SEARCH_FUNCTION` (custom search on PG).
-
-**Search & chunking:** `GNOSIS_MCP_CONTENT_PREVIEW_CHARS` (200), `GNOSIS_MCP_CHUNK_SIZE` (2000 — peak on real dev-docs corpus, [bench-experiments](docs/bench-experiments-2026-04-18.md)), `GNOSIS_MCP_SEARCH_LIMIT_MAX` (20), `GNOSIS_MCP_MAX_QUERY_CHARS` (10000), `GNOSIS_MCP_MAX_DOC_BYTES` (50_000_000), `GNOSIS_MCP_RRF_K` (60).
-
-**Connection pool (PostgreSQL):** `GNOSIS_MCP_POOL_MIN` (1), `GNOSIS_MCP_POOL_MAX` (3).
-
-**Webhooks:** `GNOSIS_MCP_WEBHOOK_URL`, `GNOSIS_MCP_WEBHOOK_TIMEOUT` (5s), `GNOSIS_MCP_WEBHOOK_ALLOW_PRIVATE` (false — SSRF-guarded by default).
-
-**Embeddings:** `GNOSIS_MCP_EMBED_PROVIDER` (openai/ollama/custom/local), `GNOSIS_MCP_EMBED_MODEL`, `GNOSIS_MCP_EMBED_DIM` (provider default), `GNOSIS_MCP_EMBED_API_KEY`, `GNOSIS_MCP_EMBED_URL`, `GNOSIS_MCP_EMBED_BATCH_SIZE` (50).
-
-**Reranking:** `GNOSIS_MCP_RERANK_ENABLED` (false — requires `[reranking]` extra).
-
-**Web crawl:** `GNOSIS_MCP_CRAWL_EXTRACT_TIMEOUT_S` (30s).
-
-**REST API:** `GNOSIS_MCP_REST` (false), `GNOSIS_MCP_API_KEY`, `GNOSIS_MCP_CORS_ORIGINS`, `GNOSIS_MCP_PUBLIC_PATHS` (comma-separated allowlist — `/health` is always public), `GNOSIS_MCP_HOST` (127.0.0.1), `GNOSIS_MCP_PORT` (8000).
-
-**Access log:** `GNOSIS_MCP_ACCESS_LOG` (true — tracks doc access for `get_context`).
-
-**Column overrides:** `GNOSIS_MCP_COL_FILE_PATH`, `GNOSIS_MCP_COL_TITLE`, `GNOSIS_MCP_COL_CONTENT`, `GNOSIS_MCP_COL_CHUNK_INDEX`, `GNOSIS_MCP_COL_CATEGORY`, `GNOSIS_MCP_COL_AUDIENCE`, `GNOSIS_MCP_COL_TAGS`, `GNOSIS_MCP_COL_EMBEDDING`, `GNOSIS_MCP_COL_TSV`, `GNOSIS_MCP_COL_SOURCE_PATH`, `GNOSIS_MCP_COL_TARGET_PATH`, `GNOSIS_MCP_COL_RELATION_TYPE`.
-
-**Logging:** `GNOSIS_MCP_LOG_LEVEL` (INFO).
-
-</details>
+Full list (~40 variables covering embeddings, crawl, REST, column overrides, webhooks, logging): **[`docs/config.md`](docs/config.md)** · browsable at **[gnosismcp.com/doc/docs/config](https://gnosismcp.com/doc/docs/config)**.
 
 <details>
 <summary>Custom search function (PostgreSQL)</summary>
@@ -638,46 +591,6 @@ src/gnosis_mcp/
 | [`llms.txt`](llms.txt) | Quick overview — what it does, tools, config |
 | [`llms-full.txt`](llms-full.txt) | Complete reference in one file |
 | [`llms-install.md`](llms-install.md) | Step-by-step installation guide |
-
-## Performance
-
-Four questions, four measurements. Methodology, raw numbers, and reproduction commands: [`docs/benchmarks.md`](docs/benchmarks.md) · full write-up at [gnosismcp.com/#numbers](https://gnosismcp.com/#numbers).
-
-**1. Fast enough for agents.** 8.7 ms mean, 13 ms p95 per MCP tool call (stdio round-trip). An agent calling `search_docs` twenty times in a response adds under a quarter-second.
-
-**2. Scales past the laptop.** SQLite FTS5 keyword, median of 3 runs, in-memory:
-
-| Corpus | QPS | p95 |
-|--------|----:|----:|
-| 100 docs | 9,463 | 0.16 ms |
-| 1,000 docs | 2,768 | 0.72 ms |
-| 5,000 docs | 839 | 3.0 ms |
-| 10,000 docs | 471 | 5.6 ms |
-
-**3. Finds the right answer.** Two corpora, two stories:
-
-- **Real developer docs** (558 docs, 25 hand-written golden queries): Hit@5 = **0.92**, nDCG@10 = **0.87**, MRR = **0.79**. v0.11 moved nDCG@10 from 0.8407 → 0.8702 by lowering the default `GNOSIS_MCP_CHUNK_SIZE` from 4000 → 2000 chars — peak of a 7-point sweep ([full write-up](docs/bench-experiments-2026-04-18.md)).
-- **BEIR SciFact** (5,183 docs, 300 test queries — public retrieval benchmark): nDCG@10 = **0.671**. Within 1 % of the Lucene BM25 reference baseline (0.679) that hybrid and dense retrievers historically struggle to beat on this dataset.
-
-**4. Reproducible in one second.** `gnosis-mcp eval` runs the small internal RAG eval locally:
-
-```
-$ gnosis-mcp eval
-  Hit Rate@5:       1.000
-  MRR:              0.950
-  Mean Precision@5: 0.668
-```
-
-```bash
-uv run python tests/bench/bench_search.py           # speed, scale curve
-uv run python tests/bench/bench_rag.py              # quality, keyword vs hybrid
-uv run python tests/bench/bench_mcp_e2e.py          # protocol round-trip
-uv run python tests/bench/bench_real_corpus.py      # real-world retrieval on your own corpus
-```
-
-Install size: ~23 MB with `[embeddings]` (ONNX model). Base install is ~5 MB. Test suite: 632 tests — most run without a database.
-
-**Reranker warning.** The bundled `[reranking]` extra stays off by default. On real dev-docs the MS-MARCO cross-encoder drops nDCG@10 by 27 points and adds 400× latency; BGE-reranker-v2-m3 drops it by 31 points at 2400× latency. Test on your corpus first. Full bench in [bench-experiments-2026-04-18](docs/bench-experiments-2026-04-18.md).
 
 ## Development
 

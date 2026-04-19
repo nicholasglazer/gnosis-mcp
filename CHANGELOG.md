@@ -12,6 +12,19 @@ Versioning follows [Semantic Versioning](https://semver.org/) (pre-1.0).
 ### Fixed
 ### Security
 
+## [0.13.2] - 2026-04-19
+
+### Changed
+- **README reshape** — Performance section now sits right after Features (was near the bottom of a 700-line file) so the numbers that matter to a new reader hit within the first three screenfuls. Added a `## Performance → Tokens saved` paragraph with a live `gnosis-mcp savings` sample output — evidence for the token-savings claim the landing page makes, now matching in the primary doc.
+- **Configuration table compressed to 5 rows** — the full ~40-variable list moved behind a link to `docs/config.md` and the site equivalent at `gnosismcp.com/doc/docs/config`. Casual readers see the decisions they actually need to make on day one; power users follow one link for the rest.
+- **Transport section cut from 32 lines to 13** — stdio vs HTTP tradeoff stays explicit, the full rationale + systemd/Docker notes moved to `gnosismcp.com/doc/docs/deployment`.
+- **REST API section cut to the endpoint table** — env vars and curl examples moved to `docs/rest-api.md` / `gnosismcp.com/doc/docs/rest-api`. The endpoint table stays because it's the thing someone scanning for "can I hit this from a web app" needs at a glance.
+
+### Fixed
+- No code changes; README-only. PyPI re-renders on any README change so the patch bump is required per project policy.
+
+### Security
+
 ## [0.13.1] - 2026-04-19
 
 ### Fixed

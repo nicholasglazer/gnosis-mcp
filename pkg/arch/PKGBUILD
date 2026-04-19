@@ -1,6 +1,6 @@
 # Maintainer: Nicholas Glazer <info at nicgl dot com>
 pkgname=gnosis-mcp
-pkgver=0.13.1
+pkgver=0.13.2
 pkgrel=1
 pkgdesc="Zero-config MCP server for searchable documentation (SQLite default, PostgreSQL optional)"
 arch=('any')
