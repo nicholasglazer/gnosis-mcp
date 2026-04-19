@@ -17,7 +17,8 @@
 #   - skills/setup/SKILL.md (version floor hint)
 #   - pkg/arch/PKGBUILD (pkgver + pkgrel=1; sha256 stays stale, see PHASE-B)
 #   - pkg/arch/.SRCINFO (regenerated from PKGBUILD if makepkg is installed)
-#   - llms.txt / llms-full.txt (warning only — body references left for manual review)
+#   - llms.txt / llms-full.txt (in-place sed on v$OLD → v$NEW; measured
+#     numbers like test count and MCP latency stay hand-edited)
 #   - uv.lock (via `uv sync`)
 #
 # Does NOT touch:
@@ -202,20 +203,17 @@ if [[ -f pkg/arch/PKGBUILD ]]; then
   fi
 fi
 
-# ---- 8. llms.txt / llms-full.txt (template-rendered) ----------------------
-# Rendered from llms.txt.tmpl + llms-full.txt.tmpl with tokens:
-#   {{VERSION}}, {{TEST_COUNT}}, {{MCP_MEAN_MS}}, {{MCP_P95_MS}}
-# VERSION comes from pyproject.toml (just bumped above). Benchmark numbers
-# are preserved from the current committed llms.txt unless overridden via
-# GNOSIS_RENDER_MCP_MEAN_MS / GNOSIS_RENDER_MCP_P95_MS / GNOSIS_RENDER_TEST_COUNT.
-if [[ -f llms.txt.tmpl ]]; then
-  if command -v python3 &>/dev/null; then
-    python3 scripts/render-llms.py
-    echo "✓ llms.txt + llms-full.txt (templated)"
-  else
-    echo "⚠ python3 missing — skipping llms template render" >&2
+# ---- 8. llms.txt / llms-full.txt -----------------------------------------
+# In-place version bump on the two AI-discovery files. Only touches the
+# `v$OLD` references; measured numbers (test count, MCP latency ms) are
+# maintainer-edited when benchmarks are re-run and stay put across releases.
+OLD_ESC="${OLD//./\\.}"
+for f in llms.txt llms-full.txt; do
+  if [[ -f "$f" ]]; then
+    sed -i -E "s/v${OLD_ESC}/v${NEW}/g" "$f"
+    echo "✓ $f"
   fi
-fi
+done
 
 # ---- 8. uv.lock -----------------------------------------------------------
 if command -v uv &>/dev/null; then
