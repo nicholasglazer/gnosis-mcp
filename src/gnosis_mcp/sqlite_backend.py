@@ -88,11 +88,40 @@ class SqliteBackend:
 
         self._has_vec = await self._try_load_sqlite_vec()
 
+        # Idempotent schema catch-ups for DBs that existed before newer
+        # features landed. `init_schema()` also runs these when the user calls
+        # `gnosis-mcp init-db`, but users who never re-init would hit column-
+        # missing errors from `savings` or any other code that assumes the
+        # post-v0.12 shape. Cheap enough to attempt on every startup — SQLite
+        # ALTER TABLE on a WAL journal is O(1) when the column already exists.
+        await self._ensure_post_v0_12_columns()
+
         log.info(
             "gnosis-mcp started: backend=sqlite path=%s sqlite-vec=%s",
             db_path,
             self._has_vec,
         )
+
+    async def _ensure_post_v0_12_columns(self) -> None:
+        """Add the tokens_returned / tokens_baseline columns if missing.
+
+        Separate from `init_schema()` so it runs on plain `startup()` too —
+        `gnosis-mcp savings` on a pre-v0.12 DB used to raise `OperationalError:
+        no such column` because the migration was tied to `init-db` alone.
+        Silently returns if the table doesn't exist yet (first-ever startup
+        before init_schema creates it).
+        """
+        if not await self._table_exists("search_access_log"):
+            return
+        for col in ("tokens_returned", "tokens_baseline"):
+            if not await self.has_column("search_access_log", col):
+                try:
+                    await self._db.execute(
+                        f"ALTER TABLE search_access_log ADD COLUMN {col} INTEGER"
+                    )
+                except Exception:
+                    log.debug("ALTER TABLE for %s failed", col, exc_info=True)
+        await self._db.commit()
 
     async def _try_load_sqlite_vec(self) -> bool:
         """Attempt to load the sqlite-vec extension. Returns True on success."""
@@ -921,6 +950,18 @@ class SqliteBackend:
 
     async def savings_report(self, *, days: int = 30) -> dict[str, Any]:
         """See `DocBackend.savings_report` protocol docstring."""
+        # Defensive: if the startup-time migration couldn't run (read-only DB,
+        # foreign schema, etc.) the columns won't exist. Return zero savings
+        # rather than raising OperationalError into the CLI.
+        if not await self.has_column("search_access_log", "tokens_returned"):
+            return {
+                "days": days,
+                "calls": 0,
+                "tokens_returned": 0,
+                "tokens_baseline": 0,
+                "tokens_saved": 0,
+                "by_tool": {},
+            }
         cutoff = f"-{days} days"
         # Summary in one pass. COALESCE keeps sums numeric when the columns are
         # absent (pre-migration rows) or the window is empty.

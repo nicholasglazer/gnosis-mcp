@@ -12,6 +12,14 @@ Versioning follows [Semantic Versioning](https://semver.org/) (pre-1.0).
 ### Fixed
 ### Security
 
+## [0.13.1] - 2026-04-19
+
+### Fixed
+- **`gnosis-mcp savings` no longer raises `OperationalError: no such column: tokens_returned`** on databases created before v0.12 (`sqlite_backend.py`). The v0.12.0 schema migration was tied to `init_schema()` — called during `gnosis-mcp init-db`, not during normal `startup()` — so any existing user who skipped `init-db` after upgrading hit a hard crash when running the `savings` CLI. Migration now runs from `startup()` via `_ensure_post_v0_12_columns()` (idempotent ALTER TABLE per missing column), and `savings_report()` itself feature-detects the columns and returns all-zeros rather than raising when an unusual schema is encountered. Regression test builds a v0.11.x-shaped table directly, brings up the backend, and asserts the report method doesn't crash.
+- **`tests/bench/sweep_new_knobs.py`** — dev-time 4-config sweep script added for anyone investigating the effect of `COLLAPSE_BY_DOC` × `MMR_LAMBDA` on their own corpus. Runs the same 30 goldens through the full server-side pipeline (backend.search → MMR → collapse-by-doc → truncate) so post-processor effects actually show up. First published numbers on the laptop dev-docs corpus: collapse-by-doc +2.2 nDCG points, MMR λ=0.6 −24 nDCG points + 48× latency (because candidate content re-embedding). MMR is opt-in and the knob works; the bench just doesn't test the use case MMR is designed for (diverse multi-intent queries rather than single-target lookups).
+
+### Security
+
 ## [0.13.0] - 2026-04-19
 
 ### Added

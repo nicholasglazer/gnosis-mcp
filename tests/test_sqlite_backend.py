@@ -106,6 +106,40 @@ class TestSqliteBackendLifecycle:
         assert health["fts_table_exists"] is True
         assert health["links_table_exists"] is True
 
+    async def test_savings_report_on_pre_v0_12_schema(self, tmp_path):
+        """Regression: DB created before v0.12 lacks the token columns. Calling
+        `savings_report` on it must not raise — either the startup migration
+        backfilled the columns, or the feature-detect falls back to zeros.
+        """
+        import aiosqlite
+
+        from gnosis_mcp.backend import create_backend
+        from gnosis_mcp.config import GnosisMcpConfig
+
+        db_path = str(tmp_path / "pre-v0.12.db")
+        async with aiosqlite.connect(db_path) as raw:
+            # Simulate the v0.11.x schema — no tokens_* columns.
+            await raw.execute(
+                "CREATE TABLE search_access_log (id INTEGER PRIMARY KEY, "
+                "file_path TEXT, query TEXT, tool TEXT, accessed_at TEXT)"
+            )
+            await raw.execute(
+                "INSERT INTO search_access_log (file_path, tool, accessed_at) "
+                "VALUES ('a.md', 'search_docs', "
+                "strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
+            )
+            await raw.commit()
+
+        cfg = GnosisMcpConfig(database_url=db_path, backend="sqlite")
+        backend = create_backend(cfg)
+        await backend.startup()
+        try:
+            report = await backend.savings_report(days=30)
+            assert "tokens_saved" in report
+            assert isinstance(report["tokens_saved"], int)
+        finally:
+            await backend.shutdown()
+
     async def test_savings_report_empty_window(self, backend):
         """No logged calls → all zeros, no by_tool entries."""
         report = await backend.savings_report(days=7)
