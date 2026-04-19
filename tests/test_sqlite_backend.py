@@ -3,7 +3,11 @@
 import pytest
 
 from gnosis_mcp.config import GnosisMcpConfig
-from gnosis_mcp.sqlite_backend import SqliteBackend, _to_fts5_query
+from gnosis_mcp.sqlite_backend import (
+    SqliteBackend,
+    _sqlite_path_from_url,
+    _to_fts5_query,
+)
 
 
 def _make_backend() -> SqliteBackend:
@@ -37,6 +41,46 @@ class TestFts5Query:
     def test_all_special_chars(self):
         """If all chars are special, return empty quoted string."""
         assert _to_fts5_query("*+-") == '""'
+
+
+class TestSqlitePathFromUrl:
+    def test_bare_absolute_path_unchanged(self):
+        assert _sqlite_path_from_url("/tmp/docs.db") == "/tmp/docs.db"
+
+    def test_bare_relative_path_unchanged(self):
+        assert _sqlite_path_from_url("docs.db") == "docs.db"
+
+    def test_memory_unchanged(self):
+        assert _sqlite_path_from_url(":memory:") == ":memory:"
+
+    def test_three_slash_url_yields_absolute(self):
+        assert _sqlite_path_from_url("sqlite:///tmp/docs.db") == "/tmp/docs.db"
+
+    def test_four_slash_url_yields_absolute(self):
+        # Linux collapses //tmp/x to /tmp/x; the point is no `sqlite:` prefix leaks through.
+        assert _sqlite_path_from_url("sqlite:////tmp/docs.db") == "//tmp/docs.db"
+
+    def test_memory_url(self):
+        assert _sqlite_path_from_url("sqlite://:memory:") == ":memory:"
+
+    def test_backend_strips_url_prefix(self, tmp_path):
+        db = tmp_path / "gnosis.db"
+        config = GnosisMcpConfig(database_url=f"sqlite:///{db}", backend="sqlite")
+        backend = SqliteBackend(config)
+        assert not backend._db_path.startswith("sqlite:")
+
+    async def test_url_creates_file_at_expected_path(self, tmp_path, monkeypatch):
+        """Regression: sqlite:/// URL must not create a `sqlite:` dir in cwd."""
+        monkeypatch.chdir(tmp_path)
+        db = tmp_path / "nested" / "actual.db"
+        config = GnosisMcpConfig(database_url=f"sqlite:///{db}", backend="sqlite")
+        backend = SqliteBackend(config)
+        await backend.startup()
+        try:
+            assert db.exists(), f"DB should be at {db}"
+            assert not (tmp_path / "sqlite:").exists(), "no `sqlite:` turd in cwd"
+        finally:
+            await backend.shutdown()
 
 
 class TestSqliteBackendLifecycle:
