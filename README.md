@@ -78,7 +78,7 @@ Full side-by-side vs Context7 / docs-mcp-server / mcp-local-rag: [gnosismcp.com#
 
 **Finds the right answer.** On 558 real dev docs with 25 hand-written golden queries: Hit@5 = **0.92**, nDCG@10 = **0.87**, MRR = **0.79**. On BEIR SciFact (5,183 docs, public retrieval benchmark): nDCG@10 = **0.671** — within 1 % of the Lucene BM25 baseline.
 
-**Tokens saved.** Each `search_docs` call returns 200–500 tokens of on-point snippets instead of the 3,000–15,000 tokens a full-file Read would have cost. Measured on the author's live Claude Code session: **55× compression** on a typical 3-result query. Track your own with `gnosis-mcp savings` (v0.12.0+) — the ledger writes to `search_access_log` on every call and aggregates per tool per `--days N`:
+**Tokens saved.** Each `search_docs` call returns 200–500 tokens of on-point snippets instead of the 3,000–15,000 tokens a full-file Read would have cost. Track your own with `gnosis-mcp savings` (v0.12.0+) — the ledger writes to `search_access_log` on every call and aggregates per tool per `--days N`:
 
 ```
 $ gnosis-mcp savings --days 7
@@ -88,6 +88,8 @@ $ gnosis-mcp savings --days 7
   Tokens saved:         224,476
   Ratio:                   32.6×
 ```
+
+Typical compression runs 10–60× depending on corpus coverage and query specificity — verify on yours. `access_log` is on by default; `GNOSIS_MCP_ACCESS_LOG=false` opts out.
 
 **Reproducible.** `gnosis-mcp eval` runs a RAG eval harness locally in one second. `tests/bench/*.py` reproduce every number. Methodology: [`docs/benchmarks.md`](docs/benchmarks.md).
 
