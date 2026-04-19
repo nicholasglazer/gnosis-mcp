@@ -305,7 +305,7 @@ Default install deps: mcp + aiosqlite. Optional: asyncpg (via `[postgres]` extra
 
 ## Performance
 
-9,463 QPS on 100 docs (300 chunks), 471 QPS on 10,000 docs (30,000 chunks) — SQLite FTS5 keyword. p95 under 6 ms at 10K corpus. End-to-end through the MCP stdio protocol: 8.7 ms mean, 13.0 ms p95 (v0.11.0, after the mcp SDK 1.27 transport upgrade). 617 tests, 10 RAG eval cases (Hit@5 = 1.00, MRR = 0.95, Precision@5 = 0.67). Install size: ~23MB with `[embeddings]` (ONNX model), ~5MB base. Benchmarks: `gnosis-mcp eval`, `python tests/bench/bench_search.py`, `python tests/bench/bench_rag.py`, `python tests/bench/bench_mcp_e2e.py`. See `docs/benchmarks.md` for methodology.
+9,463 QPS on 100 docs (300 chunks), 471 QPS on 10,000 docs (30,000 chunks) — SQLite FTS5 keyword. p95 under 6 ms at 10K corpus. End-to-end through the MCP stdio protocol: 8.7 ms mean, 13.0 ms p95 (v0.11.1, after the mcp SDK 1.27 transport upgrade). 632 tests, 10 RAG eval cases (Hit@5 = 1.00, MRR = 0.95, Precision@5 = 0.67). Install size: ~23MB with `[embeddings]` (ONNX model), ~5MB base. Benchmarks: `gnosis-mcp eval`, `python tests/bench/bench_search.py`, `python tests/bench/bench_rag.py`, `python tests/bench/bench_mcp_e2e.py`. See `docs/benchmarks.md` for methodology.
 
 ## License
 

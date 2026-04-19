@@ -10,7 +10,8 @@ from gnosis_mcp.local_embed import (
     LocalEmbedder,
     _DEFAULT_DIM,
     _DEFAULT_MODEL,
-    _MODEL_FILES,
+    _ONNX_CANDIDATES,
+    _TOKENIZER_FILES,
     _download_model,
     _get_cache_dir,
     get_embedder,
@@ -166,6 +167,7 @@ class TestGetCacheDir:
 
 class TestDownloadModel:
     def test_downloads_all_files(self, tmp_path, monkeypatch):
+        """Tokenizer files + the first ONNX candidate should all download."""
         downloaded_urls = []
 
         def mock_urlretrieve(url, path):
@@ -174,16 +176,22 @@ class TestDownloadModel:
 
         monkeypatch.setattr(urllib.request, "urlretrieve", mock_urlretrieve)
 
-        result = _download_model("test/model", tmp_path)
-        assert result == tmp_path / "test--model"
-        assert len(downloaded_urls) == len(_MODEL_FILES)
+        model_dir, onnx_rel = _download_model("test/model", tmp_path)
+        assert model_dir == tmp_path / "test--model"
+        # The first ONNX candidate wins because the mock always "succeeds";
+        # the second candidate is never tried. Plus an optional .onnx_data
+        # sidecar attempt.
+        assert onnx_rel == _ONNX_CANDIDATES[0]
+        # Tokenizer files + first ONNX + (attempted) sidecar
+        assert len(downloaded_urls) == len(_TOKENIZER_FILES) + 2
         for url in downloaded_urls:
             assert "test/model" in url
 
     def test_skips_existing_files(self, tmp_path, monkeypatch):
+        """If all required files (tokenizer + any ONNX variant) are cached, no downloads happen."""
         model_dir = tmp_path / "test--model"
         model_dir.mkdir(parents=True)
-        for rel in _MODEL_FILES:
+        for rel in list(_TOKENIZER_FILES) + [_ONNX_CANDIDATES[0]]:
             f = model_dir / rel
             f.parent.mkdir(parents=True, exist_ok=True)
             f.write_text("cached")
@@ -199,6 +207,7 @@ class TestDownloadModel:
         assert len(downloaded_urls) == 0  # all cached
 
     def test_cleans_up_partial_on_error(self, tmp_path, monkeypatch):
+        """Generic network errors bubble as RuntimeError and clean up the partial file."""
         def mock_urlretrieve(url, path):
             Path(path).write_text("partial")
             raise OSError("network error")
@@ -208,8 +217,9 @@ class TestDownloadModel:
         with pytest.raises(RuntimeError, match="Failed to download"):
             _download_model("test/model", tmp_path)
 
-        first_file = tmp_path / "test--model" / _MODEL_FILES[0]
-        assert not first_file.exists()  # partial cleaned up
+        # First tokenizer file is attempted first — should be cleaned up on failure.
+        first_file = tmp_path / "test--model" / _TOKENIZER_FILES[0]
+        assert not first_file.exists()
 
     def test_sanitizes_model_id(self, tmp_path, monkeypatch):
         """Model ID slashes become double-dashes in directory name."""
@@ -219,5 +229,5 @@ class TestDownloadModel:
 
         monkeypatch.setattr(urllib.request, "urlretrieve", mock_urlretrieve)
 
-        result = _download_model("org/sub/model", tmp_path)
-        assert result.name == "org--sub--model"
+        model_dir, _ = _download_model("org/sub/model", tmp_path)
+        assert model_dir.name == "org--sub--model"

@@ -12,6 +12,12 @@ Versioning follows [Semantic Versioning](https://semver.org/) (pre-1.0).
 ### Fixed
 ### Security
 
+## [0.11.1] - 2026-04-19
+
+### Fixed
+- **`.github/workflows/publish.yml` YAML parse error** in the `pypi-resolve-and-arch-pr` job introduced in v0.11.0. A `gh pr create --body "..."` argument spanned multiple lines and contained both a blank line and backtick-escaped inline code — that combination broke YAML's multiline-quoted-string scanner, so the workflow failed at parse time (0 s duration, no job logs) on every push since the job was added. Switched to `--body-file` with a heredoc. Net effect of v0.11.0: the Docker image published successfully but PyPI, MCP Registry, and the Arch-sums PR automation never ran. v0.11.1 is the first release that exercises those paths end-to-end.
+- **`tests/test_local_embed.py` collection error** introduced in v0.11.0 by the ONNX filename fallback patch. The test module imported `_MODEL_FILES` which had been renamed to `_TOKENIZER_FILES` + `_ONNX_CANDIDATES`; pytest couldn't import the module at all, so 15 tests silently went uncollected (dropping the reported count from 632 to 617 without raising a red flag). CI on the release branch was path-filtered to `pyproject.toml` only, which let the regression slip past. Tests now updated to the new API shape; all 632 collect and the 627 non-PG tests pass.
+
 ## [0.11.0] - 2026-04-18
 
 ### Changed
