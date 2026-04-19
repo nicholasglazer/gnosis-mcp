@@ -1,4 +1,4 @@
-pkgbase = python-gnosis-mcp
+pkgbase = gnosis-mcp
 	pkgdesc = Zero-config MCP server for searchable documentation (SQLite default, PostgreSQL optional)
 	pkgver = 0.11.2
 	pkgrel = 1
@@ -17,7 +17,7 @@ pkgbase = python-gnosis-mcp
 	optdepends = python-numpy: local ONNX embeddings
 	optdepends = python-httpx: web crawling
 	optdepends = python-trafilatura: web crawling
-	source = python-gnosis-mcp-0.11.2.tar.gz::https://files.pythonhosted.org/packages/d3/51/d9fe70f25a56cf7417a4cabadbfb87f5a70a91e7a3a02a54086f431e717e/gnosis_mcp-0.11.2.tar.gz
+	source = gnosis-mcp-0.11.2.tar.gz::https://files.pythonhosted.org/packages/source/g/gnosis-mcp/gnosis_mcp-0.11.2.tar.gz
 	sha256sums = 0f2158623f69f906ac2c17fa06ea61348e4bc5ee65bed1386eabd09154388473
 
-pkgname = python-gnosis-mcp
+pkgname = gnosis-mcp

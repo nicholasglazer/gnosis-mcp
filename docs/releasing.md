@@ -219,24 +219,25 @@ git push selify main && git push codeberg main && git push github main
 
 ### First-time AUR publish (one-off)
 
-If this is the first time shipping to AUR (python-gnosis-mcp not
-registered yet):
+If this is the first time shipping to AUR (`gnosis-mcp` not registered
+yet — gnosis-mcp is a CLI tool, so we drop the `python-` prefix that
+libraries use):
 
 ```bash
-ssh aur@aur.archlinux.org submit python-gnosis-mcp      # reserves the name
-git clone ssh://aur@aur.archlinux.org/python-gnosis-mcp.git ~/aur-gnosis-mcp
+ssh aur@aur.archlinux.org submit gnosis-mcp      # reserves the name
+git clone ssh://aur@aur.archlinux.org/gnosis-mcp.git ~/aur-gnosis-mcp
 cp pkg/arch/PKGBUILD pkg/arch/.SRCINFO ~/aur-gnosis-mcp/
-cd ~/aur-gnosis-mcp && git add . && git commit -m "initial import 0.11.0" && git push
+cd ~/aur-gnosis-mcp && git add . && git commit -m "initial import 0.11.2" && git push
 ```
 
 Then verify the package is visible at
-https://aur.archlinux.org/packages/python-gnosis-mcp.
+https://aur.archlinux.org/packages/gnosis-mcp.
 
 ### Lower-maintenance alternative: `-git` flavor only
 
 `pkg/arch/PKGBUILD-git` tracks `main` and doesn't need per-release
 bumps. If full AUR maintenance sounds like a chore, publish only
-`python-gnosis-mcp-git` and users get rolling releases from source.
+`gnosis-mcp-git` and users get rolling releases from source.
 
 ## 9. Other post-release tasks (manual)
 

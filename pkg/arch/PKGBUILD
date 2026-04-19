@@ -1,5 +1,5 @@
 # Maintainer: Nicholas Glazer <nicholasglazer at protonmail dot com>
-pkgname=python-gnosis-mcp
+pkgname=gnosis-mcp
 pkgver=0.11.2
 pkgrel=1
 pkgdesc="Zero-config MCP server for searchable documentation (SQLite default, PostgreSQL optional)"

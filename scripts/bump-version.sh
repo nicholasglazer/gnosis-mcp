@@ -182,7 +182,7 @@ if [[ -f pkg/arch/PKGBUILD ]]; then
     if [[ -f pkg/arch/.SRCINFO ]]; then
       sed -i -E "s/^(\tpkgver) = $OLD/\1 = $NEW/" pkg/arch/.SRCINFO
       sed -i -E "s/gnosis_mcp-$OLD/gnosis_mcp-$NEW/g" pkg/arch/.SRCINFO
-      sed -i -E "s/python-gnosis-mcp-$OLD/python-gnosis-mcp-$NEW/g" pkg/arch/.SRCINFO
+      sed -i -E "s/^(\tsource = )gnosis-mcp-$OLD/\1gnosis-mcp-$NEW/" pkg/arch/.SRCINFO
       echo "✓ pkg/arch/.SRCINFO (sed fallback — install \`pacman-contrib\` to use makepkg)"
     fi
   fi

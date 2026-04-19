@@ -1,5 +1,5 @@
 # Maintainer: Nicholas Glazer <nicholasglazer at protonmail dot com>
-pkgname=python-gnosis-mcp-git
+pkgname=gnosis-mcp-git
 pkgver=r0.0000000
 pkgrel=1
 pkgdesc="Zero-config MCP server for searchable documentation (git)"
@@ -14,8 +14,8 @@ optdepends=('python-asyncpg: PostgreSQL backend'
             'python-httpx: web crawling'
             'python-trafilatura: web crawling')
 makedepends=('python-build' 'python-installer' 'python-hatchling' 'git')
-provides=('python-gnosis-mcp')
-conflicts=('python-gnosis-mcp')
+provides=('gnosis-mcp')
+conflicts=('gnosis-mcp')
 source=("git+https://github.com/nicholasglazer/gnosis-mcp.git")
 sha256sums=('SKIP')
 

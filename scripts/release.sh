@@ -90,7 +90,7 @@ if [[ "$1" == "verify" ]]; then
     echo "  (install jq for MCP Registry version check)"
   fi
 
-  probe "AUR package"    "https://aur.archlinux.org/packages/python-gnosis-mcp"
+  probe "AUR package"    "https://aur.archlinux.org/packages/gnosis-mcp"
 
   echo ""
   echo "Legend: ✓ live = reachable & (where checked) matches v$VER"

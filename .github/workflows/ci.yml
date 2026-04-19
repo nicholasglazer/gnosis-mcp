@@ -18,12 +18,12 @@ jobs:
       - uses: astral-sh/setup-uv@v3
         with:
           enable-cache: true
-      - name: Install ruff
-        run: uv pip install --system ruff
+      # `uvx` runs ruff in an ephemeral env — no `uv pip install --system`
+      # which newer uv rejects without a venv or --break-system-packages flag.
       - name: Ruff check
-        run: ruff check .
+        run: uvx ruff check .
       - name: Ruff format
-        run: ruff format --check .
+        run: uvx ruff format --check .
 
   test-sqlite:
     runs-on: ubuntu-latest
