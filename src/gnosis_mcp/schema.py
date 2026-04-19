@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from gnosis_mcp.config import GnosisMcpConfig
 
-__all__ = ["SCHEMA_SQL", "get_init_sql"]
+__all__ = ["get_init_sql"]
 
 SCHEMA_SQL = """\
 -- Gnosis MCP documentation schema

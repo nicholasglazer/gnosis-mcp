@@ -10,6 +10,7 @@ from gnosis_mcp.db import AppContext
 from gnosis_mcp.pg_backend import _row_count, _to_or_query
 import gnosis_mcp.server as server_mod
 from gnosis_mcp.server import (
+    _collapse_by_doc,
     _notify_webhook,
     _split_chunks,
     delete_doc,
@@ -80,6 +81,29 @@ class TestToOrQuery:
 
     def test_whitespace_only(self):
         assert _to_or_query("   ") == "   "
+
+
+class TestCollapseByDoc:
+    def test_preserves_highest_scoring_per_doc(self):
+        """First occurrence (highest score in incoming order) wins per file_path."""
+        rows = [
+            {"file_path": "a.md", "score": 10, "content": "first-a"},
+            {"file_path": "b.md", "score": 9, "content": "first-b"},
+            {"file_path": "a.md", "score": 8, "content": "second-a"},
+            {"file_path": "c.md", "score": 7, "content": "first-c"},
+            {"file_path": "b.md", "score": 6, "content": "second-b"},
+        ]
+        collapsed = _collapse_by_doc(rows)
+        assert [r["file_path"] for r in collapsed] == ["a.md", "b.md", "c.md"]
+        assert collapsed[0]["content"] == "first-a"
+
+    def test_stable_on_empty(self):
+        assert _collapse_by_doc([]) == []
+
+    def test_missing_file_path_is_dropped(self):
+        """Rows without a file_path key are filtered — defensive, shouldn't happen in practice."""
+        rows = [{"file_path": "a.md"}, {"file_path": None}, {"no_path": True}]
+        assert _collapse_by_doc(rows) == [{"file_path": "a.md"}]
 
 
 class TestRowCount:

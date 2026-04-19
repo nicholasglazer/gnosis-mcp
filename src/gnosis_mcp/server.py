@@ -89,6 +89,25 @@ async def _notify_webhook(ctx: AppContext, action: str, path: str) -> None:
         log.warning("webhook failed for %s (url=%s)", path, url, exc_info=True)
 
 
+def _collapse_by_doc(results: list[dict]) -> list[dict]:
+    """Keep only the first-seen (highest-scoring) result per file_path.
+
+    Input order matters — this is a stable dedup that preserves the incoming
+    rank. Backends return results sorted by score (BM25 ascending for FTS5,
+    RRF ascending for hybrid), so the first occurrence of a given file_path
+    is the highest-scoring chunk for that doc.
+    """
+    seen: set[str] = set()
+    out: list[dict] = []
+    for r in results:
+        fp = r.get("file_path")
+        if fp is None or fp in seen:
+            continue
+        seen.add(fp)
+        out.append(r)
+    return out
+
+
 def _format_search_result(row: dict, preview_chars: int) -> dict:
     """Shape a backend search row as the MCP-tool result dict.
 
@@ -210,6 +229,13 @@ async def search_docs(
 
     use_rerank = cfg.rerank_enabled if rerank is None else rerank
     fetch_limit = max(limit, cfg.rerank_pool) if use_rerank else limit
+    # Collapse-by-doc discards duplicates from the same file_path. To end up
+    # with `limit` distinct docs we need a bigger prefetch. 5× limit is a
+    # practical floor; corpora with very chunk-heavy docs (1 doc / 1000 chunks
+    # — e.g. MCP's llms-full.txt) may still deplete it, but raising further
+    # trades latency for more marginal diversity gains.
+    if cfg.collapse_by_doc:
+        fetch_limit = max(fetch_limit, limit * 5)
     fetch_limit = max(1, min(max(cfg.search_limit_max, cfg.rerank_pool), fetch_limit))
 
     limit = max(1, min(cfg.search_limit_max, limit))
@@ -252,19 +278,23 @@ async def search_docs(
                 reranker = get_reranker(cfg.rerank_model)
                 import asyncio as _asyncio
 
+                # Rerank fetches top-K *before* collapse so rerank has the most
+                # signal to work with; collapse happens on the rerank output.
+                rerank_top = max(limit, cfg.rerank_pool) if cfg.collapse_by_doc else limit
                 results = await _asyncio.to_thread(
-                    reranker.rerank, query, results, text_key="content", top_k=limit
+                    reranker.rerank, query, results, text_key="content", top_k=rerank_top
                 )
             except ImportError:
                 log.warning(
                     "Rerank requested but [reranking] extra not installed — returning unranked"
                 )
-                results = results[:limit]
             except Exception:
                 log.exception("Rerank failed; falling back to unranked results")
-                results = results[:limit]
-        else:
-            results = results[:limit]
+
+        if cfg.collapse_by_doc:
+            results = _collapse_by_doc(results)
+
+        results = results[:limit]
 
         items = [_format_search_result(r, preview) for r in results]
 

@@ -270,9 +270,14 @@ class SqliteBackend:
         """FTS5 keyword-only search (existing path)."""
         fts_query = _to_fts5_query(query)
 
+        # Column weights come from config (defaults preserve the old hardcoded
+        # 10:1 title:content ratio). Users upgrading see identical behaviour;
+        # users tuning with GNOSIS_MCP_FTS5_TITLE_WEIGHT get a dial.
+        title_w = float(self._cfg.fts5_title_weight)
+        content_w = float(self._cfg.fts5_content_weight)
         sql = (
             "SELECT c.file_path, c.title, c.content, c.category, "
-            "  bm25(documentation_chunks_fts, 10.0, 1.0) AS score, "
+            f"  bm25(documentation_chunks_fts, {title_w}, {content_w}) AS score, "
             "  snippet(documentation_chunks_fts, 1, '<mark>', '</mark>', '...', 32) AS highlight "
             "FROM documentation_chunks_fts f "
             "JOIN documentation_chunks c ON c.id = f.rowid "

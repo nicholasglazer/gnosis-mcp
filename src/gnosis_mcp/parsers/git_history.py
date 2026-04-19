@@ -20,15 +20,16 @@ if TYPE_CHECKING:
 
 __all__ = [
     "GitCommit",
-    "FileHistory",
     "GitIngestConfig",
-    "GitIngestResult",
     "parse_git_log",
     "group_by_file",
     "render_history_markdown",
     "should_include",
     "ingest_git",
 ]
+# `FileHistory` and `GitIngestResult` remain public module attributes for anyone
+# inspecting return types, but they weren't re-exported via `__all__` since no
+# caller imports them — they're internal data-carrier dataclasses.
 
 log = logging.getLogger("gnosis_mcp")
 

@@ -12,6 +12,20 @@ Versioning follows [Semantic Versioning](https://semver.org/) (pre-1.0).
 ### Fixed
 ### Security
 
+## [0.11.7] - 2026-04-19
+
+### Added
+- **`GNOSIS_MCP_COLLAPSE_BY_DOC`** (`server.py`). Opt-in top-K deduplication — keeps at most one chunk per distinct `file_path`, preserving incoming rank order (so the highest-scoring chunk per doc wins). Rescues the failure mode where a long document with many similar chunks (e.g. a single llms-full.txt that chunks into 1000+ fragments) drowns out the rest of the results. Fetch limit scales to `limit × 5` when enabled so there's enough headroom after collapse to still return `limit` distinct docs. Default off to preserve existing result shapes; `GNOSIS_MCP_COLLAPSE_BY_DOC=true` turns it on.
+- **`GNOSIS_MCP_FTS5_TITLE_WEIGHT` + `GNOSIS_MCP_FTS5_CONTENT_WEIGHT`** (`sqlite_backend.py`). SQLite FTS5 column weights previously hardcoded as `bm25(..., 10.0, 1.0)` are now configurable via env vars. Defaults preserve the 10:1 title-vs-content ratio so existing rankings don't shift; downstream users with unusual docs (massive titles, wiki-style cross-references, etc.) can rebalance without forking.
+
+### Changed
+- **Dead `__all__` entries dropped** (`schema.py`, `parsers/git_history.py`). `SCHEMA_SQL`, `FileHistory`, and `GitIngestResult` were re-exported via `__all__` but never imported by any caller in the repo. `SCHEMA_SQL` is an implementation detail of `get_init_sql()`; the two dataclasses are internal data carriers. Public-API surface stays intact (`GitCommit` and `GitIngestConfig` remain exported).
+
+### Fixed
+- **BFS crawl discovery silently swallowed fetch errors** (`crawl.py:477`). The `except Exception: continue` block ate transient HTTP errors during link discovery, leaving users to wonder why their `--max-urls 200` crawl only pulled 30 pages. Now logs at debug level so `LOG_LEVEL=DEBUG` reveals the dropped URLs without adding noise at the default level.
+
+### Security
+
 ## [0.11.6] - 2026-04-19
 
 ### Added

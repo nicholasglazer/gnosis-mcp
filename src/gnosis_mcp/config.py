@@ -115,6 +115,19 @@ class GnosisMcpConfig:
     rerank_model: str = "onnx-community/ms-marco-MiniLM-L6-v2-ONNX"
     rerank_pool: int = 20  # fetch this many before reranking, return `limit` after
 
+    # Search quality knobs.
+    # `collapse_by_doc` post-processes top-K to keep at most one chunk per
+    # distinct `file_path` (the highest-scoring one), which prevents a single
+    # popular document from drowning the rest of the results. Opt-in default-
+    # off so result shapes stay stable for existing callers.
+    # `fts5_title_weight` / `fts5_content_weight` are the bm25() column weights
+    # (SQLite's bm25 second+ args). Defaults preserve the previous hardcoded
+    # 10:1 title-vs-content ratio; downstream users who want uniform FTS can
+    # set both to 1.0.
+    collapse_by_doc: bool = False
+    fts5_title_weight: float = 10.0
+    fts5_content_weight: float = 1.0
+
     # Embedding provider (Tier 2 sidecar)
     embed_provider: str | None = None  # "openai", "ollama", "custom", "local"
     embed_model: str = "text-embedding-3-small"
@@ -283,6 +296,15 @@ class GnosisMcpConfig:
             except ValueError:
                 raise ValueError(f"GNOSIS_MCP_{key} must be an integer, got: {val!r}") from None
 
+        def env_float(key: str, default: float) -> float:
+            val = os.environ.get(f"GNOSIS_MCP_{key}")
+            if not val:
+                return default
+            try:
+                return float(val)
+            except ValueError:
+                raise ValueError(f"GNOSIS_MCP_{key} must be a float, got: {val!r}") from None
+
         backend_raw = env("BACKEND", "auto")
 
         return cls(
@@ -321,6 +343,9 @@ class GnosisMcpConfig:
             rerank_enabled=env("RERANK_ENABLED", "").lower() in ("1", "true", "yes"),
             rerank_model=env("RERANK_MODEL", "onnx-community/ms-marco-MiniLM-L6-v2-ONNX"),
             rerank_pool=env_int("RERANK_POOL", 20),
+            collapse_by_doc=env("COLLAPSE_BY_DOC", "").lower() in ("1", "true", "yes"),
+            fts5_title_weight=env_float("FTS5_TITLE_WEIGHT", 10.0),
+            fts5_content_weight=env_float("FTS5_CONTENT_WEIGHT", 1.0),
             embed_provider=env("EMBED_PROVIDER"),
             embed_model=env("EMBED_MODEL", "text-embedding-3-small"),
             embed_dim=env_int("EMBED_DIM", 384),

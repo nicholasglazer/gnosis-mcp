@@ -381,6 +381,41 @@ class TestEmbedConfig:
         cfg = GnosisMcpConfig.from_env()
         assert cfg.embed_model == "text-embedding-3-small"
 
+    def test_collapse_by_doc_default_off(self, monkeypatch):
+        monkeypatch.delenv("GNOSIS_MCP_COLLAPSE_BY_DOC", raising=False)
+        monkeypatch.setenv("GNOSIS_MCP_DATABASE_URL", "postgresql://localhost/db")
+        cfg = GnosisMcpConfig.from_env()
+        assert cfg.collapse_by_doc is False
+
+    def test_collapse_by_doc_opt_in(self, monkeypatch):
+        monkeypatch.setenv("GNOSIS_MCP_DATABASE_URL", "postgresql://localhost/db")
+        monkeypatch.setenv("GNOSIS_MCP_COLLAPSE_BY_DOC", "true")
+        cfg = GnosisMcpConfig.from_env()
+        assert cfg.collapse_by_doc is True
+
+    def test_fts5_weights_default_preserves_title_boost(self, monkeypatch):
+        """Defaults match the previous hardcoded 10:1 ratio — no surprise regression on upgrade."""
+        monkeypatch.delenv("GNOSIS_MCP_FTS5_TITLE_WEIGHT", raising=False)
+        monkeypatch.delenv("GNOSIS_MCP_FTS5_CONTENT_WEIGHT", raising=False)
+        monkeypatch.setenv("GNOSIS_MCP_DATABASE_URL", "postgresql://localhost/db")
+        cfg = GnosisMcpConfig.from_env()
+        assert cfg.fts5_title_weight == 10.0
+        assert cfg.fts5_content_weight == 1.0
+
+    def test_fts5_weights_override(self, monkeypatch):
+        monkeypatch.setenv("GNOSIS_MCP_DATABASE_URL", "postgresql://localhost/db")
+        monkeypatch.setenv("GNOSIS_MCP_FTS5_TITLE_WEIGHT", "5.5")
+        monkeypatch.setenv("GNOSIS_MCP_FTS5_CONTENT_WEIGHT", "2.0")
+        cfg = GnosisMcpConfig.from_env()
+        assert cfg.fts5_title_weight == 5.5
+        assert cfg.fts5_content_weight == 2.0
+
+    def test_fts5_weights_bad_input_raises(self, monkeypatch):
+        monkeypatch.setenv("GNOSIS_MCP_DATABASE_URL", "postgresql://localhost/db")
+        monkeypatch.setenv("GNOSIS_MCP_FTS5_TITLE_WEIGHT", "not-a-number")
+        with pytest.raises(ValueError, match="FTS5_TITLE_WEIGHT"):
+            GnosisMcpConfig.from_env()
+
     def test_embed_dim_default(self, monkeypatch):
         monkeypatch.setenv("GNOSIS_MCP_DATABASE_URL", "postgresql://localhost/db")
         cfg = GnosisMcpConfig.from_env()

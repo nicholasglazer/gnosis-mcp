@@ -474,7 +474,11 @@ async def _discover_bfs(
                 for link in links:
                     if link not in visited and len(queue) < config.max_urls:
                         queue.append((link, depth + 1))
-        except Exception:
+        except Exception as exc:
+            # Transient fetch errors during discovery shouldn't abort the whole
+            # crawl — log at debug so the user can opt in to seeing them, then
+            # move on to the next URL in the queue.
+            log.debug("discovery fetch failed for %s: %s", url, exc)
             continue
 
         if config.delay > 0:
