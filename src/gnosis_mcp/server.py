@@ -89,6 +89,72 @@ async def _notify_webhook(ctx: AppContext, action: str, path: str) -> None:
         log.warning("webhook failed for %s (url=%s)", path, url, exc_info=True)
 
 
+def _apply_mmr(
+    results: list[dict],
+    query_embedding: list[float],
+    doc_embeddings: list[list[float]],
+    lambda_: float,
+) -> list[dict]:
+    """Reorder `results` using Maximal Marginal Relevance (Carbonell & Goldstein 1998).
+
+    Greedy pick: at each step, maximise
+        MMR(d_i) = λ * cos(q, d_i) − (1 − λ) * max_{j ∈ S} cos(d_i, d_j)
+    where S is the set already picked. λ=1.0 degenerates to pure relevance
+    (identity reorder); λ=0.0 to pure diversity. The `results` list and
+    `doc_embeddings` must be index-aligned.
+
+    Fails safely: returns the input order unchanged on empty input, length-1
+    input, or dimension mismatch. Callers that want MMR but whose embedder
+    failed should not call this function — there's nothing this helper can do
+    with an incomplete `doc_embeddings` list.
+    """
+    if lambda_ >= 1.0 or lambda_ <= 0.0 or len(results) <= 1:
+        return results
+    if len(doc_embeddings) != len(results):
+        return results
+
+    import numpy as np
+
+    q = np.asarray(query_embedding, dtype=np.float32)
+    q_norm = float(np.linalg.norm(q))
+    if q_norm == 0.0:
+        return results
+    q = q / q_norm
+
+    D = np.asarray(doc_embeddings, dtype=np.float32)
+    norms = np.linalg.norm(D, axis=1, keepdims=True)
+    # Avoid div-by-zero on all-zero vectors; their similarity becomes 0 which
+    # is the right mathematical answer anyway.
+    safe_norms = np.where(norms == 0.0, 1.0, norms)
+    D = D / safe_norms
+
+    relevance = D @ q  # (N,)
+
+    n = len(results)
+    selected: list[int] = []
+    remaining: set[int] = set(range(n))
+
+    # First pick: highest relevance — MMR's second term is zero with empty S.
+    first = int(np.argmax(relevance))
+    selected.append(first)
+    remaining.discard(first)
+
+    while remaining:
+        sel_mat = D[selected]  # (S, dim)
+        rem_list = list(remaining)
+        rem_mat = D[rem_list]  # (R, dim)
+        # sim_to_selected[i, j] = cos(remaining[i], selected[j])
+        sim_to_selected = rem_mat @ sel_mat.T
+        max_sim = sim_to_selected.max(axis=1)  # (R,)
+        mmr_scores = lambda_ * relevance[rem_list] - (1.0 - lambda_) * max_sim
+        best_local = int(np.argmax(mmr_scores))
+        best_global = rem_list[best_local]
+        selected.append(best_global)
+        remaining.discard(best_global)
+
+    return [results[i] for i in selected]
+
+
 def _collapse_by_doc(results: list[dict]) -> list[dict]:
     """Keep only the first-seen (highest-scoring) result per file_path.
 
@@ -284,6 +350,11 @@ async def search_docs(
     # trades latency for more marginal diversity gains.
     if cfg.collapse_by_doc:
         fetch_limit = max(fetch_limit, limit * 5)
+    # MMR needs the same kind of headroom for a different reason — the reorder
+    # only diversifies what it's given, so we fetch extra candidates to pick
+    # from. Overlap with collapse-by-doc's bump is fine (we take the max).
+    if 0.0 < cfg.mmr_lambda < 1.0:
+        fetch_limit = max(fetch_limit, limit * 5)
     fetch_limit = max(1, min(max(cfg.search_limit_max, cfg.rerank_pool), fetch_limit))
 
     limit = max(1, min(cfg.search_limit_max, limit))
@@ -338,6 +409,30 @@ async def search_docs(
                 )
             except Exception:
                 log.exception("Rerank failed; falling back to unranked results")
+
+        # MMR runs *after* any rerank reordering (so it sees the best-scored
+        # candidates) but *before* collapse-by-doc (so the collapse step still
+        # enforces the hard one-per-file_path cap on the diversified output).
+        if (
+            0.0 < cfg.mmr_lambda < 1.0
+            and query_embedding is not None
+            and len(results) > 1
+        ):
+            try:
+                from gnosis_mcp.embed import embed_texts
+
+                doc_vecs = embed_texts(
+                    [r.get("content", "") for r in results],
+                    provider="local",
+                    model=cfg.embed_model,
+                    dim=cfg.embed_dim,
+                )
+                results = _apply_mmr(results, query_embedding, doc_vecs, cfg.mmr_lambda)
+            except Exception as exc:
+                # Fail-soft: bad embedder, network blip, dim mismatch — keep
+                # the incoming order. Logged loudly enough to catch misconfig
+                # but not loud enough to scare people during normal degrade.
+                log.warning("MMR reorder failed (%s); returning unranked candidates", exc)
 
         if cfg.collapse_by_doc:
             results = _collapse_by_doc(results)

@@ -416,6 +416,26 @@ class TestEmbedConfig:
         with pytest.raises(ValueError, match="FTS5_TITLE_WEIGHT"):
             GnosisMcpConfig.from_env()
 
+    def test_mmr_lambda_default_off(self, monkeypatch):
+        """Default λ=1.0 — MMR off, existing rankings untouched on upgrade."""
+        monkeypatch.delenv("GNOSIS_MCP_MMR_LAMBDA", raising=False)
+        monkeypatch.setenv("GNOSIS_MCP_DATABASE_URL", "postgresql://localhost/db")
+        cfg = GnosisMcpConfig.from_env()
+        assert cfg.mmr_lambda == 1.0
+
+    def test_mmr_lambda_typical_value(self, monkeypatch):
+        monkeypatch.setenv("GNOSIS_MCP_DATABASE_URL", "postgresql://localhost/db")
+        monkeypatch.setenv("GNOSIS_MCP_MMR_LAMBDA", "0.6")
+        cfg = GnosisMcpConfig.from_env()
+        assert cfg.mmr_lambda == 0.6
+
+    def test_mmr_lambda_out_of_range_rejected(self, monkeypatch):
+        """Values outside [0,1] almost always mean a typo — fail loudly."""
+        monkeypatch.setenv("GNOSIS_MCP_DATABASE_URL", "postgresql://localhost/db")
+        monkeypatch.setenv("GNOSIS_MCP_MMR_LAMBDA", "1.5")
+        with pytest.raises(ValueError, match="MMR_LAMBDA"):
+            GnosisMcpConfig.from_env()
+
     def test_embed_dim_default(self, monkeypatch):
         monkeypatch.setenv("GNOSIS_MCP_DATABASE_URL", "postgresql://localhost/db")
         cfg = GnosisMcpConfig.from_env()

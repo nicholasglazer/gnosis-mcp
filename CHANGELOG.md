@@ -12,6 +12,14 @@ Versioning follows [Semantic Versioning](https://semver.org/) (pre-1.0).
 ### Fixed
 ### Security
 
+## [0.13.0] - 2026-04-19
+
+### Added
+- **`GNOSIS_MCP_MMR_LAMBDA`** — opt-in Maximal Marginal Relevance (Carbonell & Goldstein 1998) re-ranking for `search_docs`. Default `1.0` = pure relevance (current behaviour, exact identity). Any value in `(0.0, 1.0)` enables greedy diversity-aware reordering: at each step the candidate maximising `λ · cos(q, d) − (1 − λ) · max_{d' ∈ S} cos(d, d')` wins, where `S` is the already-picked set. `λ=0.6` is the community default for dev-docs where moderate diversity helps without abandoning relevance. Runs on the top-K candidates after rerank (if enabled) and before `collapse_by_doc`. Embeds candidate content on-the-fly via the existing local embedder — no new dependency, no backend API change. Fail-soft: any exception in the embedding path logs a warning and returns the original order, so misconfiguration degrades instead of breaking `search_docs`.
+- `fetch_limit` auto-bumps to `limit × 5` when MMR is active, mirroring the collapse-by-doc headroom pattern — MMR only diversifies what it's given, so a bigger candidate pool produces a better top-K. No overlap cost when both features are on; the fetch bumps compose via `max`.
+
+### Security
+
 ## [0.12.0] - 2026-04-19
 
 ### Added

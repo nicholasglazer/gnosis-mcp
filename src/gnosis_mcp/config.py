@@ -124,9 +124,15 @@ class GnosisMcpConfig:
     # (SQLite's bm25 second+ args). Defaults preserve the previous hardcoded
     # 10:1 title-vs-content ratio; downstream users who want uniform FTS can
     # set both to 1.0.
+    # `mmr_lambda` enables Maximal Marginal Relevance re-ranking on the top-K
+    # candidates (Carbonell & Goldstein 1998). `1.0` = disabled (pure
+    # relevance, current behaviour). `0.0` = pure diversity. `0.6` is the
+    # community-default middle ground for dev-docs. Requires an active
+    # embedder — falls back to original order on embedding failure.
     collapse_by_doc: bool = False
     fts5_title_weight: float = 10.0
     fts5_content_weight: float = 1.0
+    mmr_lambda: float = 1.0
 
     # Embedding provider (Tier 2 sidecar)
     embed_provider: str | None = None  # "openai", "ollama", "custom", "local"
@@ -171,6 +177,14 @@ class GnosisMcpConfig:
         # For postgres, database_url is required
         if self.backend == "postgres" and not self.database_url:
             raise ValueError("PostgreSQL backend requires GNOSIS_MCP_DATABASE_URL or DATABASE_URL")
+
+        # MMR lambda must be in [0.0, 1.0]. Out-of-range values almost always
+        # indicate a typo in the env var; fail loudly rather than silently
+        # clamping, which would mask the mistake.
+        if not (0.0 <= self.mmr_lambda <= 1.0):
+            raise ValueError(
+                f"GNOSIS_MCP_MMR_LAMBDA must be in [0.0, 1.0], got {self.mmr_lambda}"
+            )
 
         # Swap the OpenAI default embed model for the local one when provider=local
         # was set but no model was explicitly chosen. Without this, the server's
@@ -346,6 +360,7 @@ class GnosisMcpConfig:
             collapse_by_doc=env("COLLAPSE_BY_DOC", "").lower() in ("1", "true", "yes"),
             fts5_title_weight=env_float("FTS5_TITLE_WEIGHT", 10.0),
             fts5_content_weight=env_float("FTS5_CONTENT_WEIGHT", 1.0),
+            mmr_lambda=env_float("MMR_LAMBDA", 1.0),
             embed_provider=env("EMBED_PROVIDER"),
             embed_model=env("EMBED_MODEL", "text-embedding-3-small"),
             embed_dim=env_int("EMBED_DIM", 384),

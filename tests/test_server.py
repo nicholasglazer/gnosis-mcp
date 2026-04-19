@@ -10,6 +10,7 @@ from gnosis_mcp.db import AppContext
 from gnosis_mcp.pg_backend import _row_count, _to_or_query
 import gnosis_mcp.server as server_mod
 from gnosis_mcp.server import (
+    _apply_mmr,
     _collapse_by_doc,
     _notify_webhook,
     _split_chunks,
@@ -81,6 +82,79 @@ class TestToOrQuery:
 
     def test_whitespace_only(self):
         assert _to_or_query("   ") == "   "
+
+
+class TestApplyMmr:
+    """Pure-logic tests for the MMR helper — no DB, no embedder, controlled vectors."""
+
+    def _build(self, n: int, aligned_axis: int = 0):
+        """Make n unit vectors that point mostly along `aligned_axis`."""
+        import numpy as np
+
+        vecs = []
+        for i in range(n):
+            v = np.zeros(4, dtype=np.float32)
+            v[aligned_axis] = 1.0
+            # Jitter on a distinct axis per doc so they're not identical
+            v[i % 4 + 1 if i % 4 + 1 < 4 else 0] = 0.1
+            v = v / np.linalg.norm(v)
+            vecs.append(v.tolist())
+        return vecs
+
+    def test_lambda_one_is_identity(self):
+        """λ=1.0 → pure relevance → MMR returns the input order unchanged."""
+        results = [{"id": 0, "content": "a"}, {"id": 1, "content": "b"}]
+        q = [1.0, 0, 0, 0]
+        docs = [[1.0, 0, 0, 0], [0.9, 0.1, 0, 0]]
+        assert _apply_mmr(results, q, docs, 1.0) == results
+
+    def test_lambda_zero_is_identity_also(self):
+        """Our guard returns input when λ is at either extreme — documented behaviour."""
+        results = [{"id": 0}, {"id": 1}]
+        q = [1.0, 0, 0, 0]
+        docs = [[1.0, 0, 0, 0], [0.5, 0.5, 0, 0]]
+        assert _apply_mmr(results, q, docs, 0.0) == results
+
+    def test_empty_and_singleton_passthrough(self):
+        assert _apply_mmr([], [1.0, 0], [], 0.5) == []
+        assert _apply_mmr([{"id": 0}], [1.0, 0], [[1.0, 0]], 0.5) == [{"id": 0}]
+
+    def test_dimension_mismatch_passes_through(self):
+        """Defensive: if doc_embeddings count != results count, MMR bails out."""
+        results = [{"id": 0}, {"id": 1}, {"id": 2}]
+        q = [1.0, 0]
+        docs = [[1.0, 0], [0.5, 0.5]]  # 2 vecs, 3 results
+        assert _apply_mmr(results, q, docs, 0.5) == results
+
+    def test_diversity_promotes_differently_oriented_doc(self):
+        """With λ=0.3 (diversity-heavy), a less-relevant but orthogonal doc
+        should be picked before a near-duplicate of the top hit."""
+        results = [
+            {"id": 0, "content": "very-relevant"},
+            {"id": 1, "content": "relevant-duplicate"},
+            {"id": 2, "content": "orthogonal-but-still-relevant"},
+        ]
+        q = [1.0, 0, 0, 0]
+        docs = [
+            [1.0, 0, 0, 0],    # top relevance
+            [0.99, 0.01, 0, 0],  # near-duplicate of doc 0
+            [0.6, 0, 0.8, 0],    # less relevant but diverse
+        ]
+        import numpy as np
+
+        docs = [(np.array(v) / np.linalg.norm(v)).tolist() for v in docs]
+        ordered = _apply_mmr(results, q, docs, lambda_=0.3)
+        ids = [r["id"] for r in ordered]
+        assert ids[0] == 0  # first pick always max relevance
+        # Orthogonal (id=2) should come before near-duplicate (id=1) with low λ
+        assert ids.index(2) < ids.index(1)
+
+    def test_zero_query_vector_passes_through(self):
+        """Degenerate all-zero query vector — bail out rather than divide by zero."""
+        results = [{"id": 0}, {"id": 1}]
+        q = [0.0, 0.0, 0.0, 0.0]
+        docs = [[1.0, 0, 0, 0], [0.0, 1.0, 0, 0]]
+        assert _apply_mmr(results, q, docs, 0.5) == results
 
 
 class TestCollapseByDoc:
