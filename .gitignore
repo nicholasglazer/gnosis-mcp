@@ -12,9 +12,11 @@ venv/
 .ruff_cache/
 .pytest_cache/
 .mypy_cache/
-.mcpregistry_*
 sqlite:/
-.claude/
+# Only hide per-session subagent notes. If we ever want to track a
+# .claude/settings.json or similar shared tooling config, put it in
+# .claude/ and it'll be picked up (just this one subdir is ignored).
+.claude/agent-memory/
 .coverage
 htmlcov/
 coverage.xml

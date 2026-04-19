@@ -9,7 +9,10 @@ Versioning follows [Semantic Versioning](https://semver.org/) (pre-1.0).
 
 ### Removed
 - **`llms.txt.tmpl` + `llms-full.txt.tmpl` + `scripts/render-llms.py`** and the corresponding `render-llms.py --check` CI step. Over-engineered for 4 trivial tokens; `bump-version.sh` now does in-place `sed` on `llms.txt` + `llms-full.txt`. Measured numbers (test count, MCP latency ms) stay maintainer-edited when benchmarks are re-run. One file per concept instead of two. Rationale: the template/rendered pair was added in v0.11.0 assuming more tokens would accumulate; they didn't, so it's just extra surface.
-- **`.mcpregistry_github_token` + `.mcpregistry_registry_token`** — stale on-disk tokens from before v0.10.13's security hardening, which moved registry auth to GitHub Secrets. Files were gitignored but still on disk, confusing for anyone finding them.
+- **`.mcpregistry_github_token` + `.mcpregistry_registry_token`** — stale on-disk tokens from before v0.10.13's security hardening, which moved registry auth to GitHub Secrets. Files were gitignored but still on disk, confusing for anyone finding them. `.gitignore` entry dropped too (no longer needed).
+
+### Changed
+- **`.gitignore` narrowed from `.claude/` to `.claude/agent-memory/`**. Only per-session subagent notes are now ignored; a future `.claude/settings.json` or similar team-tooling config would be trackable without fighting the ignore. No behaviour change today (no such files exist), but removes a papercut for later.
 
 ### Added
 - **`/gnosis:eval` skill** (`skills/eval/SKILL.md`) — single-shot retrieval quality check that wraps `gnosis-mcp eval`, interprets the numbers in plain English (Hit@5 / MRR / nDCG@10 / Precision@5), and compares to a saved baseline stored at `~/.local/share/gnosis-mcp/eval-baseline.json`. Three modes: default (run + compare + recommend), `quick` (numbers only), `save` (lock current as new baseline), `diff` (compare without advising). Complements `/gnosis:tune` (which sweeps configurations); eval is the faster health-check.
