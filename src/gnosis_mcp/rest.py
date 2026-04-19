@@ -196,7 +196,11 @@ async def health(request: Request) -> JSONResponse:
                 "status": "ok",
                 "version": __version__,
                 "backend": h.get("backend", cfg.backend),
-                "docs": h.get("chunks_count", 0),
+                # "docs" is the distinct file_path count — what users think of as docs.
+                # "chunks" is the post-split row count. Pre-0.11.3 /health reported
+                # chunks_count under the "docs" label, which read as off-by-~4x.
+                "docs": h.get("docs_count", h.get("chunks_count", 0)),
+                "chunks": h.get("chunks_count", 0),
                 "search_stats": dict(_search_stats),
             }
         )

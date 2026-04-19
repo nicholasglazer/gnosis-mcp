@@ -9,19 +9,29 @@ from gnosis_mcp.sqlite_schema import get_vec0_schema
 
 class TestVec0Schema:
     def test_default_dimension(self):
-        sql = get_vec0_schema()
-        assert "float[384]" in sql
-        assert "documentation_chunks_vec" in sql
+        stmts = get_vec0_schema()
+        joined = "\n".join(stmts)
+        assert "float[384]" in joined
+        assert "documentation_chunks_vec" in joined
 
     def test_custom_dimension(self):
-        sql = get_vec0_schema(dim=768)
-        assert "float[768]" in sql
+        stmts = get_vec0_schema(dim=768)
+        assert any("float[768]" in s for s in stmts)
 
     def test_creates_virtual_table(self):
-        sql = get_vec0_schema()
-        assert sql.startswith("CREATE VIRTUAL TABLE IF NOT EXISTS")
-        assert "USING vec0" in sql
-        assert "chunk_id INTEGER PRIMARY KEY" in sql
+        stmts = get_vec0_schema()
+        create = next(s for s in stmts if "CREATE VIRTUAL TABLE" in s)
+        assert "USING vec0" in create
+        assert "chunk_id INTEGER PRIMARY KEY" in create
+
+    def test_delete_sync_trigger(self):
+        """chunks_ad_vec trigger mirrors chunks_ad — keeps vec0 in lockstep."""
+        stmts = get_vec0_schema()
+        trigger = next((s for s in stmts if "TRIGGER" in s), None)
+        assert trigger is not None, "vec0 schema must include delete-sync trigger"
+        assert "chunks_ad_vec" in trigger
+        assert "AFTER DELETE ON documentation_chunks" in trigger
+        assert "DELETE FROM documentation_chunks_vec" in trigger
 
 
 class TestSqliteVecDetection:
@@ -57,6 +67,59 @@ class TestSqliteVecDetection:
         """stats should report sqlite_vec availability."""
         s = await backend.stats()
         assert "sqlite_vec" in s
+
+    async def test_vec0_no_orphans_after_upsert_delete(self, backend):
+        """Regression: deleting or re-upserting a doc must not leak vec0 rows.
+
+        Before v0.11.3 the `documentation_chunks` DELETE had no corresponding
+        trigger on `documentation_chunks_vec`, so every `upsert_doc` on an
+        existing path (delete-then-insert pattern) leaked the old vectors.
+        This test asserts count parity: vec0 row count == chunks with
+        embedding set.
+        """
+        if not backend._has_vec:
+            pytest.skip("sqlite-vec not available in this environment")
+
+        async def _count(sql: str) -> int:
+            cur = await backend._db.execute(sql)
+            row = await cur.fetchone()
+            return row[0]
+
+        await backend.upsert_doc(
+            "guide.md", ["first", "second"], title="G", category="test"
+        )
+        # Embed both chunks so they appear in vec0
+        ids = [
+            r[0]
+            for r in await (
+                await backend._db.execute(
+                    "SELECT id FROM documentation_chunks WHERE file_path='guide.md' ORDER BY chunk_index"
+                )
+            ).fetchall()
+        ]
+        for cid in ids:
+            await backend.set_embedding(cid, [0.1] * 384)
+
+        assert await _count("SELECT COUNT(*) FROM documentation_chunks_vec") == 2
+
+        # Upsert with different content — triggers delete+reinsert of chunks
+        await backend.upsert_doc(
+            "guide.md", ["replacement"], title="G", category="test"
+        )
+        new_id_row = await (
+            await backend._db.execute(
+                "SELECT id FROM documentation_chunks WHERE file_path='guide.md'"
+            )
+        ).fetchone()
+        await backend.set_embedding(new_id_row[0], [0.3] * 384)
+
+        vec_after = await _count("SELECT COUNT(*) FROM documentation_chunks_vec")
+        chunks_after = await _count(
+            "SELECT COUNT(*) FROM documentation_chunks WHERE embedding IS NOT NULL"
+        )
+        assert vec_after == chunks_after == 1, (
+            f"vec0 leaked: {vec_after} vectors vs {chunks_after} embedded chunks"
+        )
 
     async def test_keyword_search_still_works(self, backend):
         """Keyword-only search should work regardless of sqlite-vec status."""

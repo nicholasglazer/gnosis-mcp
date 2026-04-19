@@ -12,6 +12,19 @@ Versioning follows [Semantic Versioning](https://semver.org/) (pre-1.0).
 ### Fixed
 ### Security
 
+## [0.11.4] - 2026-04-19
+
+### Added
+
+### Changed
+
+### Fixed
+- **`documentation_chunks_vec` vectors no longer leak on re-ingest** (`sqlite_schema.py` + `sqlite_backend.py`). The FTS shadow table had INSERT/DELETE/UPDATE triggers keeping it in lockstep; the vec0 virtual table had none. Every `upsert_doc` path (plus `delete_doc` and the git-history re-ingest) does a `DELETE FROM documentation_chunks WHERE file_path = ?` followed by fresh INSERTs — old vec0 rows were left behind as orphans pointing to gone chunk IDs. Over months of dogfooding, a dev laptop DB had 4528 vectors vs 4267 chunks (261 orphan leak). New `chunks_ad_vec` trigger mirrors the FTS pattern: `AFTER DELETE ON documentation_chunks → DELETE FROM documentation_chunks_vec WHERE chunk_id = OLD.id`. `get_vec0_schema()` now returns a list; regression test covers the full upsert-delete-upsert cycle and asserts post-condition count parity. Existing DBs carry their historical orphans until they're re-initialized — there's no automatic migration because the count bug is cosmetic (orphan rows never get returned by KNN since their chunk_ids don't join back to anything in `documentation_chunks`).
+- **`gnosis-mcp diff <path>` no longer reports crawled URLs and git-history pseudo-paths as "deleted from disk"** (`ingest.py`). `diff_path` scanned the filesystem under `<path>` and pulled *all* stored file paths from the DB, then marked anything not found on disk as deleted — but crawled URLs (`https://…`) and git-history docs (`git-history/…`) live only in the DB by design. A laptop with ~700 crawled URLs ran `diff README.md` and saw every URL listed as `[-] deleted`. `prune` had already addressed this via `--include-crawled`; `diff` now filters the same pseudo-paths unconditionally. Regression test seeds a URL and a git-history row alongside a real file and asserts the deleted bucket stays empty.
+- **`/health` distinguishes docs from chunks** (`rest.py` + `sqlite_backend.py` + `pg_backend.py`). Previously the endpoint labeled the post-chunking row count under the `"docs"` key — on a 700-doc corpus with typical chunking this read as ~4000 docs, throwing off load balancers' expected-range checks and confusing anyone reconciling `/health` against `gnosis-mcp stats`. Both backends' `check_health()` now also return `docs_count` (distinct `file_path` count); the REST response carries both `"docs"` (distinct) and `"chunks"` (rows).
+
+### Security
+
 ## [0.11.3] - 2026-04-19
 
 ### Removed

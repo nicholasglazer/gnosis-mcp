@@ -163,6 +163,10 @@ class PostgresBackend:
             if chunks_exists:
                 count = await conn.fetchval(f"SELECT count(*) FROM {cfg.qualified_chunks_table}")
                 result["chunks_count"] = count
+                docs = await conn.fetchval(
+                    f"SELECT count(DISTINCT {cfg.col_file_path}) FROM {cfg.qualified_chunks_table}"
+                )
+                result["docs_count"] = docs
 
             links_exists = await conn.fetchval(
                 "SELECT EXISTS ("

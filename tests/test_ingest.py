@@ -937,6 +937,39 @@ class TestDiffPath:
         assert len(diff["unchanged"]) == 1
         assert len(diff["new"]) == 0
 
+    async def test_diff_ignores_crawled_and_git_history(self, tmp_path):
+        """Crawled URLs and git-history pseudo-paths must not appear in `deleted`.
+
+        Regression: pre-fix, `diff <local-path>` reported every stored crawled
+        URL as "deleted from disk" because the file-existence check ran against
+        them too. diff should only reason about local-filesystem docs.
+        """
+        db = str(tmp_path / "test.db")
+        (tmp_path / "docs").mkdir()
+        (tmp_path / "docs" / "a.md").write_text(
+            "# Guide\n\nInstallation instructions for gnosis-mcp documentation server."
+        )
+        cfg = GnosisMcpConfig(database_url=db, backend="sqlite")
+        from gnosis_mcp.backend import create_backend
+
+        backend = create_backend(cfg)
+        await backend.startup()
+        await backend.init_schema()
+        # Seed a crawled URL and a git-history pseudo-path alongside the real file
+        await backend.upsert_doc(
+            "https://example.com/docs/api", ["Crawled content"], title="API", category="web"
+        )
+        await backend.upsert_doc(
+            "git-history/src/foo.py", ["commit msg"], title="foo.py", category="git-history"
+        )
+        await backend.shutdown()
+
+        await ingest_path(cfg, str(tmp_path / "docs"))
+        diff = await diff_path(cfg, str(tmp_path / "docs"))
+        # Local file stays unchanged, neither URL nor git-history leaks into deleted
+        assert diff["deleted"] == []
+        assert diff["unchanged"] == ["a.md"]
+
     async def test_diff_modified(self, tmp_path):
         """Modified file detected after content change."""
         db = str(tmp_path / "test.db")

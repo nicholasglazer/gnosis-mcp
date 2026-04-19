@@ -125,10 +125,11 @@ class SqliteBackend:
             await self._db.execute(stmt)
 
         if self._has_vec:
-            vec0_sql = get_vec0_schema(dim=self._cfg.embed_dim)
+            vec0_statements = get_vec0_schema(dim=self._cfg.embed_dim)
             try:
-                await self._db.execute(vec0_sql)
-                statements.append(vec0_sql)
+                for stmt in vec0_statements:
+                    await self._db.execute(stmt)
+                statements.extend(vec0_statements)
             except Exception as exc:
                 # vec0 is only load-bearing when the user actually wants hybrid search.
                 # Fail fast so silent degradation never surprises them.
@@ -155,6 +156,10 @@ class SqliteBackend:
         if chunks_exists:
             row = await self._db.execute_fetchall("SELECT count(*) FROM documentation_chunks")
             result["chunks_count"] = row[0][0]
+            row = await self._db.execute_fetchall(
+                "SELECT count(DISTINCT file_path) FROM documentation_chunks"
+            )
+            result["docs_count"] = row[0][0]
 
         # Check FTS table
         fts_exists = await self._table_exists("documentation_chunks_fts")

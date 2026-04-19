@@ -1087,9 +1087,17 @@ async def diff_path(config, root: str) -> dict[str, list[str]]:
         table_name = config.chunks_tables[0]
         has_hash = await backend.has_column(table_name, "content_hash")
 
-        # Get all stored file paths and hashes
+        # Get all stored file paths and hashes. Crawled docs (URLs like
+        # `http://...`) and git-history pseudo-paths (`git-history/...`) never
+        # live on disk under `root` — including them would report every URL
+        # as "deleted from disk", which is wrong. `prune` handles the same
+        # distinction via --include-crawled; `diff` just always skips them.
         docs = await backend.list_docs()
-        db_paths = {d["file_path"] for d in docs}
+        db_paths = {
+            d["file_path"]
+            for d in docs
+            if not d["file_path"].startswith(("http://", "https://", "git-history/"))
+        }
 
         # Build hash map from DB
         db_hashes: dict[str, str | None] = {}

@@ -85,12 +85,20 @@ CREATE TABLE IF NOT EXISTS search_access_log (
     ]
 
 
-def get_vec0_schema(dim: int = 384) -> str:
-    """Return the vec0 virtual table DDL for sqlite-vec.
+def get_vec0_schema(dim: int = 384) -> list[str]:
+    """Return the vec0 DDL + delete-sync trigger for sqlite-vec.
 
-    Only executed when sqlite-vec extension is loaded.
+    Only executed when sqlite-vec extension is loaded. The trigger mirrors the
+    FTS `chunks_ad` pattern: when a chunk is deleted, its vector is deleted
+    too. Without this, `upsert_doc` (which deletes old chunks before inserting
+    new ones) and `delete_doc` leak orphan vectors into `documentation_chunks_vec`.
+    Returns a list so `init_schema` can iterate; trigger is idempotent.
     """
-    return (
+    return [
         f"CREATE VIRTUAL TABLE IF NOT EXISTS documentation_chunks_vec "
-        f"USING vec0(chunk_id INTEGER PRIMARY KEY, embedding float[{dim}])"
-    )
+        f"USING vec0(chunk_id INTEGER PRIMARY KEY, embedding float[{dim}])",
+        "CREATE TRIGGER IF NOT EXISTS chunks_ad_vec "
+        "AFTER DELETE ON documentation_chunks BEGIN "
+        "DELETE FROM documentation_chunks_vec WHERE chunk_id = OLD.id; "
+        "END",
+    ]
