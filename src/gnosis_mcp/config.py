@@ -159,6 +159,15 @@ class GnosisMcpConfig:
         if self.backend == "postgres" and not self.database_url:
             raise ValueError("PostgreSQL backend requires GNOSIS_MCP_DATABASE_URL or DATABASE_URL")
 
+        # Swap the OpenAI default embed model for the local one when provider=local
+        # was set but no model was explicitly chosen. Without this, the server's
+        # auto-embed path feeds "text-embedding-3-small" (an OpenAI name) into
+        # LocalEmbedder, which tries to pull it from HuggingFace and 401s — the
+        # exact failure every first-time user hits after wiring
+        # GNOSIS_MCP_EMBED_PROVIDER=local.
+        if self.embed_provider == "local" and self.embed_model == "text-embedding-3-small":
+            object.__setattr__(self, "embed_model", "MongoDB/mdbr-leaf-ir")
+
         # Validate identifiers (relevant for both backends, harmless for SQLite)
         for table_name in self.chunks_tables:
             _validate_identifier(table_name, "chunks_table")

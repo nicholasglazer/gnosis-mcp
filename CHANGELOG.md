@@ -12,6 +12,19 @@ Versioning follows [Semantic Versioning](https://semver.org/) (pre-1.0).
 ### Fixed
 ### Security
 
+## [0.11.6] - 2026-04-19
+
+### Added
+
+### Changed
+
+### Fixed
+- **Local embed provider no longer inherits the OpenAI default model** (`config.py`). `GNOSIS_MCP_EMBED_PROVIDER=local` with no `EMBED_MODEL` used to leave `embed_model="text-embedding-3-small"` (the OpenAI default), then pass that into `LocalEmbedder`, which tried to `GET https://huggingface.co/text-embedding-3-small/…` and 401'd. This was the exact failure every first-time user hit after wiring gnosis-mcp into Claude Code. `__post_init__` now swaps in `MongoDB/mdbr-leaf-ir` when provider is local and the user didn't pick a model. Explicit `EMBED_MODEL` values are preserved; non-local providers keep their own defaults.
+- **Auto-embed failure in `search_docs` + `/api/search` no longer crashes the request** (`server.py` + `rest.py`). A HuggingFace 401 / network blip / wrong model id used to propagate out of the tool as an unhandled exception, so the whole search failed instead of returning FTS5 results. Both callsites now catch `Exception`, log a warning, and fall back to keyword-only — hybrid degrades instead of breaking.
+- **MCP semantic-search env documentation** (`llms-install.md`). The "Optional: Add Semantic Search" section used to cover CLI usage (`gnosis-mcp search --embed`) but didn't mention that MCP clients calling `search_docs` need `GNOSIS_MCP_EMBED_PROVIDER=local` in the server's env block. Added the missing JSON snippet and a note about `GNOSIS_MCP_EMBED_MODEL` override + graceful-fallback behaviour.
+
+### Security
+
 ## [0.11.5] - 2026-04-19
 
 ### Added

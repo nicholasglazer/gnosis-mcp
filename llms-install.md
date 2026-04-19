@@ -264,10 +264,28 @@ Keyword search works immediately. For semantic search (finding docs by meaning, 
 ### SQLite (local ONNX — no API key needed)
 
 1. Install with embeddings: `pip install gnosis-mcp[embeddings]`
-2. Ingest with embeddings: `gnosis-mcp ingest ./docs/ --embed` (downloads 23MB model on first run)
+2. Ingest with embeddings: `gnosis-mcp ingest ./docs/ --embed` (downloads 23MB `MongoDB/mdbr-leaf-ir` on first run)
 3. Search with hybrid mode: `gnosis-mcp search "how does billing work" --embed`
 
-Or embed existing chunks: `gnosis-mcp embed` (auto-detects local provider)
+Or embed existing chunks: `gnosis-mcp embed` (auto-detects local provider).
+
+**To get hybrid search for MCP tool calls** (not just the CLI), set `GNOSIS_MCP_EMBED_PROVIDER=local` in the MCP server's env block. Without it, the server returns keyword-only results regardless of whether your chunks are embedded:
+
+```json
+{
+  "mcpServers": {
+    "gnosis": {
+      "command": "gnosis-mcp",
+      "args": ["serve"],
+      "env": {
+        "GNOSIS_MCP_EMBED_PROVIDER": "local"
+      }
+    }
+  }
+}
+```
+
+Override the model with `GNOSIS_MCP_EMBED_MODEL=<huggingface-repo-id>` if you want something other than the default `MongoDB/mdbr-leaf-ir`. If auto-embed fails (network down, wrong model name, missing tokenizer), the server logs a warning and falls back to keyword-only — tool calls never crash because of it.
 
 ### PostgreSQL (remote providers)
 

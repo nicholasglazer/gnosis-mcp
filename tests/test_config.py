@@ -350,6 +350,37 @@ class TestEmbedConfig:
         cfg = GnosisMcpConfig.from_env()
         assert cfg.embed_provider == "local"
 
+    def test_local_provider_swaps_default_model(self, monkeypatch):
+        """Regression: provider=local with no explicit model must not keep the OpenAI default.
+
+        Pre-fix: auto-embed passed `text-embedding-3-small` into LocalEmbedder,
+        which treated it as a HuggingFace repo id and got a 401. Post-fix: the
+        config swaps in `MongoDB/mdbr-leaf-ir` during __post_init__ so every
+        downstream caller sees the right default.
+        """
+        monkeypatch.delenv("GNOSIS_MCP_EMBED_MODEL", raising=False)
+        monkeypatch.setenv("GNOSIS_MCP_DATABASE_URL", "postgresql://localhost/db")
+        monkeypatch.setenv("GNOSIS_MCP_EMBED_PROVIDER", "local")
+        cfg = GnosisMcpConfig.from_env()
+        assert cfg.embed_provider == "local"
+        assert cfg.embed_model == "MongoDB/mdbr-leaf-ir"
+
+    def test_local_provider_preserves_explicit_model(self, monkeypatch):
+        """User-set EMBED_MODEL takes precedence even when provider=local."""
+        monkeypatch.setenv("GNOSIS_MCP_DATABASE_URL", "postgresql://localhost/db")
+        monkeypatch.setenv("GNOSIS_MCP_EMBED_PROVIDER", "local")
+        monkeypatch.setenv("GNOSIS_MCP_EMBED_MODEL", "intfloat/e5-small-v2")
+        cfg = GnosisMcpConfig.from_env()
+        assert cfg.embed_model == "intfloat/e5-small-v2"
+
+    def test_openai_provider_keeps_openai_default(self, monkeypatch):
+        """Swap is scoped to provider=local — openai keeps its own default."""
+        monkeypatch.delenv("GNOSIS_MCP_EMBED_MODEL", raising=False)
+        monkeypatch.setenv("GNOSIS_MCP_DATABASE_URL", "postgresql://localhost/db")
+        monkeypatch.setenv("GNOSIS_MCP_EMBED_PROVIDER", "openai")
+        cfg = GnosisMcpConfig.from_env()
+        assert cfg.embed_model == "text-embedding-3-small"
+
     def test_embed_dim_default(self, monkeypatch):
         monkeypatch.setenv("GNOSIS_MCP_DATABASE_URL", "postgresql://localhost/db")
         cfg = GnosisMcpConfig.from_env()

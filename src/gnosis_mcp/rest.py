@@ -225,7 +225,9 @@ async def search(request: Request) -> JSONResponse:
 
     category = request.query_params.get("category") or None
 
-    # Auto-embed for hybrid search when local provider is configured
+    # Auto-embed for hybrid search when local provider is configured.
+    # Degrade to keyword search on any failure so /api/search never 500s
+    # because of a transient HF outage or a mis-set GNOSIS_MCP_EMBED_MODEL.
     query_embedding = None
     if cfg.embed_provider == "local":
         try:
@@ -235,6 +237,8 @@ async def search(request: Request) -> JSONResponse:
             query_embedding = vectors[0] if vectors else None
         except ImportError:
             pass
+        except Exception as exc:
+            log.warning("Auto-embed failed (%s); serving keyword-only results", exc)
 
     try:
         results = await backend.search(
