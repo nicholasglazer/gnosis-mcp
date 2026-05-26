@@ -4,11 +4,15 @@ Provides a lightweight HTTP API alongside the MCP server.
 Enabled via GNOSIS_MCP_REST=true or --rest flag on serve.
 
 Endpoints:
-    GET /health                          — Server health + stats
-    GET /api/search?q=&limit=&category=  — Search documents
-    GET /api/docs/{path}                 — Get document by path
-    GET /api/docs/{path}/related         — Get related documents
-    GET /api/categories                  — List categories
+    GET  /health                          — Server health + stats
+    GET  /api/search?q=&limit=&category=  — Search documents
+    GET  /api/docs/{path}                 — Get document by path
+    GET  /api/docs/{path}/related         — Get related documents
+    GET  /api/categories                  — List categories
+
+    POST /v1/embed                        — OpenAI-compatible embeddings
+        Body: {"texts": ["..."], "model": "optional-override"}
+        Returns: {"model", "dim", "vectors", "usage"}
 """
 
 from __future__ import annotations
@@ -143,7 +147,7 @@ class CorsMiddleware:
 
         if scope.get("method") == "OPTIONS":
             response_headers = self._cors_headers(origin)
-            response_headers["access-control-allow-methods"] = "GET, OPTIONS"
+            response_headers["access-control-allow-methods"] = "GET, POST, OPTIONS"
             response_headers["access-control-allow-headers"] = "Authorization, Content-Type"
             response_headers["access-control-max-age"] = "86400"
             response = JSONResponse({}, status_code=204, headers=response_headers)
@@ -415,6 +419,117 @@ async def get_context(request: Request) -> JSONResponse:
 
 
 # ---------------------------------------------------------------------------
+# POST /v1/embed — OpenAI-compatible embeddings endpoint
+# ---------------------------------------------------------------------------
+#
+# Lets external clients (and any other tool that already knows how to talk to
+# the OpenAI embeddings shape) use gnosis-mcp as their team's self-hosted
+# embeddings service. Reuses the configured `embed_provider` + `embed_model`
+# + `embed_dim` from GNOSIS_MCP_* env vars. Per-request `model` override is
+# accepted but only honored for the same provider (local ONNX models swap
+# transparently; cross-provider routing would require state we don't keep).
+#
+# Request:
+#   { "texts": ["one", "two"], "model"?: "intfloat/multilingual-e5-large" }
+#
+# Response:
+#   { "model": "...", "dim": 1024, "vectors": [[...], [...]],
+#     "usage": {"prompt_tokens": <approx>} }
+#
+# Errors:
+#   400 — missing/empty texts, texts not a list, text >50KB
+#   503 — embeddings extra not installed, or embed provider call failed
+_MAX_TEXTS_PER_REQUEST = 256
+_MAX_TEXT_BYTES = 50_000
+
+
+async def embed(request: Request) -> JSONResponse:
+    cfg = _config(request)
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "request body must be JSON"}, status_code=400)
+    if not isinstance(body, dict):
+        return JSONResponse({"error": "body must be a JSON object"}, status_code=400)
+
+    texts = body.get("texts")
+    if not isinstance(texts, list) or not texts:
+        return JSONResponse(
+            {"error": "'texts' must be a non-empty array of strings"},
+            status_code=400,
+        )
+    if len(texts) > _MAX_TEXTS_PER_REQUEST:
+        return JSONResponse(
+            {"error": f"'texts' length must be <= {_MAX_TEXTS_PER_REQUEST}"},
+            status_code=400,
+        )
+    for i, t in enumerate(texts):
+        if not isinstance(t, str):
+            return JSONResponse(
+                {"error": f"texts[{i}] must be a string"}, status_code=400,
+            )
+        if len(t.encode("utf-8")) > _MAX_TEXT_BYTES:
+            return JSONResponse(
+                {"error": f"texts[{i}] exceeds {_MAX_TEXT_BYTES} bytes"},
+                status_code=400,
+            )
+
+    # Per-request model override is allowed but locked to the configured
+    # provider. We don't dynamically swap providers based on a request param.
+    model_override = body.get("model")
+    if model_override is not None and not isinstance(model_override, str):
+        return JSONResponse(
+            {"error": "'model' must be a string"}, status_code=400,
+        )
+    model = model_override or cfg.embed_model
+
+    try:
+        from gnosis_mcp.embed import embed_texts
+    except ImportError:
+        return JSONResponse(
+            {
+                "error": (
+                    "embeddings extra not installed — "
+                    "install with: pip install 'gnosis-mcp[embeddings]'"
+                )
+            },
+            status_code=503,
+        )
+
+    try:
+        vectors = embed_texts(
+            texts,
+            provider=cfg.embed_provider,
+            model=model,
+            api_key=cfg.embed_api_key,
+            url=cfg.embed_url,
+            dim=cfg.embed_dim,
+        )
+    except Exception as exc:
+        log.warning("embed REST failed: %s", exc)
+        return JSONResponse(
+            {"error": f"embedding failed: {exc!s}"}, status_code=503,
+        )
+
+    if not vectors:
+        return JSONResponse(
+            {"error": "embedding provider returned no vectors"}, status_code=503,
+        )
+
+    dim = len(vectors[0])
+    # Crude token estimate — good enough for usage telemetry, not for billing.
+    approx_tokens = sum(max(1, len(t) // 4) for t in texts)
+    return JSONResponse(
+        {
+            "model": model,
+            "dim": dim,
+            "vectors": vectors,
+            "usage": {"prompt_tokens": approx_tokens, "total_tokens": approx_tokens},
+        }
+    )
+
+
+# ---------------------------------------------------------------------------
 # App factories
 # ---------------------------------------------------------------------------
 
@@ -429,6 +544,7 @@ def _make_routes() -> list:
         Route("/api/docs/{path:path}/related", get_related, methods=["GET"]),
         Route("/api/docs/{path:path}", get_doc, methods=["GET"]),
         Route("/api/categories", list_categories, methods=["GET"]),
+        Route("/v1/embed", embed, methods=["POST"]),
     ]
 
 

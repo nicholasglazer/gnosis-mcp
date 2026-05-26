@@ -12,6 +12,28 @@ Versioning follows [Semantic Versioning](https://semver.org/) (pre-1.0).
 ### Fixed
 ### Security
 
+## [0.14.0] - 2026-05-26
+
+### Added
+- **`POST /v1/embed` — first-class embeddings endpoint.** OpenAI-compatible
+  shape (`{texts, model?}` → `{model, dim, vectors, usage}`), so any client that
+  already speaks OpenAI's embeddings API can point at gnosis-mcp and get a
+  drop-in self-hosted alternative. Embeddings were already used internally for
+  the `/api/search` auto-embed path, but external services couldn't call them
+  directly; this exposes that work as a stable public endpoint.
+
+  Per-request `model` override is supported, locked to the configured provider
+  (`GNOSIS_MCP_EMBED_PROVIDER`). Reuses the existing `ApiKeyMiddleware` Bearer
+  auth, so deploying gnosis-mcp as a shared team embeddings service works the
+  same way as locking down the existing REST API.
+
+  Limits: max 256 texts per request, max 50 KB per text. Returns 400 on shape
+  errors, 503 when the `[embeddings]` extra is missing or the provider raises.
+
+### Changed
+- CORS preflight now advertises `GET, POST, OPTIONS` (was `GET, OPTIONS`) so
+  browser clients can call `POST /v1/embed` without a CORS rejection.
+
 ## [0.13.3] - 2026-04-19
 
 ### Fixed

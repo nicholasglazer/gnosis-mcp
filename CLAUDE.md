@@ -68,6 +68,7 @@ Enable with `--rest` flag or `GNOSIS_MCP_REST=true`. Runs alongside MCP on the s
 - **GET /api/docs/{path}** — get document by file path
 - **GET /api/docs/{path}/related** — get related documents
 - **GET /api/categories** — list categories with counts
+- **POST /v1/embed** — OpenAI-compatible embeddings (`{texts, model?}` → `{model, dim, vectors, usage}`). v0.14.0+. Lets external services use gnosis-mcp as a self-hosted embeddings backend with their choice of ONNX model (mdbr-leaf-ir / multilingual-e5-large / BGE-M3 / etc.).
 - **GET /api/context?topic=&limit=&category=** — usage-weighted context summary
 - **GET /api/graph/stats?category=** — knowledge graph topology
 

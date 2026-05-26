@@ -282,8 +282,27 @@ gnosis-mcp serve --transport streamable-http --rest
 | `GET /api/categories` | category → doc count |
 | `GET /api/context?topic=` | usage-weighted topic primer |
 | `GET /api/graph/stats` | orphans, hubs, relation distribution |
+| `POST /v1/embed` | OpenAI-compatible embeddings (`v0.14.0+`) — `{texts, model?}` → `{model, dim, vectors, usage}` |
 
 CORS, Bearer auth, custom public-path allowlist — full reference: **[`docs/rest-api.md`](docs/rest-api.md)** · **[gnosismcp.com/doc/docs/rest-api](https://gnosismcp.com/doc/docs/rest-api)**.
+
+### Self-hosted embeddings service (v0.14.0+)
+
+`POST /v1/embed` turns gnosis-mcp into a drop-in OpenAI-shaped embeddings backend. Point any client that already speaks the `/v1/embeddings` shape at your gnosis-mcp instance — your hardware, your model choice, no per-token bills:
+
+```bash
+curl -X POST http://localhost:8000/v1/embed \
+  -H "Authorization: Bearer $GNOSIS_MCP_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"texts": ["hello", "hola"], "model": "intfloat/multilingual-e5-large"}'
+```
+
+Pick your model with `GNOSIS_MCP_EMBED_MODEL` (default `MongoDB/mdbr-leaf-ir`):
+- `MongoDB/mdbr-leaf-ir` — 23M params, #1 MTEB ≤100M, English-specialised
+- `intfloat/multilingual-e5-large` — 560M, 100+ languages
+- `BAAI/bge-m3` — 568M, multilingual, dense + sparse hybrid
+
+Limits: 256 texts × 50 KB per request. Same Bearer auth as the rest of the REST API.
 
 ## Backends
 
