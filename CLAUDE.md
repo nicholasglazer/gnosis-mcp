@@ -2,6 +2,8 @@
 
 Open-source Python MCP server for searchable documentation. Zero-config SQLite default, PostgreSQL optional.
 
+> **Dual-mode service (v0.14.0+):** In addition to the Claude Code MCP (stdio) mode, gnosis-mcp runs as a production embeddings service — Dockerised, exposing `POST /v1/embed` (OpenAI-compatible) backed by local ONNX inference. External services use it as a self-hosted embeddings backend without calling any cloud API.
+
 ## Architecture
 
 ```
@@ -41,6 +43,7 @@ Default install: `mcp>=1.20` + `aiosqlite>=0.20`. Optional extras: `[postgres]` 
 ## Tools
 
 ### Read (always available)
+
 1. **search_docs(query, category?, limit?, query_embedding?)** -- keyword (FTS5/tsvector), hybrid (with embedding on SQLite via sqlite-vec or PG via pgvector), or custom function search. Auto-embeds query when local provider configured.
 2. **get_doc(path, max_length?)** -- reassemble document chunks by file_path + chunk_index (optional truncation)
 3. **get_related(path, depth?, relation_type?, include_titles?)** -- bidirectional link graph query with multi-hop traversal
@@ -49,6 +52,7 @@ Default install: `mcp>=1.20` + `aiosqlite>=0.20`. Optional extras: `[postgres]` 
 6. **get_graph_stats(category?)** -- knowledge graph topology: orphans, hubs, relation distribution, edge/node counts
 
 ### Write (requires GNOSIS_MCP_WRITABLE=true)
+
 7. **upsert_doc(path, content, title?, category?, audience?, tags?, embeddings?)** -- insert/replace document with auto-chunking (optional pre-computed embeddings)
 8. **delete_doc(path)** -- delete document chunks + links
 9. **update_metadata(path, title?, category?, audience?, tags?)** -- update metadata on all chunks
@@ -123,12 +127,14 @@ Semantic versioning (pre-1.0). Patch numbers have no upper limit (0.7.99 is vali
 ## Releases
 
 Version lives in **4 files** — all must match:
+
 1. `pyproject.toml` → `version = "X.Y.Z"`
 2. `src/gnosis_mcp/__init__.py` → `__version__ = "X.Y.Z"`
 3. `server.json` → `"version": "X.Y.Z"` (2 places)
 4. `marketplace.json` → `"version": "X.Y.Z"`
 
 Every version commit MUST:
+
 1. Bump all 4 version files
 2. Update `CHANGELOG.md`
 3. Update relevant docs (`README.md`, `llms.txt`, `llms-full.txt`, `CLAUDE.md`) when adding features
@@ -136,7 +142,7 @@ Every version commit MUST:
 
 **Pipeline**: push to main with changed `pyproject.toml` → `publish.yml` builds, publishes to PyPI + MCP Registry, then creates `vX.Y.Z` tag. Also triggers on manual `v*` tag pushes. No manual tagging needed.
 
-**CRITICAL**: PyPI renders README.md as the package page. Any change to README.md, images, or llms*.txt MUST include a patch version bump — otherwise the changes never reach PyPI. When in doubt, bump the patch version.
+**CRITICAL**: PyPI renders README.md as the package page. Any change to README.md, images, or llms\*.txt MUST include a patch version bump — otherwise the changes never reach PyPI. When in doubt, bump the patch version.
 
 **Remotes**: push to `selify` + `codeberg` + `github` (open-source project).
 
