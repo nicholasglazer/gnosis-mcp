@@ -79,6 +79,21 @@ Issues = "https://github.com/nicholasglazer/gnosis-mcp/issues"
 [tool.hatch.build.targets.wheel]
 packages = ["src/gnosis_mcp"]
 
+# Scope the sdist so internal-only files don't ship in the public PyPI source
+# tarball. Without this, hatchling defaults to ALL VCS-tracked files, which
+# leaked absolute machine paths (e.g. /home/ng/prod/...) via docs/releasing.md,
+# scripts/bench-embedders.sh, and tests/bench/. Consumers don't need these.
+[tool.hatch.build.targets.sdist]
+exclude = [
+  "/docs",
+  "/scripts",
+  "/tests",
+  "/.github",
+  "/.claude",
+  "/CLAUDE.md",
+  "*.db",
+]
+
 [tool.ruff]
 target-version = "py311"
 line-length = 99

@@ -63,6 +63,21 @@ def cmd_serve(args: argparse.Namespace) -> None:
             "--rest flag ignored: REST API requires an HTTP transport (use --transport streamable-http or sse)"
         )
 
+    # SECURITY: warn loudly if the REST API would be exposed unauthenticated on a
+    # non-loopback interface. The Docker image binds 0.0.0.0 with --rest by
+    # default; without GNOSIS_MCP_API_KEY the entire read API plus POST /v1/embed
+    # (arbitrary HuggingFace model download + ONNX compute) is open to anyone who
+    # can reach the port. Bind to 127.0.0.1 or set GNOSIS_MCP_API_KEY in prod.
+    if rest_enabled and transport in ("sse", "streamable-http"):
+        if host not in ("127.0.0.1", "::1", "localhost", "") and not config.api_key:
+            log.warning(
+                "SECURITY: REST API is UNAUTHENTICATED and bound to a non-loopback host (%s). "
+                "Anyone who can reach this port has full read access plus /v1/embed "
+                "(arbitrary model download + compute). Set GNOSIS_MCP_API_KEY to require a "
+                "Bearer token, or bind --host 127.0.0.1.",
+                host,
+            )
+
     if rest_enabled and transport in ("sse", "streamable-http"):
         import uvicorn
         from gnosis_mcp.rest import create_combined_app
