@@ -466,7 +466,8 @@ async def embed(request: Request) -> JSONResponse:
     for i, t in enumerate(texts):
         if not isinstance(t, str):
             return JSONResponse(
-                {"error": f"texts[{i}] must be a string"}, status_code=400,
+                {"error": f"texts[{i}] must be a string"},
+                status_code=400,
             )
         if len(t.encode("utf-8")) > _MAX_TEXT_BYTES:
             return JSONResponse(
@@ -479,7 +480,8 @@ async def embed(request: Request) -> JSONResponse:
     model_override = body.get("model")
     if model_override is not None and not isinstance(model_override, str):
         return JSONResponse(
-            {"error": "'model' must be a string"}, status_code=400,
+            {"error": "'model' must be a string"},
+            status_code=400,
         )
     model = model_override or cfg.embed_model
 
@@ -508,12 +510,14 @@ async def embed(request: Request) -> JSONResponse:
     except Exception as exc:
         log.warning("embed REST failed: %s", exc)
         return JSONResponse(
-            {"error": f"embedding failed: {exc!s}"}, status_code=503,
+            {"error": f"embedding failed: {exc!s}"},
+            status_code=503,
         )
 
     if not vectors:
         return JSONResponse(
-            {"error": "embedding provider returned no vectors"}, status_code=503,
+            {"error": "embedding provider returned no vectors"},
+            status_code=503,
         )
 
     dim = len(vectors[0])

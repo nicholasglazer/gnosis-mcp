@@ -12,6 +12,47 @@ Versioning follows [Semantic Versioning](https://semver.org/) (pre-1.0).
 ### Fixed
 ### Security
 
+## [0.14.1] - 2026-08-20
+
+For PyPI users this is the first release since 0.13.3 that actually shipped:
+the v0.14.0 publish run failed its version-parity gate (see Fixed below), so
+0.14.1 is the release that delivers the v0.14.0 features (`POST /v1/embed`)
+to PyPI, plus the security hardening and a dependency refresh.
+
+### Changed
+- **Dependency refresh** — `uv.lock` upgraded across the board (starlette
+  1.0 → 1.6, uvicorn 0.44 → 0.52, sse-starlette 3.3 → 3.4, tokenizers
+  0.22 → 0.23, trafilatura 2.0 → 2.2, among others). All 687 tests pass on
+  the new set.
+- Dev tooling: pinned `ruff>=0.14,<0.16`. ruff 0.16 introduces ~90 new
+  findings (largely `BLE001` blind-except hits in deliberate log-and-continue
+  paths); adopting it deserves a dedicated pass, not a drive-by inside a
+  dependency bump.
+
+### Fixed
+- **Version parity completed for the v0.14.0 bump** — the v0.14.0 release
+  commit updated only four of the version-bearing files; `.claude-plugin/plugin.json`,
+  `pkg/arch/PKGBUILD`, `pkg/arch/.SRCINFO`, and `docs/rest-api.md` stayed at
+  0.13.3, so `check-versions.sh` failed the publish `check` job in 8 seconds
+  and v0.14.0 never reached PyPI, never got a tag, and never produced a GitHub
+  Release (a quieter cousin of the v0.11.4–v0.13.2 pipeline skip). This
+  release realigns every file via `scripts/bump-version.sh`.
+- `ruff format` drift in `src/gnosis_mcp/rest.py` (introduced with the
+  `/v1/embed` work) that failed CI on main and would have failed the publish
+  `test` job even past the parity gate.
+
+### Security
+- **Warn on unauthenticated public REST bind** (previously committed as
+  `ea154de` but never released): when `--rest` is enabled on a non-loopback
+  host with no `GNOSIS_MCP_API_KEY` — the Docker default binds `0.0.0.0` —
+  the server now logs a loud SECURITY warning, since the read API and
+  `/v1/embed` would otherwise be open to anyone who can reach the port.
+  Warning rather than fail-closed, to avoid breaking running deployments.
+- **sdist scoped** (same commit): `[tool.hatch.build.targets.sdist]` now
+  excludes `docs/`, `scripts/`, `tests/`, `.github/`, `.claude/`, and
+  `*.db`, so internal files with absolute machine paths no longer ship in
+  the public PyPI source tarball.
+
 ## [0.14.0] - 2026-05-26
 
 ### Added

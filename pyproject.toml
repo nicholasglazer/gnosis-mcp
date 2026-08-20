@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "gnosis-mcp"
-version = "0.14.0"
+version = "0.14.1"
 description = "Zero-config MCP server for searchable documentation (SQLite default, PostgreSQL optional)"
 readme = "README.md"
 license = "MIT"
@@ -65,7 +65,7 @@ formats = ["docutils>=0.22,<1.0", "pypdf>=5.0,<6.0"]
 dev = [
     "pytest>=9",
     "pytest-asyncio>=1.0",
-    "ruff>=0.14",
+    "ruff>=0.14,<0.16",
 ]
 
 [project.scripts]
