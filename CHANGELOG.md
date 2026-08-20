@@ -10,6 +10,12 @@ Versioning follows [Semantic Versioning](https://semver.org/) (pre-1.0).
 ### Added
 ### Changed
 ### Fixed
+- **OpenAI-compatible embedding requests identify the client** — remote
+  gateways may reject requests with no `User-Agent`; OpenAI-compatible
+  embedding requests now send `gnosis-mcp/<version>`. This preserves the
+  existing request body and authentication behavior while improving
+  compatibility with hosted OpenAI-compatible gateways, including Nous
+  Portal-style endpoints.
 ### Security
 
 ## [0.14.1] - 2026-08-20

@@ -11,9 +11,12 @@ import logging
 import urllib.request
 from dataclasses import dataclass
 
+from gnosis_mcp import __version__
+
 __all__ = ["embed_texts", "embed_pending", "get_provider_url", "contextual_header"]
 
 log = logging.getLogger("gnosis_mcp")
+_USER_AGENT = f"gnosis-mcp/{__version__}"
 
 # Default URLs per provider
 _PROVIDER_URLS = {
@@ -58,7 +61,10 @@ def _build_request_openai(
 ) -> urllib.request.Request:
     """Build an HTTP request for OpenAI-compatible embedding APIs."""
     payload = json.dumps({"input": texts, "model": model}).encode()
-    headers = {"Content-Type": "application/json"}
+    headers = {
+        "Content-Type": "application/json",
+        "User-Agent": _USER_AGENT,
+    }
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
     return urllib.request.Request(url, data=payload, headers=headers, method="POST")

@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from gnosis_mcp import __version__
 from gnosis_mcp.config import GnosisMcpConfig
 from gnosis_mcp.embed import (
     EmbedResult,
@@ -71,6 +72,18 @@ class TestBuildRequestOpenai:
             ["text"], "model", None, "https://api.openai.com/v1/embeddings"
         )
         assert req.get_header("Content-type") == "application/json"
+
+    def test_user_agent_identifies_client(self):
+        req = _build_request_openai(
+            ["text"], "model", None, "https://api.openai.com/v1/embeddings"
+        )
+        assert req.get_header("User-agent") == f"gnosis-mcp/{__version__}"
+
+    def test_custom_provider_uses_client_user_agent(self):
+        req = _build_request_openai(
+            ["text"], "model", None, "https://inference.example/v1/embeddings"
+        )
+        assert req.get_header("User-agent") == f"gnosis-mcp/{__version__}"
 
     def test_method_is_post(self):
         req = _build_request_openai(
