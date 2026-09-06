@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/nicholasglazer-gnosis-mcp-badge.png)](https://mseep.ai/app/nicholasglazer-gnosis-mcp)
+
 <!-- mcp-name: io.github.nicholasglazer/gnosis -->
 <div align="center">
 
