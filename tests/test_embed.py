@@ -293,6 +293,21 @@ class TestEmbedResult:
         assert r.total_null == 15
         assert r.errors == 2
 
+    def test_total_failure_when_nothing_embedded(self):
+        """Provider unreachable: work to do, none of it done."""
+        assert EmbedResult(embedded=0, total_null=30, errors=30).total_failure
+
+    def test_partial_failure_is_not_total(self):
+        """Some chunks through: worth a warning, not a failed run."""
+        assert not EmbedResult(embedded=17, total_null=41, errors=24).total_failure
+
+    def test_full_success_is_not_failure(self):
+        assert not EmbedResult(embedded=41, total_null=41, errors=0).total_failure
+
+    def test_nothing_to_embed_is_not_failure(self):
+        """No pending chunks is a no-op, not an error."""
+        assert not EmbedResult(embedded=0, total_null=0, errors=0).total_failure
+
 
 class TestEmbedPending:
     @pytest.mark.asyncio

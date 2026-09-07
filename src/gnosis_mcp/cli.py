@@ -323,10 +323,24 @@ def cmd_ingest(args: argparse.Namespace) -> None:
                 embed_result.total_null,
                 embed_result.errors,
             )
+            if embed_result.total_failure:
+                log.error(
+                    "No chunk could be embedded (%d errors). Documents are ingested "
+                    "and searchable by text, but semantic search is unavailable until "
+                    "this is re-run — is the embedding provider reachable?",
+                    embed_result.errors,
+                )
+                return True
+        return False
 
-    asyncio.run(_run())
+    embed_failed = asyncio.run(_run())
     # Prune after ingest so fresh chunks are kept and missing-file chunks go away.
     asyncio.run(_maybe_prune())
+    # Exit non-zero only on total failure: callers that wrap this command (git
+    # hooks, setup scripts, CI) see the exit code, not the log, so an ingest that
+    # embedded nothing must not look like a success.
+    if embed_failed:
+        sys.exit(1)
 
 
 def cmd_prune(args: argparse.Namespace) -> None:
@@ -503,8 +517,13 @@ def cmd_embed(args: argparse.Namespace) -> None:
             if result.errors:
                 sys.stdout.write(f"  Errors: {result.errors}\n")
             sys.stdout.write("\n")
+            if result.total_failure:
+                return True
+        return False
 
-    asyncio.run(_run())
+    if asyncio.run(_run()):
+        # Same reasoning as `ingest --embed`: embedding nothing is not a success.
+        sys.exit(1)
 
 
 def cmd_stats(args: argparse.Namespace) -> None:
