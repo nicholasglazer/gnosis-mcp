@@ -90,10 +90,10 @@ Common flags:
 | `--since 6m` / `--since 2025-01-01` | Window of commits to include |
 | `--until 2026-03-01` | Upper bound |
 | `--author "alice@"` | Filter by author name or email substring |
-| `--max-commits-per-file 20` | Default 10, most-recent wins |
+| `--max-commits 20` | Commits per file, most recent first (default 10) |
 | `--include "src/**"` | Glob filter on touched files |
 | `--exclude "*.lock,package.json"` | Skip noisy files |
-| `--include-merges` | Default excludes merge commits |
+| `--merges` | Include merge commits (excluded by default; takes no value) |
 
 Each indexed doc's `file_path` is `git-history/<original-path>.md`.
 Cross-file co-edits generate `git_co_change` edges; source-file
@@ -116,7 +116,7 @@ Indexes a documentation website. Requires the `[web]` extra
 gnosis-mcp crawl https://docs.stripe.com --sitemap --embed
 
 # No sitemap? BFS link crawl, one hop deep
-gnosis-mcp crawl https://docs.example.com --max-depth 1 --embed
+gnosis-mcp crawl https://docs.example.com --depth 1 --embed
 
 # Subset only
 gnosis-mcp crawl https://docs.example.com --sitemap \
@@ -130,7 +130,8 @@ Other flags:
 
 | Flag | Effect |
 |---|---|
-| `--max-pages 5000` | Safety cap |
+| `--max-urls 5000` | Maximum URLs to crawl (default 5000) |
+| `--depth 2` | BFS link-crawl depth (default 1; ignored with `--sitemap`) |
 | `--force` | Ignore the ETag / Last-Modified / hash cache |
 
 Behaviour:

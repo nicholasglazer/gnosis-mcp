@@ -27,7 +27,7 @@ vars (see [config.md](config.md)) — flags override env.
 | [`search`](#search) | Run a search from the command line (sanity check). |
 | [`embed`](#embed) | Backfill embeddings for NULL rows. |
 | [`stats`](#stats) | Print doc / chunk / embedding / access counts. |
-| [`export`](#export) | Dump documents as JSON or markdown. |
+| [`export`](#export) | Dump documents as JSON, markdown, or CSV. |
 | [`diff`](#diff) | Dry-run re-ingest: show what would change. |
 | [`check`](#check) | Verify DB connection, schema, and extensions. |
 | [`cleanup`](#cleanup) | Purge old access-log rows. |
@@ -164,9 +164,9 @@ listing the latest commits that touched it. Cross-file co-edit links get
 ```bash
 gnosis-mcp ingest-git REPO
     [--since WHEN] [--until WHEN] [--author SUB]
-    [--max-commits-per-file N]
+    [--max-commits N]
     [--include GLOB] [--exclude GLOB]
-    [--include-merges]
+    [--merges]
     [--dry-run] [--force] [--embed]
 ```
 
@@ -174,9 +174,9 @@ gnosis-mcp ingest-git REPO
 | ---- | ----------- |
 | `--since`, `--until` | Date windows. `6m` / `2w` / `2025-01-01` all work. |
 | `--author` | Filter by author name or email substring. |
-| `--max-commits-per-file` | Default `10` (most recent). |
+| `--max-commits` | Max commits per file, most recent first. Default `10`. |
 | `--include`, `--exclude` | Glob filters on the file set. |
-| `--include-merges` | Default off (merge commits excluded). |
+| `--merges` | Include merge commits (excluded by default). Takes no value. |
 
 ---
 
@@ -187,18 +187,18 @@ imports — requires `pip install gnosis-mcp[web]`.
 
 ```bash
 gnosis-mcp crawl URL
-    [--sitemap] [--max-depth N]
+    [--sitemap] [--depth N]
     [--include GLOB] [--exclude GLOB]
-    [--max-pages N]
+    [--max-urls N]
     [--dry-run] [--force] [--embed]
 ```
 
 | Flag | Description |
 | ---- | ----------- |
 | `--sitemap` | Discover URLs via `sitemap.xml`. Best for large doc sites. |
-| `--max-depth` | BFS link-crawl depth when `--sitemap` is off (default `1`). |
+| `--depth` | BFS link-crawl depth when `--sitemap` is off. Default `1`; ignored with `--sitemap`. |
 | `--include` / `--exclude` | Path glob filters. |
-| `--max-pages` | Safety cap (default `5000`). |
+| `--max-urls` | Maximum number of URLs to crawl. Default `5000`. |
 | `--force` | Ignore the ETag / Last-Modified / hash cache. |
 
 **Caching.** A JSON sidecar at `~/.local/share/gnosis-mcp/crawl-cache.json`
@@ -256,7 +256,7 @@ gnosis-mcp stats
 Dump documents for external pipelines.
 
 ```bash
-gnosis-mcp export [-f {json,markdown}] [-c CATEGORY]
+gnosis-mcp export [-f {json,markdown,csv}] [-c CATEGORY]
 ```
 
 JSON output is a stream of `{file_path, title, category, content, ...}`
@@ -323,23 +323,59 @@ gnosis-mcp fix-link-types
 
 ## `eval`
 
-Retrieval-quality harness. Runs a small built-in query set against the
-indexed corpus and reports Hit@5, MRR, Precision@5.
+Retrieval-quality smoke test. Reports Hit@K, MRR, and Precision@K (`K = 5`).
 
 ```bash
 gnosis-mcp eval [--json]
 ```
 
-`--json` emits the metrics only, suitable for piping into CI dashboards.
-Use with `--force` re-ingest during benchmarks.
+**Read this before trusting the numbers.** `eval` does *not* query your
+corpus. It builds a fixed fixture — the hardcoded `SAMPLE_DOCS` /
+`SAMPLE_GIT_HISTORY_DOCS` lists plus `tests/eval/cases.json` — in a
+temporary SQLite database, and ignores `GNOSIS_MCP_DATABASE_URL` entirely.
+The same numbers come out whatever you have indexed, so treat `eval` as a
+regression check on the harness and a worked example of the metric
+definitions, not as a measurement of your docs.
+
+It also needs the repository checkout: it imports the fixtures from
+`tests/eval/`, so a plain `pip install` (no `tests/` directory) exits `1`
+with an install-from-source hint.
+
+`--json` emits the metrics only, suitable for piping into CI dashboards:
+
+```json
+{
+  "cases": 10,
+  "hit_rate_at_k": 1.0,
+  "mrr": 1.0,
+  "mean_precision_at_k": 0.75,
+  "k": 5
+}
+```
+
+**Measuring your own corpus.** Use the real-corpus benchmark, which ingests
+an arbitrary docs tree and scores it against your own golden queries:
+
+```bash
+python tests/bench/bench_real_corpus.py \
+    --corpus /path/to/docs \
+    --golden tests/bench/golden-knowledge.jsonl
+```
+
+`--corpus` is the markdown root to ingest; `--golden` is a JSONL file of
+`{"query": "...", "expected_paths": ["docs/x.md"]}` lines. `--modes`,
+`--k`, `--rerank-n`, `--title-prepend`, and `--chunk-size` let you compare
+configurations. Unlike `eval`, this one reports nDCG@10 as well.
 
 ---
 
 ## Environment overrides
 
-Every flag mentioned above has an env-var equivalent under `GNOSIS_MCP_*`
-(see [config.md](config.md)). Env wins over interactive defaults; flags
-win over env.
+Server-level settings also exist as `GNOSIS_MCP_*` environment variables (see
+[config.md](config.md)); per-invocation switches such as `--dry-run`, `--json`,
+`--force`, `--prune`, `--wipe`, `--sitemap`, `--merges` and `--include-crawled`
+do not, because they answer a question about one run rather than configuring the
+server. Where both exist, a flag wins over its environment variable.
 
 ---
 

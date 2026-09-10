@@ -24,8 +24,9 @@ Enable with `--rest` on `gnosis-mcp serve` or `GNOSIS_MCP_REST=true`.
 - **Content-Type**: `application/json` on all JSON endpoints.
 - **Auth**: optional Bearer token via `GNOSIS_MCP_API_KEY`. When unset,
   endpoints are open (fine for localhost development).
-- **Public paths**: `/health` is always unauthenticated; add more with
-  `GNOSIS_MCP_PUBLIC_PATHS=/status,/version`.
+- **Public paths**: `/health` is the only unauthenticated path, and there is
+  no setting to add more. `GNOSIS_MCP_PUBLIC_PATHS` is **not implemented** —
+  see [config.md](config.md).
 - **CORS**: off by default. Set `GNOSIS_MCP_CORS_ORIGINS=*` or a comma list
   of origins to enable.
 - **Rate-limit / observability**: not built in. Put the usual Nginx /
@@ -41,7 +42,7 @@ Authorization: Bearer sk_prod_xxxxxxxxxxxxxxxxxxxxxxxx
 ```
 
 Comparison uses `secrets.compare_digest` — timing-safe. Missing or wrong
-token → `401` with `{"error":"unauthorized"}`.
+token → `401` with `{"error":"Unauthorized"}`.
 
 ---
 
@@ -55,11 +56,22 @@ Server heartbeat. Always public. Use for liveness / readiness probes.
 {
   "status": "ok",
   "version": "0.15.0",
+  "backend": "sqlite",
   "docs": 412,
   "chunks": 1_247,
-  "backend": "sqlite"
+  "search_stats": {
+    "total": 38,
+    "misses": 2,
+    "hybrid": 21,
+    "keyword": 17
+  }
 }
 ```
+
+`docs` counts distinct `file_path` values; `chunks` counts post-split rows.
+`search_stats` is a process-lifetime counter of search calls — `total`,
+`misses` (queries that returned nothing), and a breakdown by `hybrid` /
+`keyword` mode. It resets when the server restarts.
 
 ### `GET /api/search`
 
@@ -69,8 +81,8 @@ Keyword / hybrid search mirror of the `search_docs` MCP tool.
 
 | Name | Type | Default | Notes |
 | ---- | ---- | ------- | ----- |
-| `q` | `string` | — | The search text. |
-| `limit` | `int` | `5` | Clamped to `GNOSIS_MCP_SEARCH_LIMIT_MAX`. |
+| `q` | `string` | — | The search text. Missing/empty → `400`. |
+| `limit` | `int` | `10` | Clamped to `GNOSIS_MCP_SEARCH_LIMIT_MAX`. |
 | `category` | `string` | — | Optional filter. |
 
 Auto-embedding: when a local ONNX provider is configured, the query is
@@ -81,14 +93,15 @@ embedded in-process and results are ranked with hybrid RRF.
 ```json
 {
   "query": "how does hybrid search work",
-  "hits": [
+  "count": 1,
+  "results": [
     {
       "file_path": "docs/backends.md",
       "title": "Backends",
       "category": "docs",
-      "chunk_index": 3,
-      "content": "…preview…",
-      "score": 0.049
+      "content_preview": "…preview…",
+      "score": 0.049,
+      "highlight": "…<mark>hybrid</mark>…"
     }
   ]
 }
@@ -152,10 +165,13 @@ curl -s "http://localhost:8000/api/graph/stats?category=docs"
 
 ## Errors
 
-All errors return a JSON body:
+All errors return a JSON body with a single `error` key. The string is
+human-readable, not a stable machine code — `401` is exactly `Unauthorized`,
+while validation and lookup failures carry a descriptive message such as
+`Query parameter 'q' is required` or `Not found: docs/tools.md`.
 
 ```json
-{"error": "<short machine-readable code>", "detail": "<human-readable>"}
+{"error": "Not found: docs/tools.md"}
 ```
 
 | Status | Meaning |

@@ -44,7 +44,23 @@ Database connection string. Falls back to `DATABASE_URL` if unset.
 `true | false` — default **`false`**.
 
 Gate for the three write tools (`upsert_doc`, `delete_doc`, `update_metadata`).
-When false, write tools return a structured error and no data is mutated.
+
+When false, those three tools are **withdrawn from `tools/list`** — a
+read-only client is never handed a tool it cannot call, and sees six tools
+rather than nine, three of which could only ever fail. A call to one of them
+then fails as an *unknown tool*, because as far as the server's advertised
+surface is concerned it does not exist. No data is mutated either way.
+
+The in-call check is unchanged: with writes enabled the tools are advertised,
+and a call that is still refused for another reason (for example
+`update_metadata` with no fields to update) reports MCP `isError: true`. Tool
+failures carry their payload as the error text of a failed result, not as a
+`{"error": ...}` body inside a *successful* one.
+
+This changed in v0.15.0. Before that, all nine tools were advertised
+regardless and a refused write returned a `{"error": ...}` payload inside a
+successful result — indistinguishable from data, and impossible for a client
+to retry or gate on uniformly.
 
 ### `GNOSIS_MCP_LOG_LEVEL`
 `DEBUG | INFO | WARNING | ERROR | CRITICAL` — default **`INFO`**.
@@ -220,8 +236,22 @@ Optional. When set, every endpoint (except `/health`) requires
 `Authorization: Bearer <key>`. Comparison is timing-safe.
 
 ### `GNOSIS_MCP_PUBLIC_PATHS`
-Comma-separated list of paths that bypass auth. `/health` is always public.
-Useful when mounting a custom `/status` or `/version` endpoint.
+**Not implemented — reading this variable has no effect.** It is documented
+here only so the absence is explicit.
+
+`/health` is the one unauthenticated path, always. Every other route,
+including anything under `/api/` and `POST /v1/embed`, requires
+`Authorization: Bearer <key>` whenever `GNOSIS_MCP_API_KEY` is set. There is
+no way to add a second public path by configuration today.
+
+The setting was documented in the pre-launch docs commit but the env-var
+read was never written: `GnosisMcpConfig` has no `public_paths` field, and
+the auth middleware is constructed as `ApiKeyMiddleware(app, config.api_key)`
+with no `public_paths` argument, so it falls back to its built-in
+`("/health",)` default. (The middleware does accept a `public_paths`
+parameter, so the hook exists for a future release — it is simply never
+supplied.) If you need extra probes to bypass auth, terminate them at your
+reverse proxy rather than at gnosis-mcp.
 
 ### `GNOSIS_MCP_CORS_ORIGINS`
 Comma-separated origins, or `*`. No CORS response headers unless set.

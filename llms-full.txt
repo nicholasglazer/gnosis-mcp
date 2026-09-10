@@ -187,7 +187,7 @@ Or set: `GNOSIS_MCP_REST=true`
 
 | Endpoint | Description |
 |----------|-------------|
-| `GET /health` | `{"status": "ok", "version", "backend", "docs"}` |
+| `GET /health` | `{"status", "version", "backend", "docs", "chunks", "search_stats"}` — `search_stats` is `{"total", "misses", "hybrid", "keyword"}` |
 | `GET /api/search?q=&limit=&category=` | `{"results": [...], "query", "count"}` — auto-embeds with local provider |
 | `GET /api/docs/{path}` | `{"title", "content", "category", "audience", "tags", "chunks"}` |
 | `GET /api/docs/{path}/related` | `{"results": [{"related_path", "relation_type", "direction"}]}` |
@@ -217,7 +217,7 @@ All settings via GNOSIS_MCP_* environment variables. Nothing required for SQLite
 - GNOSIS_MCP_WEBHOOK_URL — URL to POST on doc changes (default: none)
 
 ### Embedding
-- GNOSIS_MCP_EMBED_PROVIDER — Embedding provider: openai, ollama, custom, or local (default: none, auto-detects local if [embeddings] installed)
+- GNOSIS_MCP_EMBED_PROVIDER — Embedding provider: openai, ollama, custom, or local (default: none — nothing is inferred, so with it unset POST /v1/embed returns 503 "No default URL for provider None" even with the [embeddings] extra installed). Set it explicitly: the published Docker image sets it to local, a plain pip install does not
 - GNOSIS_MCP_EMBED_MODEL — Embedding model name (default: text-embedding-3-small for remote, MongoDB/mdbr-leaf-ir for local)
 - GNOSIS_MCP_EMBED_DIM — Embedding dimension for local Matryoshka truncation and vec0 table width (default: 384)
 - GNOSIS_MCP_EMBED_API_KEY — API key for embedding provider (default: none)
@@ -226,7 +226,7 @@ All settings via GNOSIS_MCP_* environment variables. Nothing required for SQLite
 
 ### Tuning
 - GNOSIS_MCP_CONTENT_PREVIEW_CHARS — Characters in search previews, min 50 (default: 200)
-- GNOSIS_MCP_CHUNK_SIZE — Max chars per chunk, min 500 (default: 4000)
+- GNOSIS_MCP_CHUNK_SIZE — Max chars per chunk, min 500 (default: 2000)
 - GNOSIS_MCP_SEARCH_LIMIT_MAX — Max search result limit, min 1 (default: 20)
 - GNOSIS_MCP_WEBHOOK_TIMEOUT — Webhook timeout seconds, min 1 (default: 5)
 - GNOSIS_MCP_TRANSPORT — Server transport: stdio, sse, or streamable-http (default: stdio)
@@ -358,7 +358,7 @@ Default install deps: mcp + aiosqlite. Optional: asyncpg (via `[postgres]` extra
 
 ## Performance
 
-9,463 QPS on 100 docs (300 chunks), 471 QPS on 10,000 docs (30,000 chunks) — SQLite FTS5 keyword. p95 under 6 ms at 10K corpus. End-to-end through the MCP stdio protocol: 8.7 ms mean, 13.0 ms p95 (v0.13.3, after the mcp SDK 1.27 transport upgrade). 632 tests, 10 RAG eval cases (Hit@5 = 1.00, MRR = 0.95, Precision@5 = 0.67). Install size: ~23MB with `[embeddings]` (ONNX model), ~5MB base. Benchmarks: `gnosis-mcp eval`, `python tests/bench/bench_search.py`, `python tests/bench/bench_rag.py`, `python tests/bench/bench_mcp_e2e.py`. See `docs/benchmarks.md` for methodology.
+9,463 QPS on 100 docs (300 chunks), 471 QPS on 10,000 docs (30,000 chunks) — SQLite FTS5 keyword. p95 under 6 ms at 10K corpus. End-to-end through the MCP stdio protocol: 8.7 ms mean, 13.0 ms p95 (v0.13.3, after the mcp SDK 1.27 transport upgrade). 774 tests, 10 RAG eval cases (Hit@5 = 1.00, MRR = 1.00, Precision@5 = 0.75). Install size: ~23MB with `[embeddings]` (ONNX model), ~5MB base. Benchmarks: `gnosis-mcp eval`, `python tests/bench/bench_search.py`, `python tests/bench/bench_rag.py`, `python tests/bench/bench_mcp_e2e.py`. See `docs/benchmarks.md` for methodology.
 
 ## License
 

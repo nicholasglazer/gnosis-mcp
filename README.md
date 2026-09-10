@@ -69,7 +69,7 @@ Full side-by-side vs Context7 / docs-mcp-server / mcp-local-rag: [gnosismcp.com#
 - **Auto-linking** — `relates_to` frontmatter creates a navigable document graph
 - **Watch mode** — auto-re-ingest on file changes
 - **Prune stale docs** — `gnosis-mcp ingest --prune` removes chunks whose source file was deleted. `--wipe` for a full reset before re-ingest.
-- **Built-in eval harness** — `gnosis-mcp eval` prints Hit@K / MRR / Precision@K in one command
+- **Built-in eval harness** — `gnosis-mcp eval` prints Hit@K / MRR / Precision@K in one command, against a bundled fixed fixture set
 - **PostgreSQL ready** — pgvector + tsvector when you need scale
 
 ## Performance
@@ -91,7 +91,7 @@ $ gnosis-mcp savings --days 7
 
 Typical compression runs 10–60× depending on corpus coverage and query specificity — verify on yours. `access_log` is on by default; `GNOSIS_MCP_ACCESS_LOG=false` opts out.
 
-**Reproducible.** `gnosis-mcp eval` runs a RAG eval harness locally in one second. `tests/bench/*.py` reproduce every number. Methodology: [`docs/benchmarks.md`](docs/benchmarks.md).
+**Reproducible.** `gnosis-mcp eval` runs a bundled retrieval-quality harness locally in one second — but it ingests nine hardcoded sample documents into a temporary database and answers ten bundled queries, so it returns the same numbers for every corpus and is a smoke test, not a measurement of your docs. To score your own corpus, run `python tests/bench/bench_real_corpus.py --corpus <docs-root> --golden <golden.jsonl>` (the numbers above come from `tests/bench/golden-knowledge.jsonl`). `tests/bench/*.py` reproduce every number. Methodology: [`docs/benchmarks.md`](docs/benchmarks.md).
 
 **Rerankers stay off by default.** The bundled MS-MARCO cross-encoder drops nDCG@10 by 27 points on dev-docs and adds 400× latency; BGE-reranker-v2-m3 drops it 31 points at 2400×. Test on your corpus before enabling — full write-up: [bench-experiments-2026-04-18](docs/bench-experiments-2026-04-18.md).
 
@@ -580,10 +580,10 @@ All tables must share the same schema. Reads use `UNION ALL`. Writes target the 
 
 ```
 gnosis-mcp ingest <path> [--dry-run] [--force] [--embed] [--prune] [--wipe] [--include-crawled]
-gnosis-mcp ingest-git <repo> [--since] [--until] [--author] [--max-commits-per-file]
-                             [--include] [--exclude] [--include-merges]
+gnosis-mcp ingest-git <repo> [--since] [--until] [--author] [--max-commits N]
+                             [--include] [--exclude] [--merges]
                              [--dry-run] [--force] [--embed]
-gnosis-mcp crawl <url> [--sitemap] [--max-depth N] [--include] [--exclude] [--max-pages N]
+gnosis-mcp crawl <url> [--sitemap] [--depth N] [--include] [--exclude] [--max-urls N]
                        [--dry-run] [--force] [--embed]
 gnosis-mcp serve [--transport stdio|sse|streamable-http] [--host HOST] [--port PORT]
                  [--ingest PATH] [--watch PATH] [--rest]
@@ -593,7 +593,7 @@ gnosis-mcp stats                                           Document, chunk, and 
 gnosis-mcp check                                           Verify DB connection + extensions
 gnosis-mcp embed [--provider P] [--model M] [--batch-size N] [--dry-run]
 gnosis-mcp init-db [--dry-run]                             Create tables + indexes
-gnosis-mcp export [-f json|markdown] [-c CAT]              Export documents
+gnosis-mcp export [-f json|markdown|csv] [-c CAT]          Export documents
 gnosis-mcp diff <path>                                     Preview changes on re-ingest
 gnosis-mcp prune <path> [--dry-run] [--include-crawled]    Delete chunks for missing files
 gnosis-mcp cleanup [--days N]                              Purge old access log entries
