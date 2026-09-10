@@ -18,6 +18,6 @@ pkgbase = gnosis-mcp
 	optdepends = python-httpx: web crawling
 	optdepends = python-trafilatura: web crawling
 	source = gnosis-mcp-0.17.0.tar.gz::https://files.pythonhosted.org/packages/source/g/gnosis-mcp/gnosis_mcp-0.17.0.tar.gz
-	sha256sums = 5c16f2af79612778fb04c678d45c68eada3ffaee9c30a6fd4371f3a1638ba44e
+	sha256sums = cccde673656ba71a9cd868363870a7b56cac07fcfac52ea79cd9c035ddc73258
 
 pkgname = gnosis-mcp
