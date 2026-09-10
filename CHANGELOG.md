@@ -92,6 +92,17 @@ reproducible and gives you a way to see whether it worked.
   half-writes one: every write goes through a sibling temp file plus
   `os.replace`, because a truncated client config takes every *other* MCP server
   in that file down with it.
+- **A `v*` tag push now creates the GitHub Release and the Codeberg mirror.**
+  Both jobs declared `needs: [check, tag]`, and `tag` is skipped on a tag push —
+  the tag already exists, that is what triggered the run. A skipped dependency
+  skips its dependents, so the documented tag path published to PyPI and the MCP
+  Registry and then created no release notes and no mirror, silently. Found by
+  needing exactly that path: this release's own commit failed CI on a format
+  check, and the retry had no `pyproject.toml` change left to trigger on.
+- **`ruff format --check` is part of the release gate, not just the linter.**
+  The first CI run of this release failed on it after `ruff check` and all 844
+  tests passed locally — a fine way to learn that they are two different
+  commands, a poor way to find out mid-release.
 
 ## [0.16.2] - 2026-09-10
 

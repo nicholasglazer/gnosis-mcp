@@ -193,6 +193,13 @@ jobs:
 
   github-release:
     needs: [check, tag]
+    # `tag` is skipped when the run was triggered by a `v*` tag push — the tag
+    # already exists, that is what triggered it — and a skipped dependency skips
+    # everything that needs it. Without `always()` here, a documented tag push
+    # published to PyPI and the MCP Registry, then silently created no GitHub
+    # Release at all, which is also the path this workflow falls back to when the
+    # pyproject-triggered run has to be retried.
+    if: always() && needs.check.result == 'success' && needs.check.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -236,7 +243,11 @@ jobs:
   # ------------------------------------------------------------------------
   mirror-codeberg:
     needs: [check, tag]
-    if: needs.check.outputs.should_release == 'true'
+    # Same skipped-dependency trap as `github-release`: without `always()`, the
+    # codeberg mirror silently does not run on a tag push. That is the mirror
+    # that exists so the project is not single-homed, so skipping it quietly is
+    # worse than failing loudly.
+    if: always() && needs.check.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
