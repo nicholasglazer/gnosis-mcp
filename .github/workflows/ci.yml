@@ -20,10 +20,16 @@ jobs:
           enable-cache: true
       # `uvx` runs ruff in an ephemeral env — no `uv pip install --system`
       # which newer uv rejects without a venv or --break-system-packages flag.
+      #
+      # Pinned to the range pyproject's `dev` extra declares. A bare `uvx ruff`
+      # resolves the newest release instead, and ruff 0.16 reports ~98 findings
+      # this project has deliberately not adopted — so the lint job failed on
+      # main with no code change at all, and every pull request inherited a red
+      # check that was not the contributor's to fix.
       - name: Ruff check
-        run: uvx ruff check .
+        run: uvx 'ruff>=0.14,<0.16' check .
       - name: Ruff format
-        run: uvx ruff format --check .
+        run: uvx 'ruff>=0.14,<0.16' format --check .
 
   test-sqlite:
     runs-on: ubuntu-latest
