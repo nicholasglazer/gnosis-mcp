@@ -50,9 +50,26 @@ jobs:
             echo "New version ${{ steps.version.outputs.tag }}, will release"
           fi
 
-      - name: Verify version parity across all 4 files
+      - name: Verify version parity across every version-bearing file
         if: steps.decide.outputs.should_release == 'true'
         run: bash scripts/check-versions.sh
+
+      - name: Require a CHANGELOG section for this version
+        if: steps.decide.outputs.should_release == 'true'
+        run: |
+          # The GitHub Release body is the CHANGELOG section for this version (see
+          # the github-release job). With no section, the notes silently fall back
+          # to `--generate-notes`, which only sees merged pull requests — that is
+          # how v0.16.0, some twenty fixes, shipped as "one PR: exit non-zero when
+          # --embed embedded nothing". Fail here, while it is still cheap to fix,
+          # rather than publishing notes that misdescribe the release.
+          TAG="${{ steps.version.outputs.tag }}"
+          if ! bash scripts/release-notes.sh "$TAG" >/dev/null; then
+            echo "ERROR: CHANGELOG.md has no section for $TAG." >&2
+            echo "Write the [Unreleased] section, re-run scripts/bump-version.sh, and push again." >&2
+            exit 1
+          fi
+          echo "CHANGELOG section present for $TAG"
 
   test:
     needs: check
