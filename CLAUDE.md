@@ -136,9 +136,9 @@ Version lives in **these files** — all must match:
 6. `docs/rest-api.md` → the example `/health` payload
 7. `uv.lock` → the project's own version (refresh with `uv lock`)
 
-`pkg/arch/PKGBUILD` + `.SRCINFO` are **not** part of a release commit: they carry the
-sha256 of the published sdist, so they are bumped in a follow-up commit once PyPI
-has the artifact.
+`pkg/arch/PKGBUILD` + `.SRCINFO` are the exception: `bump-version.sh` updates their
+`pkgver`, but the `sha256sums` cover the published sdist, so they are refreshed in a
+follow-up commit (`scripts/update-arch-sums.sh`) once PyPI has the artifact.
 
 Every version commit MUST:
 

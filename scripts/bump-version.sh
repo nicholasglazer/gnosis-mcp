@@ -122,10 +122,20 @@ PY
 fi
 
 # ---- 5. SECURITY.md supported-versions line ------------------------------
-OLD_XY=$(echo "$OLD" | cut -d. -f1,2)
+# Match any X.Y.x, not just the outgoing minor: the file had already drifted to
+# 0.13.x while pyproject said 0.14.1, so anchoring on $OLD_XY made this a silent
+# no-op that still reported success — and "Supported Versions" is a security
+# promise, not decoration. Anything still unmatched is a hard error.
 if [[ -f SECURITY.md ]]; then
-  sed -i -E "s/latest $OLD_XY\.x/latest $NEW_XY.x/g" SECURITY.md
-  echo "✓ SECURITY.md"
+  if grep -qE "latest $NEW_XY\.x" SECURITY.md; then
+    echo "✓ SECURITY.md (already $NEW_XY.x)"
+  elif grep -qE "latest [0-9]+\.[0-9]+\.x" SECURITY.md; then
+    sed -i -E "s/latest [0-9]+\.[0-9]+\.x/latest $NEW_XY.x/g" SECURITY.md
+    echo "✓ SECURITY.md"
+  else
+    echo "✗ SECURITY.md has no 'latest X.Y.x' supported-versions line — update it by hand" >&2
+    exit 1
+  fi
 fi
 
 # ---- 6. CHANGELOG.md ------------------------------------------------------
