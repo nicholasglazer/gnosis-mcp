@@ -12,6 +12,64 @@ Versioning follows [Semantic Versioning](https://semver.org/) (pre-1.0).
 ### Fixed
 ### Security
 
+## [0.15.0] - 2026-09-10
+
+This release is the first that treats a non-Claude MCP client as a first-class
+caller. Every fix below was found by wiring gnosis-mcp into a second client and
+watching what that client actually saw over the wire.
+
+### Added
+- **The MCP `instructions` field.** `initialize` now carries the standard
+  `instructions` guidance describing when to reach for each tool. Until now the
+  server's only prose description of itself lived in a client-specific
+  `serverInstructions` key in `.mcp.json`, which most MCP clients ignore
+  entirely — a tools-only client got terse docstrings and nothing else.
+- **Per-client access-log attribution.** `search_access_log` records the calling
+  client's `clientInfo` (name and version) from the MCP handshake, so a database
+  shared by two clients no longer conflates their traffic irrecoverably — the
+  column can be queried per client. (Surfacing that in the `savings` and `stats`
+  output is a follow-up; those still aggregate by tool today.)
+  Existing SQLite databases migrate themselves on the
+  next start. **PostgreSQL keeps working unchanged but does not self-migrate** —
+  that backend has no post-release column mechanism at all, so an existing PG
+  schema needs `ALTER TABLE <schema>.search_access_log ADD COLUMN client text;`
+  once. Until then the column is feature-detected and simply omitted from the
+  insert, exactly as the token columns already are.
+- `serve --search-limit-max` and `serve --content-preview-chars` mirror the
+  `GNOSIS_MCP_SEARCH_LIMIT_MAX` / `GNOSIS_MCP_CONTENT_PREVIEW_CHARS` environment
+  variables, so verbosity is adjustable per invocation.
+
+### Changed
+- **Write tools are no longer advertised when writes are disabled.**
+  `upsert_doc`, `delete_doc` and `update_metadata` are withdrawn from
+  `tools/list` unless `GNOSIS_MCP_WRITABLE=true`, so a read-only client sees six
+  useful tools instead of nine, three of which could only ever return an error.
+  The in-call `cfg.writable` gate is unchanged, so no call becomes possible that
+  was not possible before.
+- **Tool failures now report MCP `isError: true`.** They previously returned a
+  `{"error": ...}` body inside a *successful* result, which meant a failed call
+  was indistinguishable from data and no client could retry, render, or gate on
+  it uniformly. The JSON payload text is unchanged.
+
+### Fixed
+- **`serverInfo.version` reported the `mcp` SDK's version.** Clients were told
+  `1.27.0` — the SDK pin — instead of gnosis-mcp's own version, because FastMCP
+  never forwards a version to the low-level server, which then falls back to its
+  own. Anything version-gating on the handshake was reading a lie.
+- **A cold start no longer fails every call.** `serve` against a database that had
+  never been initialised advertised every tool and then failed each call with
+  `no such table documentation_chunks_fts`. Only `init-db`, `ingest` and `eval`
+  ever created the schema, so the documented install order (ingest before serve)
+  hid a first run that was broken for anyone who wired the server up first —
+  which is exactly what a new MCP client does.
+- **`gnosis-mcp check` always exited 0**, including against an uninitialized or
+  unreachable database, so it could not gate a setup script, installer, or CI.
+  It now exits 1 when the schema is incomplete and names the missing pieces.
+- The `no such table` hint pointed at `check`, which only diagnoses; it now names
+  `init-db` and `ingest`.
+
+### Security
+
 ## [0.14.1] - 2026-08-20
 
 For PyPI users this is the first release since 0.13.3 that actually shipped:
