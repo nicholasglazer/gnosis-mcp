@@ -10,6 +10,28 @@ Three install paths, pick the one that matches how you work:
 
 All three paths install the same underlying `gnosis-mcp` Python package. The difference is what wires up around it.
 
+## Any other MCP client
+
+Claude Code is not required. Any MCP client works — install the package, index your docs, then add this stdio entry to the client's config:
+
+```bash
+pip install gnosis-mcp
+gnosis-mcp ingest ./docs/
+```
+
+```json
+{
+  "mcpServers": {
+    "gnosis": {
+      "command": "gnosis-mcp",
+      "args": ["serve"]
+    }
+  }
+}
+```
+
+Config file location, and the clients that use a different key than `mcpServers`, are in [Path C](#path-c--mcp-server-only-any-editor) below.
+
 ## Prerequisites
 
 - Python 3.11 or later
@@ -70,7 +92,7 @@ cp /tmp/gnosis-mcp/agents/*.md .claude/agents/           # all 5 — or pick spe
 cp -r /tmp/gnosis-mcp/skills/* .claude/skills/           # all 8 — or pick specific dirs
 
 # 4. Wire gnosis-mcp as an MCP server
-cat > .claude/mcp.json <<'JSON'
+cat > .mcp.json <<'JSON'
 {
   "mcpServers": {
     "gnosis": {
@@ -163,7 +185,20 @@ gnosis-mcp search "getting started"   # test a search
 
 Add the MCP server config to your editor so your AI agent can search your docs.
 
-**Claude Code** — add to `.claude/mcp.json`:
+**Claude Code** — add to `.mcp.json` at your project root:
+
+```json
+{
+  "mcpServers": {
+    "docs": {
+      "command": "gnosis-mcp",
+      "args": ["serve"]
+    }
+  }
+}
+```
+
+**Claude Desktop** — add to `claude_desktop_config.json` (`~/Library/Application Support/Claude/` on macOS, `%APPDATA%\Claude\` on Windows), then restart Claude Desktop:
 
 ```json
 {
@@ -217,11 +252,41 @@ Add the MCP server config to your editor so your AI agent can search your docs.
 
 Also discoverable via VS Code MCP gallery — search `@mcp gnosis` in Extensions view.
 
+**Zed** — add to your `settings.json` (`zed: open settings file`). Zed's key is `context_servers`, not `mcpServers`:
+
+```json
+{
+  "context_servers": {
+    "gnosis": {
+      "command": "gnosis-mcp",
+      "args": ["serve"]
+    }
+  }
+}
+```
+
+Check the status dot under **Settings → AI → MCP Servers** — green means the server is active.
+
+**opencode** — add to `opencode.json` in your project root (or `~/.config/opencode/opencode.json` for every project). opencode's key is `mcp`, and the command is an array:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "gnosis": {
+      "type": "local",
+      "command": ["gnosis-mcp", "serve"],
+      "enabled": true
+    }
+  }
+}
+```
+
 **JetBrains (IntelliJ, PyCharm, WebStorm)** — go to Settings > Tools > AI Assistant > MCP Servers, click +, set command to `gnosis-mcp` and arguments to `serve`.
 
 **Cline** — open the Cline MCP settings panel and add the same server config.
 
-For PostgreSQL, add an env block to any of the above:
+For PostgreSQL, add an `env` block to any of the above (Zed takes the same `env` key; opencode calls it `environment`):
 
 ```json
 {

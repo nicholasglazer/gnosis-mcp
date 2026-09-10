@@ -1,7 +1,7 @@
 # Gnosis MCP
 
 > Zero-config MCP server that makes your markdown docs searchable by AI agents.
-> SQLite default, PostgreSQL optional. Works with Claude Code, Cursor, Windsurf, Cline.
+> SQLite default, PostgreSQL optional. Works with any MCP client — Claude Code, Claude Desktop, Cursor, Zed, opencode, Windsurf, VS Code, Cline.
 
 ## What it does
 
@@ -23,7 +23,7 @@ gnosis-mcp ingest-git .                                 # ingest commit history 
 gnosis-mcp ingest-git . --since 6m --include "src/*"    # filtered + time-limited
 ```
 
-Add to your editor's MCP config (e.g. `.claude/mcp.json` for Claude Code):
+Add to your client's MCP config (e.g. `.mcp.json` at your project root for Claude Code):
 
 ```json
 {
@@ -38,20 +38,9 @@ Add to your editor's MCP config (e.g. `.claude/mcp.json` for Claude Code):
 
 ## Tools
 
+Six read tools are always advertised. The three write tools appear in `tools/list` only when the server runs with `GNOSIS_MCP_WRITABLE=true`, so a read-only client is never handed a tool it cannot call.
+
 ### Read Tools (always available)
-
-### Re-indexing a re-organized corpus
-
-When your knowledge folder changes significantly (files moved or deleted), use one of:
-
-- `gnosis-mcp ingest ./docs --prune` — ingest new/changed, remove DB chunks whose source file no longer exists
-- `gnosis-mcp ingest ./docs --wipe` — full reset before re-ingest (nuclear)
-- `gnosis-mcp prune ./docs --dry-run` — preview what would be deleted without touching anything
-- `gnosis-mcp prune ./docs` — delete stale only, no ingest
-
-Pruning is scoped to the given root; crawled URLs are preserved unless `--include-crawled` is passed.
-
----
 
 #### search_docs(query: str, category?: str, limit?: int, query_embedding?: list[float], rerank?: bool) -> JSON
 Search documentation using keyword (FTS5/tsvector) or hybrid semantic+keyword search.
@@ -64,9 +53,21 @@ The `highlight` field contains matched terms in `<mark>` tags (FTS5 snippet on S
 Retrieve full document by file path. Reassembles chunks in order.
 Returns: `{"title", "content", "category", "audience", "tags"}`
 
-#### get_related(path: str) -> JSON
-Find related documents via bidirectional link graph.
+#### search_git_history(query: str, author?: str, since?: str, until?: str, file_path?: str, limit?: int) -> JSON
+Search indexed git commit history (the `git-history` category) by message, author, date range, or file.
+Returns: same shape as `search_docs`.
+
+#### get_related(path: str, depth?: int, relation_type?: str, include_titles?: bool) -> JSON
+Find related documents via bidirectional link graph. `depth` goes up to 3 (multi-hop); `relation_type` filters to e.g. `relates_to`, `content_link`, `git_co_change`.
 Returns: `[{"related_path", "relation_type", "direction"}]`
+
+#### get_context(topic?: str, limit?: int, category?: str) -> JSON
+Usage-weighted context summary. Without `topic`: most-accessed documents plus corpus stats. With `topic`: search results enriched with access counts.
+Returns: `{"docs", "stats"}`
+
+#### get_graph_stats(category?: str) -> JSON
+Knowledge graph topology: orphans, hubs, relation distribution, node/edge counts.
+Returns: `{"total_docs", "total_edges", "relation_types", "hubs", "orphans"}`
 
 ### Write Tools (requires GNOSIS_MCP_WRITABLE=true)
 
@@ -82,6 +83,17 @@ Returns: `{"path", "chunks_deleted", "links_deleted", "action": "deleted"}`
 #### update_metadata(path: str, title?: str, category?: str, audience?: str, tags?: list) -> JSON
 Update metadata on all chunks of a document. Only provided fields change.
 Returns: `{"path", "chunks_updated", "action": "metadata_updated"}`
+
+## Re-indexing a re-organized corpus
+
+When your knowledge folder changes significantly (files moved or deleted), use one of:
+
+- `gnosis-mcp ingest ./docs --prune` — ingest new/changed, remove DB chunks whose source file no longer exists
+- `gnosis-mcp ingest ./docs --wipe` — full reset before re-ingest (nuclear)
+- `gnosis-mcp prune ./docs --dry-run` — preview what would be deleted without touching anything
+- `gnosis-mcp prune ./docs` — delete stale only, no ingest
+
+Pruning is scoped to the given root; crawled URLs are preserved unless `--include-crawled` is passed.
 
 ## Resources
 
@@ -116,14 +128,17 @@ Set `GNOSIS_MCP_DATABASE_URL` (or `DATABASE_URL`) for PostgreSQL. Leave unset fo
 Chunks table: `(file_path, chunk_index, title, content, category, audience, tags, embedding, content_hash)`
 Links table: `(source_path, target_path, relation_type)`
 
-Tables are auto-created on first `ingest`. Run `gnosis-mcp init-db` to create them manually, or `--dry-run` to preview SQL.
+Tables are auto-created on first `serve` or `ingest`, so wiring up a client before your first ingest works. Run `gnosis-mcp init-db` to create them manually, or `--dry-run` to preview SQL.
 
 ## Editor Config Locations
 
 | Editor | Config Path |
 |--------|------------|
-| Claude Code | `.claude/mcp.json` |
+| Claude Code | `.mcp.json` at the project root |
+| Claude Desktop | `claude_desktop_config.json` — `~/Library/Application Support/Claude/` (macOS), `%APPDATA%\Claude\` (Windows) |
 | Cursor | `.cursor/mcp.json` |
+| Zed | `settings.json` (uses `"context_servers"` key, not `"mcpServers"`) |
+| opencode | `opencode.json` or `~/.config/opencode/opencode.json` (uses `"mcp"` key, command as an array) |
 | VS Code (Copilot) | `.vscode/mcp.json` (uses `"servers"` key, not `"mcpServers"`) |
 | Windsurf | `~/.codeium/windsurf/mcp_config.json` |
 | JetBrains | Settings > Tools > AI Assistant > MCP Servers |

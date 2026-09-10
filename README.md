@@ -105,7 +105,7 @@ gnosis-mcp serve                 # starts MCP server
 
 That's it. Your AI agent can now search your docs.
 
-**Connect your editor** — see [`llms-install.md`](llms-install.md) for copy-paste JSON snippets for Claude Code, Claude Desktop, Cursor, Windsurf, VS Code, JetBrains, and Cline.
+**Connect your client** — see [`llms-install.md`](llms-install.md) for copy-paste JSON snippets for Claude Code, Claude Desktop, Cursor, Zed, opencode, Windsurf, VS Code, JetBrains, Cline, and any other MCP client.
 
 **Re-organized your docs?** `gnosis-mcp ingest ./docs --prune` re-ingests and removes any DB chunk whose source file no longer exists. `--wipe` resets the entire index first. Or run `gnosis-mcp prune ./docs --dry-run` to preview what would be deleted.
 
@@ -210,7 +210,7 @@ Each file's commit history becomes a searchable markdown document stored as `git
 
 ## Editor Integrations
 
-Add the server config to your editor — your AI agent gets `search_docs`, `get_doc`, and `get_related` tools automatically:
+Add the server config to your editor — your AI agent gets the six read tools automatically:
 
 ```json
 {
@@ -223,10 +223,13 @@ Add the server config to your editor — your AI agent gets `search_docs`, `get_
 }
 ```
 
-| Editor | Config file |
+| Client | Config file |
 |--------|------------|
-| **Claude Code** | `.claude/mcp.json` (or [install as plugin](#claude-code-plugin)) |
+| **Claude Code** | `.mcp.json` at your project root (or [install as plugin](#claude-code-plugin)) |
+| **Claude Desktop** | `claude_desktop_config.json` — `~/Library/Application Support/Claude/` (macOS) or `%APPDATA%\Claude\` (Windows) |
 | **Cursor** | `.cursor/mcp.json` |
+| **Zed** | `settings.json` — `context_servers` key, see below |
+| **opencode** | `opencode.json` — `mcp` key, see below |
 | **Windsurf** | `~/.codeium/windsurf/mcp_config.json` |
 | **JetBrains** | Settings > Tools > AI Assistant > MCP Servers |
 | **Cline** | Cline MCP settings panel |
@@ -248,6 +251,44 @@ Add to `.vscode/mcp.json` (note: `"servers"` not `"mcpServers"`):
 ```
 
 Also discoverable via the VS Code MCP gallery — search `@mcp gnosis` in the Extensions view.
+
+</details>
+
+<details>
+<summary>Zed — <code>context_servers</code>, not <code>mcpServers</code></summary>
+
+Add to Zed's `settings.json` (`zed: open settings file`), then check the status dot under **Settings → AI → MCP Servers**:
+
+```json
+{
+  "context_servers": {
+    "gnosis": {
+      "command": "gnosis-mcp",
+      "args": ["serve"]
+    }
+  }
+}
+```
+
+</details>
+
+<details>
+<summary>opencode — <code>mcp</code> key, command as an array</summary>
+
+Add to `opencode.json` in your project root (or `~/.config/opencode/opencode.json` for every project):
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "gnosis": {
+      "type": "local",
+      "command": ["gnosis-mcp", "serve"],
+      "enabled": true
+    }
+  }
+}
+```
 
 </details>
 
@@ -372,7 +413,7 @@ The plugin works with both SQLite and PostgreSQL backends. Prefer manual copy-pa
 <details>
 <summary>Manual setup (without plugin)</summary>
 
-Add to `.claude/mcp.json`:
+Add to `.mcp.json` at your project root:
 
 ```json
 {
@@ -391,7 +432,7 @@ For PostgreSQL, add `"env": {"GNOSIS_MCP_DATABASE_URL": "postgresql://..."}`.
 
 ## Tools & Resources
 
-Gnosis MCP exposes 9 tools and 3 resources over [MCP](https://modelcontextprotocol.io/). Your AI agent calls these automatically when it needs information from your docs.
+Gnosis MCP exposes 9 tools and 3 resources over [MCP](https://modelcontextprotocol.io/). Your AI agent calls these automatically when it needs information from your docs. Six are read tools and are always advertised; the three write tools are listed only when writes are enabled.
 
 | Tool | What it does | Mode |
 |------|-------------|------|
@@ -405,7 +446,7 @@ Gnosis MCP exposes 9 tools and 3 resources over [MCP](https://modelcontextprotoc
 | `delete_doc` | Remove a document and its chunks | Write |
 | `update_metadata` | Change title, category, tags | Write |
 
-Read tools are always available. Write tools require `GNOSIS_MCP_WRITABLE=true`.
+Read tools are always available. Write tools require `GNOSIS_MCP_WRITABLE=true` — without it, `tools/list` returns the six read tools and the three write tools are not advertised at all.
 
 | Resource URI | Returns |
 |-----|---------|
@@ -546,6 +587,7 @@ gnosis-mcp crawl <url> [--sitemap] [--max-depth N] [--include] [--exclude] [--ma
                        [--dry-run] [--force] [--embed]
 gnosis-mcp serve [--transport stdio|sse|streamable-http] [--host HOST] [--port PORT]
                  [--ingest PATH] [--watch PATH] [--rest]
+                 [--search-limit-max N] [--content-preview-chars N]
 gnosis-mcp search <query> [-n LIMIT] [-c CAT] [--embed]    Search docs
 gnosis-mcp stats                                           Document, chunk, and embedding counts
 gnosis-mcp check                                           Verify DB connection + extensions
@@ -558,6 +600,8 @@ gnosis-mcp cleanup [--days N]                              Purge old access log 
 gnosis-mcp eval [--json]                                   Retrieval quality harness (Hit@5, MRR, P@5)
 gnosis-mcp fix-link-types                                  Migrate pre-0.10 git-history links
 ```
+
+`serve --search-limit-max` caps the result `limit` an MCP client may request (default 20), and `serve --content-preview-chars` sets the snippet length in tool output (default 200). Both mirror the `GNOSIS_MCP_SEARCH_LIMIT_MAX` and `GNOSIS_MCP_CONTENT_PREVIEW_CHARS` env vars.
 
 </details>
 

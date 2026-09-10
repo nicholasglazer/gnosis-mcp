@@ -37,8 +37,9 @@ If that returns data, skip to Step 2.
 Two common causes:
 
 1. **Server not running** — for stdio transport, the MCP client should
-   auto-spawn the server. If not: check `.mcp.json` / `.claude/mcp.json`
-   config, confirm `gnosis-mcp` is on `PATH`.
+   auto-spawn the server. If not: check the client's MCP config
+   (`.mcp.json` for Claude Code, `.cursor/mcp.json` for Cursor, and so on),
+   confirm `gnosis-mcp` is on `PATH`.
 2. **Server running, but client not connected** — restart the editor
    once MCP config is correct.
 

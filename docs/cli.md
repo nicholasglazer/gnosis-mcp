@@ -44,6 +44,7 @@ Start the MCP server.
 gnosis-mcp serve [--transport {stdio,streamable-http,sse}]
                  [--host HOST] [--port PORT]
                  [--ingest PATH] [--watch PATH]
+                 [--search-limit-max N] [--content-preview-chars N]
                  [--rest]
 ```
 
@@ -54,7 +55,16 @@ gnosis-mcp serve [--transport {stdio,streamable-http,sse}]
 | `--port` | HTTP port (default `8000`; env `GNOSIS_MCP_PORT`). |
 | `--ingest` | Ingest this path before starting. |
 | `--watch` | Watch path for changes, auto-re-ingest (implies `--ingest`). Uses mtime polling with debounce. |
+| `--search-limit-max` | Cap on the result `limit` an MCP client may request (default `20`; env `GNOSIS_MCP_SEARCH_LIMIT_MAX`). |
+| `--content-preview-chars` | Snippet length, in characters, in tool output (default `200`; env `GNOSIS_MCP_CONTENT_PREVIEW_CHARS`). |
 | `--rest` | Enable the REST API on the same HTTP port. See [rest-api.md](rest-api.md). |
+
+Both tuning flags are applied to the server's environment before startup, so the
+MCP tools, the REST routes, and the watcher all read the same values.
+
+Started against an empty database, `serve` runs one idempotent DDL pass to
+create the schema — wiring a client up before the first `ingest` works instead
+of failing every call with `no such table`.
 
 **Examples**
 
@@ -272,8 +282,12 @@ Verify that:
 2. All required tables / extensions are present.
 3. FTS5 (SQLite) or tsvector (Postgres) is functional.
 
-Exit `0` on healthy, non-zero with a remediation hint otherwise. Good for
-Docker `HEALTHCHECK` and CI smoke tests.
+Exit `0` when the backend starts and the tables the server needs are present,
+and `1` otherwise: an unreachable backend, a failed health probe, or a database
+that was never initialized — a missing chunks table, FTS5 index, or links table
+each count as uninitialized. The failure path names the missing pieces and
+prints the `gnosis-mcp init-db` hint, so the command can gate a setup script,
+an installer, a Docker `HEALTHCHECK`, or CI.
 
 ```bash
 gnosis-mcp check

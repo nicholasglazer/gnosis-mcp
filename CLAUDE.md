@@ -86,7 +86,7 @@ New file: `rest.py` — Starlette routes, own backend lifespan, CORS + auth midd
 - **Streamable HTTP transport**: `gnosis-mcp serve --transport streamable-http` exposes `/mcp` endpoint via uvicorn. Supports remote deployment. Configure with `--host` / `--port` or `GNOSIS_MCP_HOST` / `GNOSIS_MCP_PORT`
 - **SQL injection prevention**: All identifiers validated via regex in `GnosisMcpConfig.__post_init__()`
 - **Multi-table support**: PostgreSQL only — `GNOSIS_MCP_CHUNKS_TABLE` accepts comma-separated tables, queries use `UNION ALL`
-- **Write gating**: Write tools check `cfg.writable` and return error if disabled
+- **Write gating**: Write tools are withdrawn from `tools/list` when `cfg.writable` is false, *and* still check it on every call. A read-only client sees six tools, not nine that can only fail
 - **Webhook notifications**: Fire-and-forget POST to `GNOSIS_MCP_WEBHOOK_URL` on write operations
 - **Custom search delegation**: Set `GNOSIS_MCP_SEARCH_FUNCTION` to use your own hybrid search (PostgreSQL only)
 - **Column overrides**: `GNOSIS_MCP_COL_*` are for connecting to existing tables with non-standard names
@@ -126,16 +126,23 @@ Semantic versioning (pre-1.0). Patch numbers have no upper limit (0.7.99 is vali
 
 ## Releases
 
-Version lives in **4 files** — all must match:
+Version lives in **these files** — all must match:
 
-1. `pyproject.toml` → `version = "X.Y.Z"`
-2. `src/gnosis_mcp/__init__.py` → `__version__ = "X.Y.Z"`
+1. `pyproject.toml` → `version = "X.Y.Z"` (the publish workflow reads this one)
+2. `src/gnosis_mcp/__init__.py` → `__version__ = "X.Y.Z"` (what `serverInfo` reports)
 3. `server.json` → `"version": "X.Y.Z"` (2 places)
 4. `marketplace.json` → `"version": "X.Y.Z"`
+5. `.claude-plugin/plugin.json` → `"version": "X.Y.Z"`
+6. `docs/rest-api.md` → the example `/health` payload
+7. `uv.lock` → the project's own version (refresh with `uv lock`)
+
+`pkg/arch/PKGBUILD` + `.SRCINFO` are **not** part of a release commit: they carry the
+sha256 of the published sdist, so they are bumped in a follow-up commit once PyPI
+has the artifact.
 
 Every version commit MUST:
 
-1. Bump all 4 version files
+1. Bump every file above
 2. Update `CHANGELOG.md`
 3. Update relevant docs (`README.md`, `llms.txt`, `llms-full.txt`, `CLAUDE.md`) when adding features
 4. All tests passing

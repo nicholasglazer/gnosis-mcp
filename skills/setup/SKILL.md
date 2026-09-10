@@ -132,7 +132,7 @@ If anything says `✗`, run `/gnosis:status` for diagnosis.
 Pick one. Each config goes in the project root (or global config — see
 each editor's docs).
 
-### Claude Code — `.claude/mcp.json` or `~/.claude/mcp.json`
+### Claude Code — `.mcp.json` in the project root, or `claude mcp add --scope user`
 
 ```json
 {
