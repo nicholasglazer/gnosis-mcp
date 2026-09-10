@@ -1,0 +1,14 @@
+# Attribution correction for AI-authored identities.
+#
+# Scope, stated honestly: .mailmap remaps **author and committer** names and
+# emails. It cannot rewrite commit-message bodies, so it does NOT touch the
+# `Co-authored-by:` trailer that two commits (v0.11.3, v0.11.4, April 2026) carry.
+# gitmailmap(5) is the authority here; the trailer is body text.
+#
+# It is kept because it is the right guard for the thing it can fix: if any tool
+# ever records an AI identity in the author or committer field, git and GitHub
+# will attribute it to the repository owner instead of listing a second name.
+#
+# Format: Proper Name <proper@email> <commit@email>
+Nicholas Glazer <glazer.nicholas@gmail.com> <noreply@anthropic.com>
+Nicholas Glazer <glazer.nicholas@gmail.com> Claude Opus 4.7 <noreply@anthropic.com>
