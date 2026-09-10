@@ -93,7 +93,7 @@ When your knowledge folder changes significantly (files moved or deleted), use o
 - `gnosis-mcp prune ./docs --dry-run` — preview what would be deleted without touching anything
 - `gnosis-mcp prune ./docs` — delete stale only, no ingest
 
-Pruning is scoped to the given root; crawled URLs are preserved unless `--include-crawled` is passed.
+Pruning is scoped to the given root; crawled URLs and generated documents (git history) are preserved unless `--include-crawled` / `--include-generated` is passed.
 
 ## Resources
 

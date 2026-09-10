@@ -107,7 +107,7 @@ That's it. Your AI agent can now search your docs.
 
 **Connect your client** — see [`llms-install.md`](llms-install.md) for copy-paste JSON snippets for Claude Code, Claude Desktop, Cursor, Zed, opencode, Windsurf, VS Code, JetBrains, Cline, and any other MCP client.
 
-**Re-organized your docs?** `gnosis-mcp ingest ./docs --prune` re-ingests and removes any DB chunk whose source file no longer exists. `--wipe` resets the entire index first. Or run `gnosis-mcp prune ./docs --dry-run` to preview what would be deleted.
+**Re-organized your docs?** `gnosis-mcp ingest ./docs --prune` re-ingests and removes any DB chunk whose source file no longer exists. `--wipe` resets the entire index first. Or run `gnosis-mcp prune ./docs --dry-run` to preview what would be deleted. Pruning only touches documents this root is responsible for: crawled URLs and generated documents (git history) are left alone unless `--include-crawled` / `--include-generated` says otherwise.
 
 **Want semantic search?** Add local embeddings — no API key needed:
 
@@ -579,7 +579,8 @@ All tables must share the same schema. Reads use `UNION ALL`. Writes target the 
 <summary>CLI reference</summary>
 
 ```
-gnosis-mcp ingest <path> [--dry-run] [--force] [--embed] [--prune] [--wipe] [--include-crawled]
+gnosis-mcp ingest <path> [--dry-run] [--force] [--embed] [--prune] [--wipe]
+                             [--include-crawled] [--include-generated]
 gnosis-mcp ingest-git <repo> [--since] [--until] [--author] [--max-commits N]
                              [--include] [--exclude] [--merges]
                              [--dry-run] [--force] [--embed]
@@ -595,7 +596,8 @@ gnosis-mcp embed [--provider P] [--model M] [--batch-size N] [--dry-run]
 gnosis-mcp init-db [--dry-run]                             Create tables + indexes
 gnosis-mcp export [-f json|markdown|csv] [-c CAT]          Export documents
 gnosis-mcp diff <path>                                     Preview changes on re-ingest
-gnosis-mcp prune <path> [--dry-run] [--include-crawled]    Delete chunks for missing files
+gnosis-mcp prune <path> [--dry-run] [--include-crawled]
+                             [--include-generated]       Delete chunks for missing files
 gnosis-mcp cleanup [--days N]                              Purge old access log entries
 gnosis-mcp eval [--json]                                   Retrieval quality harness (Hit@5, MRR, P@5)
 gnosis-mcp fix-link-types                                  Migrate pre-0.10 git-history links

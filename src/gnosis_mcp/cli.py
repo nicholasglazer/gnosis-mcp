@@ -386,6 +386,7 @@ def cmd_ingest(args: argparse.Namespace) -> None:
                 args.path,
                 dry_run=getattr(args, "dry_run", False),
                 include_crawled=getattr(args, "include_crawled", False),
+                include_generated=getattr(args, "include_generated", False),
             )
             if report["pruned"]:
                 verb = "Would prune" if report["dry_run"] else "Pruned"
@@ -396,7 +397,10 @@ def cmd_ingest(args: argparse.Namespace) -> None:
                     log.info("  ... and %d more", len(report["pruned"]) - 50)
             else:
                 log.info(
-                    "No stale documents to prune (all %d in DB exist on disk).", report["kept"]
+                    "No stale documents to prune (%d in scope for this root, %d in DB — "
+                    "the rest belong to other ingesters).",
+                    report["in_scope"],
+                    report["kept"],
                 )
         finally:
             await backend.shutdown()
@@ -510,6 +514,7 @@ def cmd_prune(args: argparse.Namespace) -> None:
                 args.path,
                 dry_run=args.dry_run,
                 include_crawled=args.include_crawled,
+                include_generated=args.include_generated,
             )
             if report["pruned"]:
                 verb = "Would prune" if report["dry_run"] else "Pruned"
@@ -520,7 +525,10 @@ def cmd_prune(args: argparse.Namespace) -> None:
                     log.info("  ... and %d more", len(report["pruned"]) - 50)
             else:
                 log.info(
-                    "No stale documents to prune (all %d in DB exist on disk).", report["kept"]
+                    "No stale documents to prune (%d in scope for this root, %d in DB — "
+                    "the rest belong to other ingesters).",
+                    report["in_scope"],
+                    report["kept"],
                 )
         finally:
             await backend.shutdown()
@@ -1297,6 +1305,14 @@ def main() -> None:
         action="store_true",
         help="When pruning, also consider crawled URLs (default: leave them alone)",
     )
+    p_ingest.add_argument(
+        "--include-generated",
+        action="store_true",
+        help=(
+            "When pruning, also consider generated documents such as git history "
+            "(default: leave them alone — they have no file on disk)"
+        ),
+    )
 
     # prune
     p_prune = sub.add_parser(
@@ -1309,6 +1325,14 @@ def main() -> None:
         "--include-crawled",
         action="store_true",
         help="Also prune crawled URLs (default: leave them alone)",
+    )
+    p_prune.add_argument(
+        "--include-generated",
+        action="store_true",
+        help=(
+            "Also prune generated documents such as git history (default: leave "
+            "them alone — they have no file on disk)"
+        ),
     )
 
     # search

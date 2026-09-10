@@ -91,3 +91,75 @@ async def test_prune_include_crawled(tmp_path):
         assert report["pruned"] == ["https://example.com/x"]
     finally:
         await backend.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_prune_leaves_generated_git_history_alone(tmp_path):
+    """Generated documents have no file on disk, so pruning by root always
+    looked stale to them.
+
+    Measured on a real corpus before this was fixed: pruning a knowledge root
+    reported "Would prune 431 stale document(s)" — every git-history document in
+    the database — because `git-history/...` is a relative path and therefore
+    passed the "came from this root" check. The README recommends
+    `ingest ./docs --prune` for a re-organized folder, which would have deleted
+    the lot.
+    """
+    kb = tmp_path / "kb"
+    kb.mkdir()
+    (kb / "local.md").write_text("# Local\n\nbody\n")
+
+    backend = await _mk_backend(tmp_path)
+    try:
+        await backend.upsert_doc("local.md", ["body"], title="Local", category="g")
+        await backend.upsert_doc(
+            "git-history/src/main.zig",
+            ["commit log"],
+            title="2026-01-01: init",
+            category="git-history",
+        )
+
+        report = await prune_stale(backend, str(kb))
+
+        assert report["pruned"] == []
+        assert report["in_scope"] == 1, "only the file-backed doc is this root's business"
+        remaining = {d["file_path"] for d in await backend.list_docs()}
+        assert remaining == {"local.md", "git-history/src/main.zig"}
+    finally:
+        await backend.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_prune_include_generated_opts_in(tmp_path):
+    """Purging generated documents stays possible, but only on request."""
+    kb = tmp_path / "kb"
+    kb.mkdir()
+
+    backend = await _mk_backend(tmp_path)
+    try:
+        await backend.upsert_doc(
+            "git-history/src/main.zig", ["commit log"], title="t", category="git-history"
+        )
+        report = await prune_stale(backend, str(kb), include_generated=True)
+        assert report["pruned"] == ["git-history/src/main.zig"]
+    finally:
+        await backend.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_prune_still_removes_deleted_files_from_this_root(tmp_path):
+    """The protection must not defeat the feature it protects."""
+    kb = tmp_path / "kb"
+    kb.mkdir()
+    (kb / "kept.md").write_text("# Kept\n\nbody\n")
+
+    backend = await _mk_backend(tmp_path)
+    try:
+        await backend.upsert_doc("kept.md", ["body"], title="Kept", category="g")
+        await backend.upsert_doc("moved-away.md", ["body"], title="Gone", category="g")
+
+        report = await prune_stale(backend, str(kb))
+
+        assert report["pruned"] == ["moved-away.md"]
+    finally:
+        await backend.shutdown()

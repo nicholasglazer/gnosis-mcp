@@ -103,7 +103,7 @@ heading depth, skips unchanged files via content hash.
 ```bash
 gnosis-mcp ingest PATH
     [--dry-run] [--force] [--embed]
-    [--prune] [--wipe] [--include-crawled]
+    [--prune] [--wipe] [--include-crawled] [--include-generated]
 ```
 
 | Flag | Description |
@@ -115,6 +115,7 @@ gnosis-mcp ingest PATH
 | `--prune` | After ingest, delete chunks whose source file is gone. |
 | `--wipe` | Delete every document first (full reset — the nuclear option). |
 | `--include-crawled` | When pruning, also consider crawled URLs. Default is to leave them alone. |
+| `--include-generated` | When pruning, also consider generated documents such as git history. Default is to leave them alone — they have no file on disk, so pruning by root would always delete them. |
 
 **Supported formats**
 
@@ -146,12 +147,13 @@ Body links (`[text](path.md)`, `[[wikilinks]]`) become `content_link` edges.
 Delete chunks whose source file no longer exists on disk.
 
 ```bash
-gnosis-mcp prune PATH [--dry-run] [--include-crawled]
+gnosis-mcp prune PATH [--dry-run] [--include-crawled] [--include-generated]
 ```
 
 Safer than `--wipe`: only touches chunks whose `file_path` was a local file
 under `PATH` and that file is gone. Crawled URLs are skipped unless you
-pass `--include-crawled`.
+pass `--include-crawled`. Generated documents (git history) are likewise kept unless
+`--include-generated` is passed.
 
 ---
 

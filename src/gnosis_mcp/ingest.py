@@ -876,12 +876,22 @@ def scan_files(root: Path) -> list[Path]:
     return sorted(set(found))
 
 
+# Path prefixes written by an ingester that *generates* documents instead of
+# reading files under the root being pruned. A generated path can never appear in
+# the on-disk set, so pruning a knowledge root would delete every one of them:
+# pruning the author's root reported "Would prune 431 stale document(s)" — every
+# git-history document in the database — because `git-history/` is relative and
+# therefore looked like it came from that root.
+GENERATED_PREFIXES: tuple[str, ...] = ("git-history/",)
+
+
 async def prune_stale(
     backend,
     root: str,
     *,
     dry_run: bool = False,
     include_crawled: bool = False,
+    include_generated: bool = False,
 ) -> dict:
     """Remove DB docs whose source file no longer exists on disk.
 
@@ -894,11 +904,15 @@ async def prune_stale(
     Args:
         backend: A ``DocBackend`` instance (started).
         root: Directory or file that was used for ingest — pruning is scoped to
-            paths under this root so crawled URLs or unrelated ingests aren't
-            touched.
+            paths under this root so crawled URLs, generated git-history
+            documents, or unrelated ingests aren't touched.
         dry_run: If True, report what would be pruned without deleting.
         include_crawled: If True, also consider crawl URLs (``http://`` prefixed
             paths) for pruning. Default False — crawl lifecycles are separate.
+        include_generated: If True, also consider documents from a generating
+            ingester (see ``GENERATED_PREFIXES``). Default False — they have no
+            file on disk by construction, so pruning by root would always destroy
+            them.
 
     Returns:
         ``{"pruned": list[str], "kept": int, "dry_run": bool}``
@@ -920,6 +934,10 @@ async def prune_stale(
         if _looks_like_url(p):
             if include_crawled:
                 candidates.append(p)
+            continue
+        # Generated documents have no file on disk by construction; only an
+        # explicit opt-in may prune them.
+        if p.startswith(GENERATED_PREFIXES) and not include_generated:
             continue
         # Keep paths that are absolute and outside our root alone.
         if Path(p).is_absolute():
@@ -943,6 +961,7 @@ async def prune_stale(
     return {
         "pruned": pruned,
         "kept": len(db_paths) - len(pruned),
+        "in_scope": len(candidates),
         "dry_run": dry_run,
     }
 
