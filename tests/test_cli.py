@@ -22,6 +22,7 @@ from gnosis_mcp.cli import (
     _require_schema,
     cmd_check,
     cmd_export,
+    cmd_fix_link_types,
     cmd_init_db,
     cmd_serve,
     cmd_stats,
@@ -590,3 +591,82 @@ class TestServeRerankerProbe:
 
         monkeypatch.setattr(rr, "check_model_available", _unexpected)
         _check_reranker(config)
+
+
+class TestFixLinkTypesMigration:
+    """`fix-link-types` must survive the database state it exists to repair.
+
+    `documentation_links` is UNIQUE on (source_path, target_path, relation_type)
+    in both backends, and the ingest path already writes the typed rows. On a
+    database carrying a legacy `relates_to` row *and* its typed twin the UPDATE
+    collided with the existing row and raised IntegrityError, so the migration
+    aborted before its second statement ran.
+    """
+
+    @staticmethod
+    def _seed(db_path, rows):
+        import sqlite3
+
+        con = sqlite3.connect(db_path)
+        for path in ("git-history/a.md", "git-history/b.md", "src/module.py"):
+            con.execute(
+                "INSERT OR IGNORE INTO documentation_chunks "
+                "(file_path, chunk_index, title, content, category) "
+                "VALUES (?,0,'t','body','c')",
+                (path,),
+            )
+        con.executemany(
+            "INSERT INTO documentation_links (source_path, target_path, relation_type) "
+            "VALUES ('git-history/a.md', ?, ?)",
+            rows,
+        )
+        con.commit()
+        con.close()
+
+    @staticmethod
+    def _links(db_path):
+        import sqlite3
+
+        con = sqlite3.connect(db_path)
+        try:
+            return sorted(
+                con.execute("SELECT target_path, relation_type FROM documentation_links")
+            )
+        finally:
+            con.close()
+
+    def test_duplicate_typed_row_does_not_abort_the_migration(self, monkeypatch, tmp_path):
+        """The exact crash: legacy row plus its typed twin present."""
+        db = tmp_path / "dup.db"
+        _use_sqlite_db(monkeypatch, db)
+        cmd_init_db(argparse.Namespace(dry_run=False))
+        self._seed(db, [("git-history/b.md", "git_co_change"), ("git-history/b.md", "relates_to")])
+
+        cmd_fix_link_types(argparse.Namespace())  # must not raise
+
+        assert self._links(db) == [("git-history/b.md", "git_co_change")]
+
+    def test_pure_legacy_rows_are_still_migrated(self, monkeypatch, tmp_path):
+        """The migration's actual purpose, which the dedupe must not break."""
+        db = tmp_path / "legacy.db"
+        _use_sqlite_db(monkeypatch, db)
+        cmd_init_db(argparse.Namespace(dry_run=False))
+        self._seed(db, [("git-history/b.md", "relates_to"), ("src/module.py", "relates_to")])
+
+        cmd_fix_link_types(argparse.Namespace())
+
+        assert self._links(db) == [
+            ("git-history/b.md", "git_co_change"),
+            ("src/module.py", "git_ref"),
+        ]
+
+    def test_second_run_is_idempotent(self, monkeypatch, tmp_path):
+        db = tmp_path / "twice.db"
+        _use_sqlite_db(monkeypatch, db)
+        cmd_init_db(argparse.Namespace(dry_run=False))
+        self._seed(db, [("git-history/b.md", "relates_to")])
+
+        cmd_fix_link_types(argparse.Namespace())
+        cmd_fix_link_types(argparse.Namespace())
+
+        assert self._links(db) == [("git-history/b.md", "git_co_change")]

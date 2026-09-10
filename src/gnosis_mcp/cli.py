@@ -1086,11 +1086,38 @@ def cmd_eval(args: argparse.Namespace) -> None:
 
 @_require_schema
 def cmd_fix_link_types(args: argparse.Namespace) -> None:
-    """Migrate git-history links from 'relates_to' to proper types."""
+    """Migrate git-history links from 'relates_to' to proper types.
+
+    `documentation_links` is UNIQUE on (source_path, target_path, relation_type)
+    in both backends, and the ingest path already writes the *typed* rows. So on
+    the exact database this migration exists for — one carrying both a legacy
+    `relates_to` row and its typed twin — the UPDATE collided with the existing
+    row and raised `IntegrityError`, aborting the migration before the second
+    statement ran. Where the typed row is already there the legacy row is a
+    redundant duplicate, so it is deleted rather than rewritten.
+    """
     from gnosis_mcp.backend import create_backend
     from gnosis_mcp.config import GnosisMcpConfig
 
     config = GnosisMcpConfig.from_env()
+
+    # Applied before either UPDATE, against the backend's own links table name.
+    template = (
+        "DELETE FROM {lt} WHERE relation_type = 'relates_to' "
+        "  AND source_path LIKE 'git-history/%' AND {scope} "
+        "  AND EXISTS (SELECT 1 FROM {lt} AS typed "
+        "               WHERE typed.source_path = {lt}.source_path "
+        "                 AND typed.target_path = {lt}.target_path "
+        "                 AND typed.relation_type = '{typed}')"
+    )
+
+    def dedupe_sql(lt: str) -> tuple[str, str]:
+        return (
+            template.format(
+                lt=lt, scope="target_path LIKE 'git-history/%'", typed="git_co_change"
+            ),
+            template.format(lt=lt, scope="target_path NOT LIKE 'git-history/%'", typed="git_ref"),
+        )
 
     async def _run() -> None:
         backend = create_backend(config)
@@ -1098,6 +1125,8 @@ def cmd_fix_link_types(args: argparse.Namespace) -> None:
         try:
             if config.backend == "sqlite":
                 db = backend._db  # noqa: SLF001
+                for stmt in dedupe_sql("documentation_links"):
+                    await db.execute(stmt)
                 cursor = await db.execute(
                     "UPDATE documentation_links SET relation_type = 'git_co_change' "
                     "WHERE source_path LIKE 'git-history/%' AND target_path LIKE 'git-history/%' "
@@ -1115,6 +1144,8 @@ def cmd_fix_link_types(args: argparse.Namespace) -> None:
                 async with await backend._acquire() as conn:  # noqa: SLF001
                     cfg_b = backend._cfg  # noqa: SLF001
                     lt = cfg_b.qualified_links_table
+                    for stmt in dedupe_sql(lt):
+                        await conn.execute(stmt)
                     status1 = await conn.execute(
                         f"UPDATE {lt} SET relation_type = 'git_co_change' "
                         f"WHERE source_path LIKE 'git-history/%' AND target_path LIKE 'git-history/%' "
