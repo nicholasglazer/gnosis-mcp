@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import functools
 import json
 import logging
 import os
@@ -34,6 +35,42 @@ def _apply_serve_overrides(args: argparse.Namespace) -> None:
         os.environ["GNOSIS_MCP_CONTENT_PREVIEW_CHARS"] = str(args.content_preview_chars)
 
 
+def _check_reranker(config) -> None:
+    """Complain at startup when reranking is on but its model cannot be fetched.
+
+    Search degrades to unranked results whenever the reranker cannot load. That
+    is deliberate — a missing model must not break search — but it made a broken
+    `GNOSIS_MCP_RERANK_MODEL` indistinguishable from a slow query: the only
+    signal was one "Rerank failed" traceback in the log of the first search.
+    Probing here puts the diagnosis where an operator will see it. The probe is a
+    HEAD request, skipped entirely when the model is already cached, and never
+    fatal: the server still starts and still serves unranked results.
+    """
+    if not config.rerank_enabled:
+        return
+
+    from gnosis_mcp.rerank import DEFAULT_MODEL, check_model_available
+
+    try:
+        available, detail = check_model_available(config.rerank_model)
+    except Exception as exc:  # a probe must never stop `serve`
+        log.debug("reranker probe failed: %s", exc)
+        return
+
+    if available:
+        log.info("Reranker model %s is available (%s)", config.rerank_model, detail)
+        return
+
+    log.error(
+        "Reranking is enabled but its model '%s' cannot be fetched (%s). Searches will "
+        "return unranked results. Set GNOSIS_MCP_RERANK_MODEL to a fetchable cross-encoder "
+        "(e.g. '%s'), or disable reranking with GNOSIS_MCP_RERANK_ENABLED=false.",
+        config.rerank_model,
+        detail,
+        DEFAULT_MODEL,
+    )
+
+
 def cmd_serve(args: argparse.Namespace) -> None:
     """Start the MCP server."""
     from gnosis_mcp.config import GnosisMcpConfig
@@ -44,6 +81,7 @@ def cmd_serve(args: argparse.Namespace) -> None:
     _apply_serve_overrides(args)
 
     config = GnosisMcpConfig.from_env()
+    _check_reranker(config)
 
     # --watch implies --ingest with the same path
     ingest_root = args.watch or args.ingest
@@ -169,6 +207,49 @@ def cmd_init_db(args: argparse.Namespace) -> None:
             await backend.shutdown()
 
     asyncio.run(_run())
+
+
+def _is_missing_schema_error(exc: BaseException) -> bool:
+    """True when `exc` means "the schema was never created".
+
+    SQLite raises ``sqlite3.OperationalError: no such table: documentation_chunks_fts``
+    and PostgreSQL raises asyncpg's ``UndefinedTableError: relation ... does not
+    exist``. ``no such column`` is the same class of problem for a database created
+    by an older version. All of them are fixed by the same command.
+    """
+    if type(exc).__name__ in ("UndefinedTableError", "UndefinedColumnError"):
+        return True
+    message = str(exc).lower()
+    return "no such table" in message or "no such column" in message
+
+
+def _require_schema(command):
+    """Turn "schema was never initialized" into guidance instead of a traceback.
+
+    `search`, `stats`, `export`, `embed`, `prune`, `diff`, `cleanup` and
+    `fix-link-types` all assume `init-db` (or `ingest`) has run at least once. On a
+    fresh database they used to surface aiosqlite's raw
+    ``sqlite3.OperationalError: no such table: ...`` with a full traceback and no
+    hint, while `check` and the MCP tools already told the user to run
+    `gnosis-mcp init-db`. Commands that create the schema themselves
+    (`ingest`, `crawl`, `ingest-git`) are deliberately not wrapped.
+    """
+
+    @functools.wraps(command)
+    def wrapper(args: argparse.Namespace) -> int | None:
+        try:
+            return command(args)
+        except Exception as exc:
+            if not _is_missing_schema_error(exc):
+                raise
+            log.error(
+                "Database schema is not initialized: %s. Run `gnosis-mcp init-db`, "
+                "then `gnosis-mcp ingest <path>` to index your docs (exit 1).",
+                exc,
+            )
+            return 1
+
+    return wrapper
 
 
 def _missing_schema_parts(health: dict) -> list[str]:
@@ -411,6 +492,7 @@ def cmd_ingest(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
+@_require_schema
 def cmd_prune(args: argparse.Namespace) -> None:
     """Remove chunks from the DB whose source file no longer exists on disk."""
     from gnosis_mcp.backend import create_backend
@@ -446,6 +528,7 @@ def cmd_prune(args: argparse.Namespace) -> None:
     asyncio.run(_run())
 
 
+@_require_schema
 def cmd_search(args: argparse.Namespace) -> None:
     """Search documents from the command line."""
     from gnosis_mcp.backend import create_backend
@@ -535,6 +618,7 @@ def _detect_local_provider() -> bool:
         return False
 
 
+@_require_schema
 def cmd_embed(args: argparse.Namespace) -> None:
     """Embed chunks with NULL embeddings using a configured provider."""
     from gnosis_mcp.config import GnosisMcpConfig
@@ -594,6 +678,7 @@ def cmd_embed(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
+@_require_schema
 def cmd_stats(args: argparse.Namespace) -> None:
     """Show documentation statistics."""
     from gnosis_mcp.backend import create_backend
@@ -636,6 +721,7 @@ def cmd_stats(args: argparse.Namespace) -> None:
     asyncio.run(_run())
 
 
+@_require_schema
 def cmd_export(args: argparse.Namespace) -> None:
     """Export documents as JSON or markdown."""
     from gnosis_mcp.backend import create_backend
@@ -659,9 +745,21 @@ def cmd_export(args: argparse.Namespace) -> None:
 
                 writer = csv_mod.writer(sys.stdout)
                 writer.writerow(["file_path", "title", "category", "chunks"])
+                # `export_docs` reassembles the chunk bodies and drops the row
+                # count, so the true count comes from `list_docs` (COUNT(*) per
+                # file_path). Counting blank lines in the reassembled content —
+                # what this used to do — reported *paragraphs*, not chunks: a
+                # document with 2 chunks but 6 paragraphs claimed 6 chunks.
+                chunk_counts = {d["file_path"]: d["chunks"] for d in await backend.list_docs()}
                 for d in docs:
-                    chunk_count = d["content"].count("\n\n") + 1 if d["content"] else 0
-                    writer.writerow([d["file_path"], d["title"], d["category"], chunk_count])
+                    writer.writerow(
+                        [
+                            d["file_path"],
+                            d["title"],
+                            d["category"],
+                            chunk_counts.get(d["file_path"], 0),
+                        ]
+                    )
             else:
                 for d in docs:
                     sys.stdout.write(f"---\nfile_path: {d['file_path']}\n")
@@ -789,6 +887,7 @@ def cmd_ingest_git(args: argparse.Namespace) -> None:
     asyncio.run(_run())
 
 
+@_require_schema
 def cmd_diff(args: argparse.Namespace) -> None:
     """Show what would change on re-ingest."""
     from gnosis_mcp.config import GnosisMcpConfig
@@ -816,6 +915,7 @@ def cmd_diff(args: argparse.Namespace) -> None:
     asyncio.run(_run())
 
 
+@_require_schema
 def cmd_cleanup(args: argparse.Namespace) -> None:
     """Purge old access log entries."""
     from gnosis_mcp.backend import create_backend
@@ -984,6 +1084,7 @@ def cmd_eval(args: argparse.Namespace) -> None:
     asyncio.run(_run())
 
 
+@_require_schema
 def cmd_fix_link_types(args: argparse.Namespace) -> None:
     """Migrate git-history links from 'relates_to' to proper types."""
     from gnosis_mcp.backend import create_backend

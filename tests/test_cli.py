@@ -1,6 +1,9 @@
 """Tests for CLI utilities and command handlers."""
 
 import argparse
+import asyncio
+import csv
+import io
 import logging
 import os
 import sys
@@ -10,11 +13,15 @@ import pytest
 
 from gnosis_mcp.cli import (
     _apply_serve_overrides,
+    _check_reranker,
     _detect_local_provider,
     _format_bytes,
+    _is_missing_schema_error,
     _mask_url,
     _missing_schema_parts,
+    _require_schema,
     cmd_check,
+    cmd_export,
     cmd_init_db,
     cmd_serve,
     cmd_stats,
@@ -368,3 +375,218 @@ class TestServeHelp:
         assert "--content-preview-chars" in out
         assert "GNOSIS_MCP_SEARCH_LIMIT_MAX" in out
         assert "GNOSIS_MCP_CONTENT_PREVIEW_CHARS" in out
+
+
+class TestMissingSchemaGuidance:
+    """A never-initialized database must not dump an aiosqlite traceback.
+
+    Regression: `search` and `stats` (and six more subcommands) raised the raw
+    `sqlite3.OperationalError: no such table: documentation_chunks_fts` with a
+    full traceback and no hint, while the MCP tools and `gnosis-mcp check` both
+    pointed at `gnosis-mcp init-db`.
+    """
+
+    UNINITIALIZED_COMMANDS = [
+        ["search", "anything"],
+        ["stats"],
+        ["export", "-f", "json"],
+        ["export", "-f", "csv"],
+        ["embed", "--dry-run"],
+        ["prune", "."],
+        ["diff", "."],
+        ["cleanup", "--days", "1"],
+        ["fix-link-types"],
+    ]
+
+    @pytest.mark.parametrize("argv", UNINITIALIZED_COMMANDS, ids=lambda argv: argv[0])
+    def test_exits_1_with_guidance(self, monkeypatch, tmp_path, caplog, argv):
+        caplog.set_level(logging.ERROR)
+        _use_sqlite_db(monkeypatch, tmp_path / f"fresh-{argv[0]}.db")
+        monkeypatch.setenv("GNOSIS_MCP_EMBED_PROVIDER", "local")
+        monkeypatch.setattr(sys, "argv", ["gnosis-mcp", *argv])
+
+        with pytest.raises(SystemExit) as exc:
+            main()
+        assert exc.value.code == 1
+
+        guidance = [r for r in caplog.records if "init-db" in r.getMessage()]
+        assert guidance, f"no init-db guidance logged; got: {caplog.text}"
+        assert "gnosis-mcp ingest <path>" in guidance[0].getMessage()
+        # Guidance, not a logged traceback.
+        assert guidance[0].exc_info is None
+
+    def test_command_handler_returns_1(self, monkeypatch, tmp_path, caplog):
+        """The status travels as a return value, matching `check`'s convention."""
+        caplog.set_level(logging.ERROR)
+        _use_sqlite_db(monkeypatch, tmp_path / "fresh-stats.db")
+
+        assert cmd_stats(argparse.Namespace()) == 1
+        assert "not initialized" in caplog.text
+
+    def test_initialized_db_still_succeeds(self, monkeypatch, tmp_path):
+        _use_sqlite_db(monkeypatch, tmp_path / "healthy-stats.db")
+        cmd_init_db(argparse.Namespace(dry_run=False))
+        monkeypatch.setattr(sys, "argv", ["gnosis-mcp", "stats"])
+
+        assert main() is None
+
+    def test_unrelated_errors_are_not_swallowed(self):
+        @_require_schema
+        def boom(args):
+            raise ValueError("not a schema problem")
+
+        with pytest.raises(ValueError, match="not a schema problem"):
+            boom(argparse.Namespace())
+
+
+class TestIsMissingSchemaError:
+    def test_detects_sqlite_missing_table(self):
+        import sqlite3
+
+        assert _is_missing_schema_error(
+            sqlite3.OperationalError("no such table: documentation_chunks_fts")
+        )
+
+    def test_detects_postgres_undefined_table(self):
+        class UndefinedTableError(Exception):
+            pass
+
+        assert _is_missing_schema_error(
+            UndefinedTableError('relation "documentation_chunks" does not exist')
+        )
+
+    def test_ignores_unrelated_errors(self):
+        assert not _is_missing_schema_error(ValueError("bad query"))
+        assert not _is_missing_schema_error(RuntimeError("connection refused"))
+
+
+class TestCmdExportCsv:
+    """`export -f csv` must report real chunk rows, not paragraph counts."""
+
+    def _seed(self, monkeypatch, tmp_path, chunks: list[str]) -> GnosisMcpConfig:
+        from gnosis_mcp.backend import create_backend
+
+        _use_sqlite_db(monkeypatch, tmp_path / "export.db")
+        config = GnosisMcpConfig.from_env()
+
+        async def _run() -> None:
+            backend = create_backend(config)
+            await backend.startup()
+            await backend.init_schema()
+            if chunks:
+                await backend.upsert_doc(
+                    "guides/two-chunks.md",
+                    chunks,
+                    title="Two Chunks",
+                    category="guides",
+                )
+            await backend.shutdown()
+
+        asyncio.run(_run())
+        return config
+
+    def test_reports_true_chunk_count(self, monkeypatch, tmp_path, capsys):
+        # Two chunks, three paragraphs each. The old formula
+        # (`content.count("\n\n") + 1`) reported 6 for this document.
+        chunks = ["alpha one\n\nalpha two\n\nalpha three", "beta one\n\nbeta two\n\nbeta three"]
+        config = self._seed(monkeypatch, tmp_path, chunks)
+
+        cmd_export(argparse.Namespace(format="csv", category=None))
+        rows = list(csv.reader(io.StringIO(capsys.readouterr().out)))
+
+        assert rows[0] == ["file_path", "title", "category", "chunks"]
+        assert rows[1][0] == "guides/two-chunks.md"
+        assert rows[1][3] == "2", f"expected the 2 real chunks, got: {rows[1]}"
+
+        # Pin the fixture's shape: the paragraph count and the chunk count differ,
+        # so this test fails if anyone reintroduces the paragraph approximation.
+        from gnosis_mcp.backend import create_backend
+
+        async def _content() -> str:
+            backend = create_backend(config)
+            await backend.startup()
+            docs = await backend.export_docs()
+            await backend.shutdown()
+            return docs[0]["content"]
+
+        content = asyncio.run(_content())
+        assert content.count("\n\n") + 1 == 6
+
+    def test_empty_db_writes_header_only(self, monkeypatch, tmp_path, capsys):
+        self._seed(monkeypatch, tmp_path, [])
+
+        cmd_export(argparse.Namespace(format="csv", category=None))
+        rows = list(csv.reader(io.StringIO(capsys.readouterr().out)))
+
+        assert rows == [["file_path", "title", "category", "chunks"]]
+
+
+class TestServeRerankerProbe:
+    """`serve` must say so when reranking is enabled but its model is unfetchable.
+
+    A broken `GNOSIS_MCP_RERANK_MODEL` used to surface only as a "Rerank failed"
+    traceback on the first search, after which searches silently returned
+    unranked results — which is how a default pointing at a non-existent repo
+    (HTTP 401) went unnoticed.
+    """
+
+    def _config(self, monkeypatch, tmp_path, model: str = "org/does-not-exist"):
+        _isolate_config_env(monkeypatch)
+        monkeypatch.setenv("GNOSIS_MCP_DATABASE_URL", str(tmp_path / "probe.db"))
+        monkeypatch.setenv("GNOSIS_MCP_RERANK_ENABLED", "true")
+        monkeypatch.setenv("GNOSIS_MCP_RERANK_MODEL", model)
+        return GnosisMcpConfig.from_env()
+
+    def test_warns_loudly_when_model_unavailable(self, monkeypatch, tmp_path, caplog):
+        caplog.set_level(logging.INFO)
+        config = self._config(monkeypatch, tmp_path)
+
+        from gnosis_mcp import rerank as rr
+
+        monkeypatch.setattr(rr, "check_model_available", lambda *a, **kw: (False, "HTTP 401"))
+        _check_reranker(config)
+
+        assert "cannot be fetched" in caplog.text
+        assert "HTTP 401" in caplog.text
+        assert "GNOSIS_MCP_RERANK_MODEL" in caplog.text
+        assert rr.DEFAULT_MODEL in caplog.text
+
+    def test_logs_info_when_model_available(self, monkeypatch, tmp_path, caplog):
+        caplog.set_level(logging.INFO)
+        config = self._config(monkeypatch, tmp_path)
+
+        from gnosis_mcp import rerank as rr
+
+        monkeypatch.setattr(rr, "check_model_available", lambda *a, **kw: (True, "cached"))
+        _check_reranker(config)
+
+        assert "is available" in caplog.text
+        assert "cannot be fetched" not in caplog.text
+
+    def test_probe_failure_never_blocks_serve(self, monkeypatch, tmp_path, caplog):
+        caplog.set_level(logging.DEBUG)
+        config = self._config(monkeypatch, tmp_path)
+
+        from gnosis_mcp import rerank as rr
+
+        def _explode(*args, **kwargs):
+            raise OSError("network down")
+
+        monkeypatch.setattr(rr, "check_model_available", _explode)
+        _check_reranker(config)  # must not raise
+
+        assert "cannot be fetched" not in caplog.text
+
+    def test_probe_skipped_when_reranking_disabled(self, monkeypatch, tmp_path):
+        _isolate_config_env(monkeypatch)
+        monkeypatch.setenv("GNOSIS_MCP_DATABASE_URL", str(tmp_path / "probe.db"))
+        monkeypatch.delenv("GNOSIS_MCP_RERANK_ENABLED", raising=False)
+        config = GnosisMcpConfig.from_env()
+
+        from gnosis_mcp import rerank as rr
+
+        def _unexpected(*args, **kwargs):  # pragma: no cover — asserts it is not called
+            raise AssertionError("probe must not run when reranking is off")
+
+        monkeypatch.setattr(rr, "check_model_available", _unexpected)
+        _check_reranker(config)
