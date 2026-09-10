@@ -12,6 +12,36 @@ Versioning follows [Semantic Versioning](https://semver.org/) (pre-1.0).
 ### Fixed
 ### Security
 
+## [0.16.1] - 2026-09-10
+
+### Added
+- `--include-generated` on `prune` and `ingest`, the opt-in for pruning generated
+  documents (currently git history). See Fixed.
+
+### Changed
+- Two `chunk_index`-level behaviours from 0.16.0 need a *forced* re-ingest to
+  reach an existing corpus; the 0.16.0 entry now spells out `--force` and the
+  `embed` pass that must follow it.
+
+### Fixed
+- **`prune` deleted generated documents.** `prune <root>` deletes every document
+  whose `file_path` is not a file under that root, and only absolute paths and
+  URLs were excluded from consideration — so a *relative* path that no file can
+  back, which is precisely what a generating ingester writes, looked stale.
+  Pruning a knowledge root reported "Would prune 431 stale document(s)": the
+  entire git-history corpus. Since the README recommends
+  `gnosis-mcp ingest ./docs --prune` after re-organizing a folder, and `--prune`
+  runs this same code, the documented cleanup path destroyed them.
+  Generated documents are now out of scope unless `--include-generated` is
+  passed. Nothing else about pruning changed: files genuinely deleted from the
+  root are still removed, and that is covered by a test so the guard cannot
+  quietly disable the feature.
+- The "no stale documents" message claimed everything in the database existed on
+  disk. It reports how many documents were in scope for that root instead, which
+  is the only claim the check can support.
+
+### Security
+
 ## [0.16.0] - 2026-09-10
 
 This release comes out of a full feature retest of v0.15.0 — every CLI
