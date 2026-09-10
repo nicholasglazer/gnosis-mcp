@@ -24,7 +24,8 @@ src/gnosis_mcp/
 ├── schema.py          # PostgreSQL DDL — tables, indexes, HNSW, hybrid search functions
 ├── embed.py           # Embedding providers: openai/ollama/custom/local, batch backfill
 ├── local_embed.py     # Local ONNX embedding engine — stdlib urllib model download, CPU inference
-└── cli.py             # argparse CLI: serve, init-db, ingest, ingest-git, crawl, search, embed, stats, export, diff, check, cleanup, fix-link-types
+├── clients.py         # MCP client registry: per-client config render, managed-block writes, `setup`/`doctor` wiring
+└── cli.py             # argparse CLI: serve, init-db, ingest, ingest-git, crawl, search, embed, stats, export, diff, check, setup, doctor, cleanup, fix-link-types
 ```
 
 ## Backend Protocol
@@ -108,11 +109,14 @@ New file: `rest.py` — Starlette routes, own backend lifespan, CORS + auth midd
 - **Crawl cache**: JSON sidecar at `~/.local/share/gnosis-mcp/crawl-cache.json` for ETag/Last-Modified conditional requests
 - **Deferred web deps**: `[web]` extra (httpx + trafilatura) imported only when `crawl_url()` is called — same pattern as `[rst]`/`[pdf]`
 - **Access tracking**: `search_access_log` table records which documents are accessed via `search_docs` (top 3) and `get_doc`. `get_context` uses access frequency to surface important docs. Fire-and-forget logging, opt-out via `GNOSIS_MCP_ACCESS_LOG=false`
+- **Client wiring is a registry, not a branch**: `clients.py` holds one `Client` row per MCP client (config path, config key, entry shape, vendor `mcp add` command, always-loaded instruction file). `setup` and `doctor` read that table, so supporting a new client is a data change plus a test. Three strategies in order — the vendor's own CLI, then a marker-delimited managed block or a JSON merge, then a printed snippet — which is what makes the fallback universal rather than a list of clients someone remembered.
+- **`instructions` is not universal**: an MCP server may return an `instructions` field and Claude Code surfaces it, but `dsh-mcp-client` registers the tools and discards it. Where a client drops it, `setup` writes the equivalent rule into that client's always-loaded instruction file. That is why `Client.rules` is `None` for exactly the clients that do forward `instructions` — a second copy would bill the user twice for one paragraph.
+- **Usage evidence, not intent**: `doctor` reads `search_access_log` grouped by `client` (recorded from the session's `initialize` handshake). A config file proves someone meant to wire it up; a non-empty result proves an agent called it. Wired-but-never-called is a warning, and `--strict` turns it into an exit code for CI.
 
 ## Testing
 
 ```bash
-pytest tests/               # Unit tests (599+ tests, no DB required)
+pytest tests/               # Unit tests (844, no DB required)
 gnosis-mcp check            # Integration check against live DB
 ```
 

@@ -2,7 +2,7 @@
 
 ## Supported Versions
 
-The latest 0.16.x patch receives security fixes. Older versions are unsupported.
+The latest 0.17.x patch receives security fixes. Older versions are unsupported.
 
 ## Reporting a Vulnerability
 

@@ -123,6 +123,22 @@ gnosis-mcp search "how does auth work" --embed  # hybrid semantic+keyword
 gnosis-mcp stats                                # see what was indexed
 ```
 
+Then wire it into the clients you actually use — one command, no paths to edit:
+
+```bash
+gnosis-mcp setup                # preview what each client's config would become
+gnosis-mcp setup --write        # Claude Code, DeepSeek Harness, Codex, Cursor, VS Code, …
+gnosis-mcp doctor               # is it wired, and has anything called it yet?
+```
+
+`setup` resolves the command path for the machine it runs on instead of the one the README
+assumed, and each block it installs is marker-delimited so re-running rewrites it in place. Where
+a client does not read the server's own MCP `instructions`, it also installs the short rule that
+gives the agent a reason to prefer gnosis over reading files — a mounted server nobody calls is
+the silent failure mode. `doctor` is the check for that: it reads the access log and tells you
+whether a client has really called the server. Details:
+[`docs/cli.md`](https://github.com/nicholasglazer/gnosis-mcp/blob/main/docs/cli.md#setup).
+
 `gnosis-mcp check` is the gate: it exits `0` only when the backend started and the schema the
 server needs is present, and it names whatever is missing before exiting `1`. Keyword search needs
 SQLite **FTS5**, which is compiled into your Python's SQLite rather than guaranteed by it — `check`
@@ -259,7 +275,7 @@ git clone https://github.com/nicholasglazer/gnosis-mcp.git
 cd gnosis-mcp
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
-pytest                    # 782 tests, no database needed
+pytest                    # 844 tests, no database needed
 ruff check src/ tests/
 ```
 

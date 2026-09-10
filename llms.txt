@@ -12,6 +12,8 @@ Gnosis MCP loads documentation files into a database, chunks them by headings (H
 ```bash
 pip install gnosis-mcp
 gnosis-mcp ingest ./docs/       # auto-creates SQLite database + loads docs
+gnosis-mcp setup --write        # wire every MCP client detected here, at the right path
+gnosis-mcp doctor               # DB + wiring + whether anything has actually called it
 gnosis-mcp serve                # start MCP server (stdio default, or --transport streamable-http)
 
 # Web crawl (optional)
@@ -22,6 +24,15 @@ gnosis-mcp crawl https://docs.example.com/ --sitemap   # crawl docs from the web
 gnosis-mcp ingest-git .                                 # ingest commit history as searchable docs
 gnosis-mcp ingest-git . --since 6m --include "src/*"    # filtered + time-limited
 ```
+
+`gnosis-mcp setup` replaces the hand-copied snippet below for ten clients (Claude Code, DeepSeek
+Harness, Codex CLI, Gemini CLI, Cursor, VS Code, Windsurf, Cline, Zed, and a generic stdio entry).
+It resolves the absolute command path for *this* machine, writes each entry inside a
+marker-delimited block that a re-run rewrites in place, and where the client does not forward the
+server's MCP `instructions` field it also installs a short rule into that client's always-loaded
+instruction file. Nothing is written without `--write`. `gnosis-mcp doctor` then reports the two
+failures a config file cannot show: a wired path that no longer exists, and a client that is wired
+but has never actually called the server.
 
 Add to your client's MCP config (e.g. `.mcp.json` at your project root for Claude Code):
 
@@ -146,7 +157,7 @@ Tables are auto-created on first `serve` or `ingest`, so wiring up a client befo
 
 ## Performance
 
-9,463 QPS on 100 docs (300 chunks), 471 QPS on 10,000 docs (30,000 chunks). p95 under 0.2 ms at 100 docs, under 6 ms at 10,000. End-to-end through the MCP stdio protocol: 8.7 ms mean, 13.0 ms p95 (v0.13.3 SDK 1.27 transport). 782 tests, 10 RAG eval cases (Hit@5 = 1.00, MRR = 1.00, Precision@5 = 0.75). Install size: ~23MB with `[embeddings]` (ONNX model), ~5MB base. Reproduce with `gnosis-mcp eval`, `python tests/bench/bench_search.py`, `python tests/bench/bench_rag.py`, `python tests/bench/bench_mcp_e2e.py`.
+9,463 QPS on 100 docs (300 chunks), 471 QPS on 10,000 docs (30,000 chunks). p95 under 0.2 ms at 100 docs, under 6 ms at 10,000. End-to-end through the MCP stdio protocol: 8.7 ms mean, 13.0 ms p95 (v0.13.3 SDK 1.27 transport). 844 tests, 10 RAG eval cases (Hit@5 = 1.00, MRR = 1.00, Precision@5 = 0.75). Install size: ~23MB with `[embeddings]` (ONNX model), ~5MB base. Reproduce with `gnosis-mcp eval`, `python tests/bench/bench_search.py`, `python tests/bench/bench_rag.py`, `python tests/bench/bench_mcp_e2e.py`.
 
 ## Documentation
 

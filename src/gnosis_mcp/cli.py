@@ -10,8 +10,9 @@ import logging
 import os
 import sys
 from collections import Counter
+from pathlib import Path
 
-from gnosis_mcp import __version__
+from gnosis_mcp import __version__, clients
 
 __all__ = ["main"]
 
@@ -271,6 +272,62 @@ def _missing_schema_parts(health: dict) -> list[str]:
     return missing
 
 
+async def _collect_health(config) -> tuple[dict | None, str | None]:
+    """Start the backend, read health, and always shut it down.
+
+    Returns `(health, error)` with exactly one of them None. `check` and
+    `doctor` ask different questions of the same probe, and the shutdown has to
+    happen on every path — including the failure paths, where it is easiest to
+    forget.
+    """
+    from gnosis_mcp.backend import create_backend
+
+    backend = create_backend(config)
+    try:
+        await backend.startup()
+    except Exception as exc:
+        return None, f"Cannot start the {config.backend} backend: {exc}"
+    try:
+        try:
+            return await backend.check_health(), None
+        except Exception as exc:
+            return None, f"Health check failed: {exc}"
+    finally:
+        await backend.shutdown()
+
+
+def _log_health(health: dict) -> None:
+    """The per-field health block shared by `check` and `doctor`."""
+    log.info("Backend: %s", health.get("backend"))
+    log.info("Version: %s", health.get("version", "unknown"))
+
+    if "pgvector" in health:
+        log.info("pgvector: %s", "installed" if health["pgvector"] else "not installed")
+
+    if "fts_table_exists" in health:
+        log.info("FTS5: %s", "ready" if health["fts_table_exists"] else "not initialized")
+
+    if "sqlite_vec" in health:
+        log.info("sqlite-vec: %s", "loaded" if health["sqlite_vec"] else "not available")
+        if health.get("vec_table_exists"):
+            log.info("Vec0 table: %d vectors", health.get("vec_count", 0))
+
+    if health.get("chunks_table_exists"):
+        log.info("Chunks: %d rows", health.get("chunks_count", 0))
+    else:
+        log.warning("Chunks table: does not exist")
+
+    if health.get("links_table_exists"):
+        log.info("Links: %d rows", health.get("links_count", 0))
+
+    if health.get("search_function_exists") is not None:
+        fn_status = "found" if health["search_function_exists"] else "NOT FOUND"
+        log.info("Search function: %s", fn_status)
+
+    if health.get("path"):
+        log.info("Database: %s", health["path"])
+
+
 def cmd_check(args: argparse.Namespace) -> int:
     """Verify database connection and schema.
 
@@ -279,76 +336,296 @@ def cmd_check(args: argparse.Namespace) -> int:
     backend cannot be reached or the schema was never initialized. That makes
     `gnosis-mcp check` usable as a gate in setup scripts, installers, and CI.
     """
-    from gnosis_mcp.backend import create_backend
     from gnosis_mcp.config import GnosisMcpConfig
 
     config = GnosisMcpConfig.from_env()
 
     async def _run() -> int:
+        health, error = await _collect_health(config)
+        if health is None:
+            log.error("%s", error)
+            log.error("Result: unhealthy (exit 1).")
+            return 1
+
+        _log_health(health)
+
+        missing = _missing_schema_parts(health)
+        if missing:
+            log.info("Run `gnosis-mcp init-db` to create tables.")
+            log.error(
+                "Result: unhealthy — schema not initialized; missing: %s (exit 1).",
+                ", ".join(missing),
+            )
+            return 1
+
+        log.info("All checks passed.")
+        log.info("Result: healthy (exit 0).")
+        return 0
+
+    return asyncio.run(_run())
+
+
+def cmd_setup(args: argparse.Namespace) -> int:
+    """Wire the server into the MCP clients on this machine.
+
+    Installing the package is half an installation. This is the other half, and
+    it exists because the honest previous answer — "add this JSON to your client
+    config" — is exactly where users stop: the snippet names a binary, and the
+    path that is correct on the author's machine is wrong on theirs. Everything
+    below is derived from the interpreter running this command.
+
+    Prints by default so it is safe to run on someone else's machine, and only
+    writes with ``--write``. Exits 1 when a requested client could not be wired,
+    so an installer or an agent can gate on it.
+    """
+    from gnosis_mcp import clients
+
+    if args.list_clients:
+        sys.stdout.write("\n  Supported clients\n  " + "=" * 52 + "\n")
+        for client in clients.CLIENTS:
+            mark = "verified" if client.verified else "        "
+            sys.stdout.write(f"    {client.name:<14}{mark}  {client.label}\n")
+        sys.stdout.write(
+            "\n  `setup --write` uses each client's own `mcp add` command when it is\n"
+            "  installed, and otherwise edits its config file directly.\n\n"
+        )
+        return 0
+
+    env = clients.detect_env(dsh_profile=args.dsh_profile)
+    requested = args.client or clients.detected_clients(env, use_cli=not args.no_cli)
+    if not requested:
+        requested = ["generic"]
+
+    reports: list[dict] = []
+    failures: list[str] = []
+    for name in requested:
+        try:
+            report = clients.configure(
+                name, write=args.write, env=env, use_cli=not args.no_cli
+            )
+        except ValueError as exc:
+            reports.append({"client": name, "error": str(exc)})
+            failures.append(f"{name}: {exc}")
+            continue
+        reports.append(report)
+        if args.write and not report.get("wrote"):
+            failures.append(f"{name}: {report.get('warning') or 'nothing was written'}")
+
+    if args.json:
+        sys.stdout.write(json.dumps({"written": args.write, "clients": reports}, indent=2) + "\n")
+        return 1 if failures else 0
+
+    command = clients.resolve_command()
+    sys.stdout.write("\n  gnosis-mcp setup\n  " + "=" * 52 + "\n")
+    sys.stdout.write(f"  server command   {' '.join(command)}\n")
+    sys.stdout.write(f"  mode             {'writing config' if args.write else 'preview (add --write)'}\n")
+
+    for report in reports:
+        sys.stdout.write("\n")
+        if "error" in report:
+            sys.stdout.write(f"  {report['client']}  — {report['error']}\n")
+            continue
+        sys.stdout.write(f"  {report['client']}  {report['label']}\n")
+        if report.get("path"):
+            sys.stdout.write(f"    config    {report['path']}\n")
+        if report.get("wrote"):
+            sys.stdout.write(f"    wrote     {report.get('action', 'ok')}\n")
+        if report.get("rules_path"):
+            sys.stdout.write(f"    rule      {report['rules_path']} ({report.get('rules_action')})\n")
+        cli = report.get("cli")
+        if isinstance(cli, dict) and cli.get("argv"):
+            sys.stdout.write(f"    via cli   {' '.join(cli['argv'])}\n")
+        if not report.get("wrote"):
+            sys.stdout.write("    snippet:\n")
+            for line in str(report.get("snippet", "")).splitlines():
+                sys.stdout.write(f"      {line}\n")
+        if report.get("warning"):
+            sys.stdout.write(f"    warning   {report['warning']}\n")
+        if report.get("note"):
+            sys.stdout.write(f"    note      {report['note']}\n")
+
+    sys.stdout.write("\n")
+    if failures:
+        for failure in failures:
+            sys.stdout.write(f"  failed: {failure}\n")
+        sys.stdout.write("\n  Result: incomplete (exit 1).\n\n")
+        return 1
+    if args.write:
+        sys.stdout.write("  Result: wired. Run `gnosis-mcp doctor` to confirm it gets called.\n\n")
+    else:
+        sys.stdout.write("  Re-run with --write to apply. Nothing was modified.\n\n")
+    return 0
+
+
+def cmd_doctor(args: argparse.Namespace) -> int:
+    """Answer "is it installed, and is it actually being used?".
+
+    `check` answers the first half: the database starts and the schema is there.
+    That is necessary and not sufficient. Two things still fail silently after
+    `check` passes — a client wired to a binary path that no longer exists, and
+    a correctly wired client whose agent never calls the server — and both look
+    identical from the outside: no results, no error, no log line.
+
+    So this adds the two halves `check` cannot see: what each client's config
+    currently says, and who the access log says has actually called. The second
+    is the only non-speculative answer to "will users use it", because it is
+    evidence rather than intent.
+    """
+    from gnosis_mcp import clients
+    from gnosis_mcp.config import GnosisMcpConfig
+
+    env = clients.detect_env(dsh_profile=args.dsh_profile)
+    config = GnosisMcpConfig.from_env()
+    command = clients.resolve_command()
+
+    async def _probe() -> dict:
+        from gnosis_mcp.backend import create_backend
+
         backend = create_backend(config)
         try:
             await backend.startup()
         except Exception as exc:
-            log.error("Cannot start the %s backend: %s", config.backend, exc)
-            log.error("Result: unhealthy — backend unreachable (exit 1).")
-            return 1
-
+            return {"error": f"Cannot start the {config.backend} backend: {exc}"}
         try:
-            try:
-                health = await backend.check_health()
-            except Exception as exc:
-                log.error("Health check failed: %s", exc)
-                log.error("Result: unhealthy — health check failed (exit 1).")
-                return 1
-
-            log.info("Backend: %s", health.get("backend"))
-            log.info("Version: %s", health.get("version", "unknown"))
-
-            if "pgvector" in health:
-                log.info("pgvector: %s", "installed" if health["pgvector"] else "not installed")
-
-            if "fts_table_exists" in health:
-                log.info("FTS5: %s", "ready" if health["fts_table_exists"] else "not initialized")
-
-            if "sqlite_vec" in health:
-                log.info("sqlite-vec: %s", "loaded" if health["sqlite_vec"] else "not available")
-                if health.get("vec_table_exists"):
-                    log.info("Vec0 table: %d vectors", health.get("vec_count", 0))
-
-            if health.get("chunks_table_exists"):
-                log.info("Chunks: %d rows", health.get("chunks_count", 0))
-            else:
-                log.warning("Chunks table: does not exist")
-
-            if health.get("links_table_exists"):
-                log.info("Links: %d rows", health.get("links_count", 0))
-
-            if health.get("search_function_exists") is not None:
-                fn_status = "found" if health["search_function_exists"] else "NOT FOUND"
-                log.info("Search function: %s", fn_status)
-
-            if health.get("path"):
-                log.info("Database: %s", health["path"])
-
-            missing = _missing_schema_parts(health)
-            if missing:
-                log.info("Run `gnosis-mcp init-db` to create tables.")
-            else:
-                log.info("All checks passed.")
-
-            if missing:
-                log.error(
-                    "Result: unhealthy — schema not initialized; missing: %s (exit 1).",
-                    ", ".join(missing),
-                )
-                return 1
-
-            log.info("Result: healthy (exit 0).")
-            return 0
+            out: dict = {"health": await backend.check_health()}
+        except Exception as exc:
+            return {"error": f"Health check failed: {exc}"}
+        try:
+            # A schema that predates the `client` column returns [] rather than
+            # raising, so this is the only place a usage query can legitimately
+            # fail — and a diagnostic must not die on its least important part.
+            out["usage"] = await backend.client_usage(days=args.days)
+            out["savings"] = await backend.savings_report(days=args.days)
+        except Exception as exc:
+            out["usage_error"] = str(exc)
         finally:
             await backend.shutdown()
+        return out
 
-    return asyncio.run(_run())
+    probe = asyncio.run(_probe())
+    wiring = clients.scan(env=env)
+    verified = {"checked": False, "detail": "skipped"} if args.no_verify else clients.verify_dsh(env)
+
+    wired = [row for row in wiring if row.get("configured")]
+    usage = probe.get("usage") or []
+    health = probe.get("health")
+
+    if args.json:
+        sys.stdout.write(
+            json.dumps(
+                {
+                    "server": {"command": command, "version": __version__},
+                    "database": probe,
+                    "wiring": wiring,
+                    "composition": verified,
+                    "usage": usage,
+                },
+                indent=2,
+                default=str,
+            )
+            + "\n"
+        )
+        return 0 if (health is not None and not probe.get("error")) else 1
+
+    sys.stdout.write("\n  gnosis-mcp doctor\n  " + "=" * 52 + "\n")
+    sys.stdout.write(f"  version          {__version__}\n")
+    sys.stdout.write(f"  server command   {' '.join(command)}\n")
+    executable = Path(command[0])
+    sys.stdout.write(
+        f"  executable       {executable} ({'found' if executable.exists() else 'MISSING'})\n"
+    )
+
+    if probe.get("error"):
+        sys.stdout.write(f"\n  Database\n    {probe['error']}\n")
+    elif health is not None:
+        sys.stdout.write("\n  Database\n")
+        for key, label in (
+            ("backend", "backend"),
+            ("path", "path"),
+            ("chunks_count", "chunks"),
+            ("links_count", "links"),
+            ("vec_count", "vectors"),
+        ):
+            if health.get(key) is not None:
+                sys.stdout.write(f"    {label:<16} {health[key]}\n")
+        if health.get("fts_table_exists") is not None:
+            sys.stdout.write(
+                f"    {'keyword index':<16} {'ready' if health['fts_table_exists'] else 'MISSING'}\n"
+            )
+
+    sys.stdout.write("\n  Clients\n")
+    if not wiring:
+        sys.stdout.write("    (no client configs located on this machine)\n")
+    for row in wiring:
+        if "error" in row:
+            sys.stdout.write(f"    {row['client']:<14} ?  {row['error']}\n")
+            continue
+        state = "wired" if row.get("configured") else ("present" if row.get("exists") else "absent")
+        sys.stdout.write(f"    {row['client']:<14} {state:<8} {row['path']}\n")
+
+    if verified.get("checked"):
+        argv = verified.get("argv") or []
+        profile = argv[argv.index("--profile") + 1] if "--profile" in argv else "?"
+        sys.stdout.write("\n  Harness composition\n")
+        sys.stdout.write(f"    {profile} profile: {verified['detail']}\n")
+
+    window = f"last {args.days} day{'s' if args.days != 1 else ''}"
+    sys.stdout.write(f"\n  Usage — {window}\n")
+    if probe.get("usage_error"):
+        sys.stdout.write(f"    usage query failed: {probe['usage_error']}\n")
+    elif not usage:
+        sys.stdout.write("    no calls recorded.\n")
+    else:
+        for row in usage:
+            who = row["client"] or "(no client identity — pre-0.16 rows)"
+            sys.stdout.write(
+                f"    {who:<34}{row['calls']:>7,} calls   last {row.get('last_accessed') or '—'}\n"
+            )
+        savings = probe.get("savings") or {}
+        if savings.get("calls"):
+            sys.stdout.write(
+                f"    {'':<34}{savings.get('tokens_saved', 0):>7,} tokens saved\n"
+            )
+
+    problems: list[str] = []
+    if probe.get("error"):
+        problems.append(probe["error"])
+    if health is not None:
+        missing_parts = _missing_schema_parts(health)
+        if missing_parts:
+            problems.append(
+                f"schema not initialized (missing: {', '.join(missing_parts)}) — "
+                "run `gnosis-mcp init-db`"
+            )
+    if not wired:
+        problems.append("no client is wired up — run `gnosis-mcp setup --write`")
+    if verified.get("checked") and not verified.get("ok"):
+        problems.append(f"the harness rejects the composed profile: {verified['detail']}")
+
+    sys.stdout.write("\n")
+    if problems:
+        for problem in problems:
+            sys.stdout.write(f"  problem: {problem}\n")
+        sys.stdout.write("\n  Result: needs attention (exit 1).\n\n")
+        return 1
+
+    # Wired but never called is the failure this command exists to make visible,
+    # and it is a warning rather than a failure: a machine that installed gnosis
+    # five minutes ago is in exactly this state and is fine. `--strict` turns it
+    # into an exit code for a CI job that wants to assert real usage.
+    if not usage:
+        sys.stdout.write(
+            "  warning: a client is wired but no call has ever been logged.\n"
+            "           Connect to gnosis from that client once, then re-run.\n"
+        )
+        if args.strict:
+            sys.stdout.write("\n  Result: not used (exit 1, --strict).\n\n")
+            return 1
+    else:
+        sys.stdout.write("  A client has called this server — the wiring is live.\n")
+
+    sys.stdout.write("\n  Result: healthy (exit 0).\n\n")
+    return 0
 
 
 def cmd_ingest(args: argparse.Namespace) -> None:
@@ -1470,6 +1747,54 @@ def main() -> None:
     # check
     sub.add_parser("check", help="Verify database connection and schema")
 
+    # setup
+    p_setup = sub.add_parser(
+        "setup",
+        help="Wire the server into the MCP clients on this machine",
+        description=(
+            "Render (and with --write, install) the client config that points at the "
+            "gnosis-mcp running this command. Prints by default."
+        ),
+    )
+    p_setup.add_argument(
+        "--client",
+        action="append",
+        choices=clients.client_names(),
+        help="Client to configure; repeatable. Default: every client detected here.",
+    )
+    p_setup.add_argument("--write", action="store_true", help="Apply the changes (default: preview)")
+    p_setup.add_argument(
+        "--no-cli",
+        action="store_true",
+        help="Edit config files directly instead of running each client's own `mcp add`",
+    )
+    p_setup.add_argument("--dsh-profile", help="DeepSeek Harness profile to patch (default: web)")
+    p_setup.add_argument("--json", action="store_true", help="Emit JSON only")
+    p_setup.add_argument(
+        "--list", dest="list_clients", action="store_true", help="List supported clients and exit"
+    )
+
+    # doctor
+    p_doctor = sub.add_parser(
+        "doctor",
+        help="Check the database, the client wiring, and whether anything calls it",
+        description=(
+            "A superset of `check`: database health, which clients are wired, and who "
+            "the access log says has actually called this server."
+        ),
+    )
+    p_doctor.add_argument("--days", type=int, default=30, help="Usage window in days (default: 30)")
+    p_doctor.add_argument(
+        "--strict", action="store_true", help="Exit 1 when wired but never called (for CI)"
+    )
+    p_doctor.add_argument(
+        "--no-verify",
+        action="store_true",
+        help="Skip `dsh --dump-config`, which validates the harness composition",
+    )
+    p_doctor.add_argument("--dsh-profile", help="DeepSeek Harness profile to inspect")
+    p_doctor.add_argument("--json", action="store_true", help="Emit JSON only")
+
     # cleanup
     cleanup_parser = sub.add_parser("cleanup", help="Purge old access log entries")
     cleanup_parser.add_argument(
@@ -1508,6 +1833,8 @@ def main() -> None:
         "export": cmd_export,
         "diff": cmd_diff,
         "check": cmd_check,
+        "setup": cmd_setup,
+        "doctor": cmd_doctor,
         "cleanup": cmd_cleanup,
         "fix-link-types": cmd_fix_link_types,
         "eval": cmd_eval,

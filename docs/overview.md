@@ -46,7 +46,14 @@ gnosis-mcp ingest ./knowledge
 # 2. verify — FTS5, schema, row counts. Non-zero exit means something is wrong
 gnosis-mcp check
 
-# 3. serve (MCP stdio by default — for Claude Code, Cursor, Windsurf, …)
+# 3. wire it into the clients installed here, using the path that exists here
+gnosis-mcp setup                # preview
+gnosis-mcp setup --write        # apply
+
+# 4. prove it gets used, not just installed
+gnosis-mcp doctor
+
+# or serve it yourself (MCP stdio by default — for Claude Code, Cursor, Windsurf, …)
 gnosis-mcp serve
 
 # or expose on HTTP with a REST mirror
@@ -57,6 +64,14 @@ gnosis-mcp serve --transport streamable-http --rest
 search needs SQLite FTS5, which is compiled into the Python build rather than
 guaranteed by it. Failures are covered in
 [Troubleshooting](troubleshooting.md).
+
+`setup` is what makes an install reproducible: it resolves the server command for
+the machine it runs on, writes each client's entry inside a marker-delimited block
+that re-running rewrites in place, and installs the short rule that gives the agent
+a reason to prefer gnosis over reading files. `doctor` then reports what no config
+file can — whether a client has actually called the server. Neither writes anything
+without `--write`. See [`setup`](cli.md#setup) for the client table and
+[`doctor`](cli.md#doctor) for the two silent failures it exists to catch.
 
 Point your editor at it. See [`llms-install.md`](../llms-install.md) for
 copy-paste snippets for every popular client.

@@ -1055,6 +1055,32 @@ class SqliteBackend:
             "by_tool": by_tool,
         }
 
+    async def client_usage(self, *, days: int = 30) -> list[dict[str, Any]]:
+        """See `DocBackend.client_usage` protocol docstring."""
+        # Same defence as `savings_report`: a DB written before per-client
+        # attribution has no `client` column, and a diagnostic that raises
+        # OperationalError is worse than one that says "nothing recorded".
+        if not await self.has_column("search_access_log", "client"):
+            return []
+        cursor = await self._db.execute(
+            "SELECT COALESCE(client, '') AS client, COUNT(*), "
+            "       MIN(accessed_at), MAX(accessed_at) "
+            "FROM search_access_log "
+            "WHERE accessed_at >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', ?) "
+            "GROUP BY 1 "
+            "ORDER BY 2 DESC",
+            (f"-{days} days",),
+        )
+        return [
+            {
+                "client": row[0] or None,
+                "calls": int(row[1]),
+                "first_accessed": row[2],
+                "last_accessed": row[3],
+            }
+            for row in await cursor.fetchall()
+        ]
+
     async def get_graph_stats(
         self,
         *,

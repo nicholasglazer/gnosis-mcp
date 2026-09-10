@@ -30,6 +30,8 @@ vars (see [config.md](config.md)) — flags override env.
 | [`export`](#export) | Dump documents as JSON, markdown, or CSV. |
 | [`diff`](#diff) | Dry-run re-ingest: show what would change. |
 | [`check`](#check) | Verify DB connection, schema, and extensions. |
+| [`setup`](#setup) | Wire the server into the MCP clients on this machine. |
+| [`doctor`](#doctor) | Check the DB, the client wiring, and whether anything calls it. |
 | [`cleanup`](#cleanup) | Purge old access-log rows. |
 | [`fix-link-types`](#fix-link-types) | One-off migration for pre-0.10 git-history links. |
 | [`eval`](#eval) | Retrieval-quality harness (Hit@K, MRR, Precision@K). |
@@ -295,6 +297,82 @@ an installer, a Docker `HEALTHCHECK`, or CI.
 ```bash
 gnosis-mcp check
 ```
+
+---
+
+## `setup`
+
+Wire the server into the MCP clients installed on this machine, using the command
+path that is correct *here*.
+
+```bash
+gnosis-mcp setup [--write] [--client NAME]... [--no-cli]
+                 [--dsh-profile NAME] [--list] [--json]
+```
+
+Prints a preview by default; nothing is modified without `--write`. With no
+`--client`, every client detected on the machine is offered — detection is
+deliberately shallow (an existing config, a real vendor directory, or the
+vendor's CLI on `PATH`), because a false positive costs one line of output while
+a false negative hides a client the user then has to name by hand.
+
+Two properties make it safe to re-run, which is the whole point: each installed
+block is wrapped in markers naming the command that regenerates it, so a repeat
+run rewrites one region in place rather than appending a duplicate, and nothing
+outside the markers is read, reordered, or reformatted.
+
+Where a client ships its own `mcp add` command (`claude`, `codex`, `gemini`),
+that command is used and the config file is left to the vendor. If it exists but
+fails, `setup` reports the failure rather than writing a rival config — pass
+`--no-cli` to edit files directly regardless.
+
+`--json` emits the full report for an agent or installer to consume. Exit `1`
+when a requested client could not be wired.
+
+The DeepSeek Harness row is written into the profile **patch layer**, so every
+session on every preset gets the tools, and the profile reloads it live. Because
+a harness that never reads the server's MCP `instructions` field would mount
+tools the agent has no reason to prefer, `setup` also writes a short rule into
+`$DSH_HOME/AGENTS.md`. If that file already holds a hand-written gnosis row with
+no markers, `setup` refuses and says which row to delete rather than creating a
+duplicate id.
+
+Related: [`setup` in llms-install.md](../llms-install.md#wire-the-client) lists every
+client, its config path, and its instruction file.
+
+---
+
+## `doctor`
+
+Answer "is it installed, *and is it actually being used?*" in one pass.
+
+```bash
+gnosis-mcp doctor [--days N] [--strict] [--no-verify] [--dsh-profile NAME] [--json]
+```
+
+A superset of `check`. It prints database health, then which clients are wired
+and where, then the clients the access log says have really called this server.
+
+Two failures survive a passing `check`, and both are silent — no error, no log
+line, no results:
+
+- **Wired to a path that no longer exists.** The client starts, registers no
+  tools, and says nothing. `doctor` resolves the command it would write and says
+  whether that file is present.
+- **Wired but never called.** The config expresses intent; only the access log
+  proves an agent chose to use it. `doctor` reads `search_access_log` grouped by
+  client, so a shared database shows which client has been calling and when.
+
+Exit `1` on an unhealthy database, an uninitialized schema, no wired client, or a
+composition the harness rejects. "Wired but never called" is a warning, not a
+failure — a machine that installed gnosis five minutes ago is in exactly that
+state. `--strict` promotes it to exit `1` for a CI job that means to assert real
+usage.
+
+`--no-verify` skips `dsh --dump-config`, which composes every layer of the
+DeepSeek Harness profile and refuses to print a tree it cannot load — the only
+check that catches a row the loader rejects rather than one that is merely
+malformed.
 
 ---
 

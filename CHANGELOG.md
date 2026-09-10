@@ -12,6 +12,87 @@ Versioning follows [Semantic Versioning](https://semver.org/) (pre-1.0).
 ### Fixed
 ### Security
 
+## [0.17.0] - 2026-09-10
+
+Installing gnosis-mcp was never the hard part. Wiring it up was, and nobody
+noticed how badly, because every failure in that half is silent: a client
+pointed at a path that does not exist on your machine starts fine and registers
+zero tools, and a perfectly wired client whose agent never reaches for it
+returns nothing, logs nothing, and errors nowhere. This release makes the wiring
+reproducible and gives you a way to see whether it worked.
+
+### Added
+- **`gnosis-mcp setup` — one command, ten clients, no paths to edit.** It
+  resolves the server command for the machine it is running on instead of the
+  one a README assumed, and writes each client's entry inside a marker-delimited
+  managed block, so re-running after an upgrade rewrites one region in place
+  rather than appending a duplicate. Text outside the markers is never read,
+  reordered, or reformatted. Prints by default; nothing is written without
+  `--write`.
+
+  `gnosis-mcp` is rarely where a snippet expects it — `uv tool install` leaves a
+  symlink in `~/.local/bin`, a venv install is reachable only through its own
+  `bin`, and an MCP client spawns servers from a different working directory and
+  a different `PATH` than your shell. `setup` writes the stable absolute path,
+  and deliberately does not follow a console-script symlink into the package
+  manager's private directory.
+
+  Clients are a **registry**, not a chain of special cases: Claude Code, DeepSeek
+  Harness, OpenAI Codex CLI, Gemini CLI, Cursor, VS Code, Windsurf, Cline, Zed,
+  and a printed entry for anything else. Where a client ships its own `mcp add`
+  command, that command is used and the config file is left to the vendor; if it
+  exists but fails, `setup` reports the failure instead of quietly writing a
+  second config the vendor's tooling would disagree with (`--no-cli` forces
+  direct edits).
+
+- **`setup` writes the rule that makes the agent use it.** An MCP server can
+  return an `instructions` field and Claude Code surfaces it — `dsh-mcp-client`
+  registers the tools and discards it. Mounting without that preamble produces
+  tools the agent has no reason to prefer, which is the most common way a
+  correct install goes unused. Where a client drops `instructions`, `setup`
+  installs a short rule into that client's always-loaded instruction file
+  (`$DSH_HOME/AGENTS.md`, `~/.codex/AGENTS.md`, `~/.gemini/GEMINI.md`,
+  `.cursor/rules/gnosis.mdc`). The rule is written only after the server entry
+  exists: telling an agent to prefer tools its client has never heard of is
+  worse than saying nothing.
+
+- **`gnosis-mcp doctor` — is it installed, and is it actually being used?** A
+  superset of `check`: database health, then which clients are wired and where,
+  then the clients the access log says have really called this server. That last
+  section is the only non-speculative answer to "will anyone use it", because it
+  is evidence rather than intent. Exit `1` on an unhealthy database, an
+  uninitialized schema, no wired client, or a composition the harness rejects.
+  Wired-but-never-called is a warning — a machine that installed gnosis five
+  minutes ago is in exactly that state — and `--strict` promotes it to an exit
+  code for CI. On a DeepSeek Harness machine it also runs `dsh --dump-config`,
+  which composes every layer and refuses to print a tree it cannot load: the only
+  check that catches a row the loader rejects rather than one that merely looks
+  wrong.
+
+- **`DocBackend.client_usage()`** — per-client call counts and last-seen
+  timestamps from `search_access_log`, on both backends. Returns an empty list
+  rather than raising on a schema that predates the `client` column.
+
+### Changed
+- **The DeepSeek Harness row belongs in the profile patch layer, not an agent
+  preset.** A preset is chosen per session and sessions on a shipped preset
+  cannot be edited at all, so anything less than the profile layer means "gnosis
+  is available in some sessions" — which is not a property an agent can rely on.
+  The layer reloads live, so `setup --write` needs no restart.
+- **`check` and `doctor` share one health probe**, so the shutdown path is
+  identical on both and the failure messages cannot drift apart.
+
+### Fixed
+- **`setup` refuses to duplicate a hand-written wiring row.** Anyone who
+  followed an earlier README has a `- id: mcp-gnosis` entry with no markers
+  around it; appending a managed block would leave two rows carrying one id in a
+  single patch array. It now stops and names the row to delete. (Found on the
+  machine this was written on — the first real install hit it.)
+- **`setup` no longer rewrites a config file it cannot parse**, and no longer
+  half-writes one: every write goes through a sibling temp file plus
+  `os.replace`, because a truncated client config takes every *other* MCP server
+  in that file down with it.
+
 ## [0.16.2] - 2026-09-10
 
 A documentation release, plus the first contribution to land since 0.16.0.

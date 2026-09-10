@@ -55,7 +55,7 @@ Server heartbeat. Always public. Use for liveness / readiness probes.
 ```json
 {
   "status": "ok",
-  "version": "0.16.2",
+  "version": "0.17.0",
   "backend": "sqlite",
   "docs": 412,
   "chunks": 1_247,

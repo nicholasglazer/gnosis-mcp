@@ -201,6 +201,61 @@ class TestSqliteBackendLifecycle:
         assert report["by_tool"]["search_docs"]["tokens_saved"] == 1800
         assert report["by_tool"]["get_doc"]["tokens_saved"] == 2500
 
+    async def test_client_usage_is_empty_before_anything_calls(self, backend):
+        assert await backend.client_usage(days=7) == []
+
+    async def test_client_usage_attributes_calls_per_client(self, backend):
+        """The evidence `doctor` reports: who actually called, and when."""
+        await backend.log_access("a.md", tool="search_docs", client="dsh-mcp-client/0.0.1")
+        await backend.log_access("b.md", tool="get_doc", client="dsh-mcp-client/0.0.1")
+        await backend.log_access("c.md", tool="search_docs", client="claude-code/2.1.0")
+
+        usage = await backend.client_usage(days=7)
+
+        assert [(row["client"], row["calls"]) for row in usage] == [
+            ("dsh-mcp-client/0.0.1", 2),
+            ("claude-code/2.1.0", 1),
+        ]
+        assert usage[0]["last_accessed"] is not None
+
+    async def test_client_usage_keeps_unattributed_rows_separate(self, backend):
+        """A NULL client is history, not a client named "None"."""
+        await backend.log_access("old.md", tool="search_docs")
+
+        usage = await backend.client_usage(days=7)
+
+        assert usage == [
+            {
+                "client": None,
+                "calls": 1,
+                "first_accessed": usage[0]["first_accessed"],
+                "last_accessed": usage[0]["last_accessed"],
+            }
+        ]
+
+    async def test_client_usage_on_a_schema_without_the_column(self, tmp_path):
+        """Pre-client schemas return no rows instead of raising into `doctor`."""
+        import aiosqlite
+
+        from gnosis_mcp.backend import create_backend
+        from gnosis_mcp.config import GnosisMcpConfig
+
+        db_path = str(tmp_path / "no-client-col.db")
+        async with aiosqlite.connect(db_path) as raw:
+            await raw.execute(
+                "CREATE TABLE search_access_log (id INTEGER PRIMARY KEY, "
+                "file_path TEXT, query TEXT, tool TEXT, accessed_at TEXT)"
+            )
+            await raw.commit()
+
+        cfg = GnosisMcpConfig(database_url=db_path, backend="sqlite")
+        backend = create_backend(cfg)
+        await backend.startup()
+        try:
+            assert await backend.client_usage(days=30) == []
+        finally:
+            await backend.shutdown()
+
     async def test_upsert_and_get_doc(self, backend):
         count = await backend.upsert_doc(
             "guides/test.md",

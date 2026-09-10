@@ -11,7 +11,6 @@ Three install paths, pick the one that matches how you work:
 All three paths install the same underlying `gnosis-mcp` Python package. The difference is what wires up around it.
 
 ## Agent checklist
-
 *For an AI agent installing gnosis-mcp on a user's behalf.* Work these in order — each step says how
 to verify it and what to do when it fails. The prose below is the same procedure written for humans;
 [Path C](#path-c--mcp-server-only-any-editor) is the closest match.
@@ -51,38 +50,100 @@ to verify it and what to do when it fails. The prose below is the same procedure
 6. **Prove retrieval works.** `gnosis-mcp search "<a phrase you know is in the docs>"` must return
    hits. If it returns nothing, the user's agent will find nothing either — fix that before wiring a
    client.
-7. **Wire the client.** Add the stdio entry for the user's client
-   ([Path C](#path-c--mcp-server-only-any-editor)); on Windows use the full path to
-   `gnosis-mcp.exe` ([Platforms](#platforms)). A read-only client sees six tools — write tools are
-   advertised only with `GNOSIS_MCP_WRITABLE=true`.
-8. **Report.** Docs path, database path, backend, doc/chunk counts, the client config file you
+7. **Wire the client.** Run `gnosis-mcp setup` to see what it wants to write, then
+   `gnosis-mcp setup --write` to apply it. This is not a convenience wrapper — it is the only
+   path that resolves the server command *for this machine*, which is the step every
+   hand-copied snippet gets wrong. `--client <name>` limits it to one client, `--json` gives you
+   a machine-readable report. See [Wire the client](#wire-the-client) for the full surface and
+   for the clients whose config is not a JSON map ([Platforms](#platforms) covers Windows).
+8. **Prove it gets used.** Run `gnosis-mcp doctor`. A config file only expresses intent; the
+   doctor reads the access log and tells you whether a client has *actually called* the server.
+   "Wired but no call has ever been logged" is the failure this catches, and it is invisible
+   everywhere else — no error, no log line, no results.
+9. **Report.** Docs path, database path, backend, doc/chunk counts, the client config file you
    wrote, and anything you skipped. If a step failed, report the failure instead of continuing or
    claiming success.
 
 Failures at any step: [`docs/troubleshooting.md`](docs/troubleshooting.md). Never report "setup
-complete" without the `check` and `search` output to back it.
+complete" without the `check`, `search` and `doctor` output to back it.
+
+## Wire the client
+
+Installing the package is half an installation. The other half is a client that knows where the
+binary is, and an agent that chooses to call it. `setup` does the first, `doctor` checks both.
+
+```bash
+gnosis-mcp setup                    # preview: what would be written, and where
+gnosis-mcp setup --write            # apply, for every client detected on this machine
+gnosis-mcp setup --client dsh --write
+gnosis-mcp setup --list             # every client it knows about
+gnosis-mcp doctor                   # is it wired, and has anything actually called it?
+```
+
+`setup` never writes without `--write`, and each block it installs is delimited by markers naming
+the command that regenerates it — so re-running after an upgrade updates one region in place
+instead of appending a second copy. Everything outside those markers is left byte-for-byte alone.
+
+Two things it does that a pasted snippet cannot:
+
+- **It resolves the command for the machine you are on.** `gnosis-mcp` is rarely where the README
+  assumed: `uv tool install` puts a symlink in `~/.local/bin`, a venv install is only reachable
+  through its own `bin`, and a client spawns servers from a different working directory and a
+  different `PATH` than your shell. `setup` writes the stable absolute path that exists here.
+- **It writes the rule that makes the agent use it.** A mounted server whose tools the agent never
+  prefers is the common, silent outcome. Where a client does not forward the server's own MCP
+  `instructions` field, `setup` also writes a short rule into that client's always-loaded
+  instruction file, so "search gnosis first" is part of the session rather than a hope.
+
+| Client | Config it writes | Instruction file |
+|---|---|---|
+| Claude Code | `~/.claude.json` (via `claude mcp add-json` when available) | — reads MCP `instructions` |
+| DeepSeek Harness | `$DSH_HOME/profiles/<profile>/cordis.patch.yml` | `$DSH_HOME/AGENTS.md` |
+| OpenAI Codex CLI | `~/.codex/config.toml` (via `codex mcp add` when available) | `~/.codex/AGENTS.md` |
+| Gemini CLI | `~/.gemini/settings.json` | `~/.gemini/GEMINI.md` |
+| Cursor | `~/.cursor/mcp.json` | `.cursor/rules/gnosis.mdc` |
+| VS Code (Copilot) | `<user>/Code/User/mcp.json` — key is `servers`, not `mcpServers` | — |
+| Windsurf | `~/.codeium/windsurf/mcp_config.json` | — |
+| Cline | VS Code global storage `cline_mcp_settings.json` | — |
+| Zed | `~/.config/zed/settings.json` — `context_servers`, nested `command`; **printed, not written** | — |
+| anything else | printed as a stdio entry (`gnosis-mcp setup --client generic`) | — |
+
+Where a client ships its own `mcp add` command, `setup` runs it and does not touch the file
+itself: their schema, their validation, their version. If that command exists but fails, `setup`
+reports the failure instead of quietly writing a second config the vendor's tooling would
+disagree with. `--no-cli` forces direct file edits.
+
+The DeepSeek Harness row goes in the **profile patch layer**, not an agent preset, so every
+session on every preset gets the tools. That layer reloads live — no restart needed after
+`setup --write`. `doctor` additionally runs `dsh --dump-config` and reports whether the harness
+still accepts the composed profile, which is the only check that catches a row the loader
+rejects.
 
 ## Any other MCP client
 
-Claude Code is not required. Any MCP client works — install the package, index your docs, then add this stdio entry to the client's config:
+Claude Code is not required. Any MCP client works — install the package, index your docs, then let
+`setup` figure out the entry:
 
 ```bash
 pip install gnosis-mcp
 gnosis-mcp ingest ./docs/
+gnosis-mcp setup --client generic     # prints the entry, with the right absolute path
 ```
 
 ```json
 {
   "mcpServers": {
     "gnosis": {
-      "command": "gnosis-mcp",
+      "command": "/home/you/.local/bin/gnosis-mcp",
       "args": ["serve"]
     }
   }
 }
 ```
 
-Config file location, and the clients that use a different key than `mcpServers`, are in [Path C](#path-c--mcp-server-only-any-editor) below.
+Add `--write` and a `--client <name>` from the table above to install it directly. Config file
+locations for the clients that are not in that table are in
+[Path C](#path-c--mcp-server-only-any-editor) below.
 
 ## Prerequisites
 

@@ -214,6 +214,22 @@ class DocBackend(Protocol):
         """
         ...
 
+    async def client_usage(self, *, days: int = 30) -> list[dict[str, Any]]:
+        """Which MCP clients actually called this server, and when.
+
+        One entry per distinct `client` value in the access log within the
+        window: {`client`, `calls`, `first_accessed`, `last_accessed`}, most
+        calls first. `client` is None for rows written before the caller had an
+        identity to report.
+
+        This is the only honest answer to "is the agent using it?". A config
+        file proves an intent to wire something up; a non-empty result here
+        proves an agent chose to call it, which is the part that silently does
+        not happen. Returns an empty list — never an error — on a schema that
+        predates the `client` column, so a diagnostic can still run.
+        """
+        ...
+
     async def get_top_accessed(
         self,
         *,

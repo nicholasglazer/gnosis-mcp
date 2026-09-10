@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import csv
 import io
+import json
 import logging
 import os
 import sys
@@ -11,6 +12,7 @@ import types
 
 import pytest
 
+from gnosis_mcp import clients as cli_clients
 from gnosis_mcp.cli import (
     _apply_serve_overrides,
     _check_reranker,
@@ -21,10 +23,12 @@ from gnosis_mcp.cli import (
     _missing_schema_parts,
     _require_schema,
     cmd_check,
+    cmd_doctor,
     cmd_export,
     cmd_fix_link_types,
     cmd_init_db,
     cmd_serve,
+    cmd_setup,
     cmd_stats,
     main,
 )
@@ -670,3 +674,172 @@ class TestFixLinkTypesMigration:
         cmd_fix_link_types(argparse.Namespace())
 
         assert self._links(db) == [("git-history/b.md", "git_co_change")]
+
+
+class TestCmdSetup:
+    """`setup` is the reproducible half of an install."""
+
+    @pytest.fixture
+    def harness_home(self, monkeypatch, tmp_path):
+        """A throwaway $DSH_HOME, so no test can touch the developer's own."""
+        home = tmp_path / "dsh"
+        (home / "profiles" / "web").mkdir(parents=True)
+        (home / "profiles" / "web" / "cordis.yml").write_text("[]\n")
+        monkeypatch.setenv("DSH_HOME", str(home))
+        # Path.home() reads $HOME, so this keeps `scan` off the developer's real
+        # ~/.claude.json — otherwise every doctor assertion depends on their machine.
+        monkeypatch.setenv("HOME", str(tmp_path / "home"))
+        monkeypatch.setattr(cli_clients.shutil, "which", lambda _n: None)
+        return home
+
+    def test_preview_names_the_path_and_changes_nothing(self, harness_home, capsys):
+        code = cmd_setup(argparse.Namespace(
+            client=["dsh"], write=False, no_cli=False, dsh_profile=None, json=False, list_clients=False
+        ))
+
+        out = capsys.readouterr().out
+        assert code == 0
+        assert str(harness_home / "profiles" / "web" / "cordis.patch.yml") in out
+        assert not (harness_home / "profiles" / "web" / "cordis.patch.yml").exists()
+
+    def test_write_installs_a_row_the_harness_can_parse(self, harness_home):
+        """The real proof of reproducibility: a fresh home becomes a wired home."""
+        code = cmd_setup(argparse.Namespace(
+            client=["dsh"], write=True, no_cli=False, dsh_profile=None, json=False, list_clients=False
+        ))
+
+        patch = (harness_home / "profiles" / "web" / "cordis.patch.yml").read_text()
+        assert code == 0
+        assert "- id: mcp-gnosis" in patch
+        assert "name: '@deepseek-ai/dsh-mcp-client'" in patch
+        # PyYAML is not a dependency, so the check is the shape the loader wants:
+        # the block is a top-level list item, after its explanatory comments.
+        assert "- insert:" in patch
+        assert "failOnStartupError: false" in patch
+
+    def test_second_write_is_a_no_op(self, harness_home):
+        args = argparse.Namespace(
+            client=["dsh"], write=True, no_cli=False, dsh_profile=None, json=False, list_clients=False
+        )
+        cmd_setup(args)
+        patch = harness_home / "profiles" / "web" / "cordis.patch.yml"
+        agents = harness_home / "AGENTS.md"
+        first = (patch.read_text(), agents.read_text())
+
+        assert cmd_setup(args) == 0
+
+        assert (patch.read_text(), agents.read_text()) == first
+
+    def test_json_mode_is_machine_readable(self, harness_home, capsys):
+        cmd_setup(argparse.Namespace(
+            client=["dsh"], write=False, no_cli=False, dsh_profile=None, json=True, list_clients=False
+        ))
+
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["written"] is False
+        assert payload["clients"][0]["client"] == "dsh"
+        assert payload["clients"][0]["command"][-1] == "serve"
+
+    def test_an_unknown_client_exits_nonzero_instead_of_pretending(self, harness_home, capsys):
+        code = cmd_setup(argparse.Namespace(
+            client=["vscodium"], write=True, no_cli=False, dsh_profile=None, json=True, list_clients=False
+        ))
+
+        assert code == 1
+        assert "vscodium" in capsys.readouterr().out
+
+    def test_list_needs_no_home_and_writes_nothing(self, harness_home, capsys):
+        assert cmd_setup(argparse.Namespace(list_clients=True, json=False)) == 0
+        out = capsys.readouterr().out
+        for name in ("claude-code", "dsh", "zed", "generic"):
+            assert name in out
+
+
+class TestCmdDoctor:
+    """`doctor` answers the question `check` cannot: is it actually being used?"""
+
+    @pytest.fixture
+    def harness_home(self, monkeypatch, tmp_path):
+        home = tmp_path / "dsh"
+        (home / "profiles" / "web").mkdir(parents=True)
+        (home / "profiles" / "web" / "cordis.yml").write_text("[]\n")
+        monkeypatch.setenv("DSH_HOME", str(home))
+        # Path.home() reads $HOME, so this keeps `scan` off the developer's real
+        # ~/.claude.json — otherwise every doctor assertion depends on their machine.
+        monkeypatch.setenv("HOME", str(tmp_path / "home"))
+        monkeypatch.setattr(cli_clients.shutil, "which", lambda _n: None)
+        return home
+
+    def _args(self, **over):
+        base = {"days": 30, "strict": False, "no_verify": True, "dsh_profile": None, "json": False}
+        base.update(over)
+        return argparse.Namespace(**base)
+
+    def _seed_usage(self, db, rows) -> None:
+        import sqlite3
+
+        conn = sqlite3.connect(db)
+        conn.executemany(
+            "INSERT INTO search_access_log (file_path, tool, query, tokens_returned, "
+            "tokens_baseline, client, accessed_at) VALUES (?, ?, ?, ?, ?, ?, datetime('now'))",
+            rows,
+        )
+        conn.commit()
+        conn.close()
+
+    def test_uninitialized_database_is_a_problem(self, monkeypatch, tmp_path, harness_home, capsys):
+        _use_sqlite_db(monkeypatch, tmp_path / "never.db")
+
+        code = cmd_doctor(self._args())
+
+        assert code == 1
+        assert "problem:" in capsys.readouterr().out
+
+    def test_wired_but_never_called_warns_without_failing(self, monkeypatch, tmp_path, harness_home, capsys):
+        """A machine that installed gnosis five minutes ago is in exactly this state."""
+        _use_sqlite_db(monkeypatch, tmp_path / "fresh.db")
+        cmd_init_db(argparse.Namespace(dry_run=False))
+        cmd_setup(argparse.Namespace(
+            client=["dsh"], write=True, no_cli=False, dsh_profile=None, json=False, list_clients=False
+        ))
+        capsys.readouterr()
+
+        assert cmd_doctor(self._args()) == 0
+        assert "no call has ever been logged" in capsys.readouterr().out
+
+    def test_strict_turns_never_called_into_a_failure(self, monkeypatch, tmp_path, harness_home):
+        """For a CI job that wants to assert real usage, not just wiring."""
+        _use_sqlite_db(monkeypatch, tmp_path / "strict.db")
+        cmd_init_db(argparse.Namespace(dry_run=False))
+        cmd_setup(argparse.Namespace(
+            client=["dsh"], write=True, no_cli=False, dsh_profile=None, json=False, list_clients=False
+        ))
+
+        assert cmd_doctor(self._args(strict=True)) == 1
+
+    def test_a_real_call_is_reported_as_live_wiring(self, monkeypatch, tmp_path, harness_home, capsys):
+        db = tmp_path / "used.db"
+        _use_sqlite_db(monkeypatch, db)
+        cmd_init_db(argparse.Namespace(dry_run=False))
+        cmd_setup(argparse.Namespace(
+            client=["dsh"], write=True, no_cli=False, dsh_profile=None, json=False, list_clients=False
+        ))
+        self._seed_usage(db, [("docs/a.md", "search_docs", "q", 10, 900, "dsh-mcp-client/0.0.1")])
+        capsys.readouterr()
+
+        assert cmd_doctor(self._args()) == 0
+        out = capsys.readouterr().out
+        assert "dsh-mcp-client/0.0.1" in out
+        assert "the wiring is live" in out
+
+    def test_json_mode_carries_the_usage_rows(self, monkeypatch, tmp_path, harness_home, capsys):
+        db = tmp_path / "used-json.db"
+        _use_sqlite_db(monkeypatch, db)
+        cmd_init_db(argparse.Namespace(dry_run=False))
+        self._seed_usage(db, [("docs/a.md", "search_docs", "q", 10, 900, "claude-code/2.1.0")])
+
+        assert cmd_doctor(self._args(json=True)) == 0
+
+        payload = json.loads(capsys.readouterr().out)
+        assert [row["client"] for row in payload["usage"]] == ["claude-code/2.1.0"]
+        assert payload["server"]["command"][-1] == "serve"

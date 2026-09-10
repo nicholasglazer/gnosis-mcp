@@ -942,6 +942,41 @@ class PostgresBackend:
                 "by_tool": by_tool,
             }
 
+    async def client_usage(self, *, days: int = 30) -> list[dict[str, Any]]:
+        """See `DocBackend.client_usage` protocol docstring."""
+        cfg = self._cfg
+        async with await self._acquire() as conn:
+            # PostgreSQL has no ALTER TABLE migration helper here, so a schema
+            # that predates `client` is detected rather than assumed away.
+            has_client = await conn.fetchval(
+                "SELECT EXISTS ("
+                "  SELECT 1 FROM information_schema.columns"
+                "  WHERE table_schema = $1 AND table_name = 'search_access_log'"
+                "    AND column_name = 'client'"
+                ")",
+                cfg.schema,
+            )
+            if not has_client:
+                return []
+            rows = await conn.fetch(
+                f"SELECT COALESCE(client, '') AS client, count(*), "
+                f"       MIN(accessed_at), MAX(accessed_at) "
+                f"FROM {cfg.schema}.search_access_log "
+                f"WHERE accessed_at >= (NOW() - ($1 || ' days')::interval) "
+                f"GROUP BY 1 "
+                f"ORDER BY 2 DESC",
+                str(days),
+            )
+            return [
+                {
+                    "client": row["client"] or None,
+                    "calls": int(row["count"]),
+                    "first_accessed": row["min"].isoformat() if row["min"] else None,
+                    "last_accessed": row["max"].isoformat() if row["max"] else None,
+                }
+                for row in rows
+            ]
+
     async def log_access(
         self,
         file_path: str,
