@@ -30,6 +30,16 @@ class EmbedResult:
     total_null: int
     errors: int
 
+    @property
+    def total_failure(self) -> bool:
+        """True when there were chunks to embed and none of them succeeded.
+
+        Distinguished from a partial failure on purpose: some chunks failing is
+        worth a warning, but zero out of N means the provider is unreachable or
+        misconfigured, and the resulting index has no vectors at all.
+        """
+        return self.total_null > 0 and self.embedded == 0
+
 
 def contextual_header(file_path: str, title: str | None) -> str:
     """Build a contextual header to prepend to chunk content before embedding.
