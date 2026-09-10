@@ -55,6 +55,36 @@ def _make_lifespan(config: GnosisMcpConfig):
     return lifespan
 
 
+def _make_combined_lifespan(config: GnosisMcpConfig, mcp_app: Starlette):
+    """Run the REST lifespan *and* the mounted MCP app's own lifespan.
+
+    Starlette hands a request to a mounted sub-application without ever entering
+    that application's lifespan — `Mount.handle` calls `self.app(...)` directly.
+    FastMCP's streamable-HTTP transport builds the anyio task group every request
+    needs inside exactly that lifespan (`lambda app: session_manager.run()`), so
+    skipping it made every `POST /mcp` fail with
+
+        RuntimeError: Task group is not initialized. Make sure to use run().
+
+    which surfaced as HTTP 500 — the reason `--rest --transport streamable-http`
+    broke the MCP endpoint while the same request without `--rest` returned 200.
+    The REST-less CLI path already passes `mcp_app.router.lifespan_context`
+    directly; here it is nested inside the REST backend's lifespan so one port
+    serves both, with the REST state (backend/config) still yielded to
+    `request.state`.
+    """
+    rest_lifespan = _make_lifespan(config)
+    mcp_lifespan = mcp_app.router.lifespan_context
+
+    @asynccontextmanager
+    async def lifespan(app: Starlette) -> AsyncIterator[dict]:
+        async with rest_lifespan(app) as state:
+            async with mcp_lifespan(mcp_app):
+                yield state
+
+    return lifespan
+
+
 # ---------------------------------------------------------------------------
 # Middleware
 # ---------------------------------------------------------------------------
@@ -68,8 +98,11 @@ class ApiKeyMiddleware:
     token when one is configured.
     """
 
-    # Paths that must never be gated by auth. Callers can extend via
-    # ``GNOSIS_MCP_PUBLIC_PATHS`` (comma-separated) if they add more probes.
+    # Paths that must never be gated by auth. The constructor accepts a wider
+    # tuple, but no caller passes one: `GNOSIS_MCP_PUBLIC_PATHS` is named in
+    # docs/config.md and docs/rest-api.md, yet no code path reads it, so `/health`
+    # is the only ungated path in practice. Wire the setting up or drop it from
+    # the docs — a comment must not promise a capability the code does not have.
     PUBLIC_PATHS: tuple[str, ...] = ("/health",)
 
     def __init__(self, app, api_key: str, public_paths: tuple[str, ...] | None = None) -> None:
@@ -575,7 +608,9 @@ def create_combined_app(mcp_server, transport: str, config: GnosisMcpConfig) -> 
     """Create a combined ASGI app serving both REST and MCP on the same port.
 
     REST routes are mounted first (specific paths), MCP is the catch-all.
-    The REST backend has its own lifespan; MCP manages its own state.
+    The REST backend has its own lifespan; the MCP app's lifespan is entered
+    alongside it (see `_make_combined_lifespan`) because Starlette does not run
+    a mounted sub-application's lifespan for us.
     """
     if transport == "sse":
         mcp_app = mcp_server.sse_app()
@@ -586,7 +621,7 @@ def create_combined_app(mcp_server, transport: str, config: GnosisMcpConfig) -> 
     routes = _make_routes()
     routes.append(Mount("/", app=mcp_app))
 
-    app = Starlette(routes=routes, lifespan=_make_lifespan(config))
+    app = Starlette(routes=routes, lifespan=_make_combined_lifespan(config, mcp_app))
 
     app = RequestLoggingMiddleware(app)
 

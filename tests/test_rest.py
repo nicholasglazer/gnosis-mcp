@@ -1,11 +1,31 @@
 """Tests for REST API endpoints."""
 
 import asyncio
+import contextlib
+import json
+import os
+import socket
+import subprocess
+import sys
+import time
+import urllib.request
 
 import pytest
 from starlette.testclient import TestClient
 
 from gnosis_mcp.config import GnosisMcpConfig
+
+# The MCP transport-security allow-list covers loopback hosts only; a TestClient
+# with the default "testserver" Host is rejected with HTTP 421 before it ever
+# reaches a handler. Both the base URL and the CORS origin below stay inside it.
+_LOOPBACK_BASE_URL = "http://127.0.0.1:8000"
+_MCP_HEADERS = {"Accept": "application/json, text/event-stream"}
+
+_INITIALIZE_PARAMS = {
+    "protocolVersion": "2025-06-18",
+    "capabilities": {},
+    "clientInfo": {"name": "rest-test", "version": "1.0"},
+}
 
 
 @pytest.fixture
@@ -198,37 +218,170 @@ class TestContextEndpoint:
         assert len(r.json()["docs"]) <= 1
 
 
+def _seed_docs(config: GnosisMcpConfig, docs: list[tuple[str, list[str], str, str]]) -> None:
+    """Create the schema and insert `(path, chunks, title, category)` documents."""
+    from gnosis_mcp.backend import create_backend
+
+    async def _seed() -> None:
+        backend = create_backend(config)
+        await backend.startup()
+        await backend.init_schema()
+        for path, chunks, title, category in docs:
+            await backend.upsert_doc(path, chunks, title=title, category=category)
+        await backend.shutdown()
+
+    asyncio.run(_seed())
+
+
+def _sse_payload(response) -> dict:
+    """Decode the JSON-RPC message out of an SSE or JSON MCP response."""
+    for line in response.text.splitlines():
+        if line.startswith("data: "):
+            return json.loads(line[len("data: ") :])
+    return json.loads(response.text)
+
+
+def _mcp_call(
+    client,
+    method: str,
+    *,
+    params: dict | None = None,
+    session_id: str | None = None,
+    origin: str | None = None,
+):
+    headers = dict(_MCP_HEADERS)
+    if session_id:
+        headers["mcp-session-id"] = session_id
+    if origin:
+        headers["Origin"] = origin
+    if method == "initialize" and params is None:
+        params = _INITIALIZE_PARAMS
+    return client.post(
+        "/mcp",
+        json={"jsonrpc": "2.0", "id": 1, "method": method, "params": params or {}},
+        headers=headers,
+    )
+
+
+@contextlib.contextmanager
+def _combined_app_client(monkeypatch, tmp_path, *, cors_origins: str | None = None):
+    """TestClient over the real combined MCP+REST app on a seeded SQLite DB."""
+    from gnosis_mcp.rest import create_combined_app
+    from gnosis_mcp.server import mcp as mcp_server
+
+    monkeypatch.setenv("GNOSIS_MCP_DATABASE_URL", str(tmp_path / "combined.db"))
+    monkeypatch.setenv("GNOSIS_MCP_BACKEND", "sqlite")
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.setenv("GNOSIS_MCP_REST", "true")
+    if cors_origins:
+        monkeypatch.setenv("GNOSIS_MCP_CORS_ORIGINS", cors_origins)
+    else:
+        monkeypatch.delenv("GNOSIS_MCP_CORS_ORIGINS", raising=False)
+
+    config = GnosisMcpConfig.from_env()
+    _seed_docs(
+        config,
+        [
+            (
+                "guides/quickstart.md",
+                ["Getting started with the Gnosis MCP documentation server."],
+                "Quickstart Guide",
+                "guides",
+            )
+        ],
+    )
+
+    # FastMCP caches its StreamableHTTPSessionManager on the module-level server,
+    # and the SDK allows `run()` to be entered only once per instance — so each
+    # test that drives the combined lifespan needs a fresh manager.
+    monkeypatch.setattr(mcp_server, "_session_manager", None)
+    app = create_combined_app(mcp_server, "streamable-http", config)
+    with TestClient(app, base_url=_LOOPBACK_BASE_URL) as client:
+        yield client
+
+
+@pytest.fixture
+def combined_client(monkeypatch, tmp_path):
+    """Combined MCP+REST app: the same ASGI app `serve --rest` hands to uvicorn."""
+    with _combined_app_client(monkeypatch, tmp_path) as client:
+        yield client
+
+
 class TestCombinedApp:
     def test_create_combined_app(self, monkeypatch, tmp_path):
         """Verify combined app mounts both MCP and REST."""
-        from gnosis_mcp.backend import create_backend
-        from gnosis_mcp.rest import create_combined_app
-        from gnosis_mcp.server import mcp
-
-        db_path = str(tmp_path / "combined.db")
-        monkeypatch.setenv("GNOSIS_MCP_DATABASE_URL", db_path)
-        monkeypatch.delenv("DATABASE_URL", raising=False)
-        monkeypatch.setenv("GNOSIS_MCP_REST", "true")
-        config = GnosisMcpConfig.from_env()
-
-        # Initialize schema first so search doesn't fail with missing tables
-        async def _init():
-            backend = create_backend(config)
-            await backend.startup()
-            await backend.init_schema()
-            await backend.shutdown()
-
-        asyncio.run(_init())
-
-        app = create_combined_app(mcp, "streamable-http", config)
-        with TestClient(app) as client:
+        with _combined_app_client(monkeypatch, tmp_path) as client:
             # REST health endpoint works
             r = client.get("/health")
             assert r.status_code == 200
 
-            # REST search endpoint works (empty results since no docs)
-            r = client.get("/api/search?q=test")
+            # REST search endpoint works
+            r = client.get("/api/search?q=quickstart")
             assert r.status_code == 200
+            assert r.json()["results"][0]["file_path"] == "guides/quickstart.md"
+
+    def test_mcp_initialize_and_tools_list_share_the_port(self, combined_client):
+        """Regression: `POST /mcp` returned 500 under `--rest`.
+
+        Starlette never enters a mounted sub-application's lifespan, and FastMCP
+        creates the streamable-HTTP session task group there, so every MCP
+        request died with "Task group is not initialized. Make sure to use run()"
+        once `create_combined_app` mounted the transport. Reproduced against a
+        real server before the fix: GET /health 200, POST /mcp 500.
+        """
+        init = _mcp_call(combined_client, "initialize")
+        assert init.status_code == 200, init.text
+        result = _sse_payload(init)["result"]
+        assert result["serverInfo"]["name"] == "gnosis-mcp"
+        session_id = init.headers.get("mcp-session-id")
+        assert session_id, "initialize must hand back a session id"
+
+        tools = _mcp_call(combined_client, "tools/list", session_id=session_id)
+        assert tools.status_code == 200, tools.text
+        names = {t["name"] for t in _sse_payload(tools)["result"]["tools"]}
+        assert {"search_docs", "get_doc", "get_related"}.issubset(names), names
+
+        # REST keeps working on the same port, same app.
+        assert combined_client.get("/health").status_code == 200
+
+    def test_mcp_tool_call_runs_alongside_rest(self, combined_client):
+        """A real MCP tool call and a REST call see the same seeded database."""
+        init = _mcp_call(combined_client, "initialize")
+        session_id = init.headers["mcp-session-id"]
+        call = _mcp_call(
+            combined_client,
+            "tools/call",
+            params={"name": "search_docs", "arguments": {"query": "quickstart"}},
+            session_id=session_id,
+        )
+        assert call.status_code == 200, call.text
+        mcp_results = json.loads(_sse_payload(call)["result"]["content"][0]["text"])
+        assert mcp_results[0]["file_path"] == "guides/quickstart.md"
+
+        rest_results = combined_client.get("/api/search?q=quickstart").json()["results"]
+        assert rest_results[0]["file_path"] == "guides/quickstart.md"
+
+    def test_cors_headers_reach_rest_and_mcp(self, monkeypatch, tmp_path):
+        """The CORS wrapper must not be what breaks (or is skipped by) MCP."""
+        origin = _LOOPBACK_BASE_URL
+        with _combined_app_client(monkeypatch, tmp_path, cors_origins=origin) as client:
+            health = client.get("/health", headers={"Origin": origin})
+            assert health.status_code == 200
+            assert health.headers["access-control-allow-origin"] == origin
+
+            init = _mcp_call(client, "initialize", origin=origin)
+            assert init.status_code == 200
+            assert init.headers["access-control-allow-origin"] == origin
+
+            preflight = client.options(
+                "/api/search",
+                headers={
+                    "Origin": origin,
+                    "Access-Control-Request-Method": "GET",
+                },
+            )
+            assert preflight.status_code == 204
+            assert preflight.headers["access-control-allow-methods"] == "GET, POST, OPTIONS"
 
 
 class TestGraphStatsEndpoint:
@@ -336,3 +489,140 @@ class TestEmbedEndpoint:
         assert r.status_code == 200
         assert captured["model"] == "intfloat/multilingual-e5-large"
         assert r.json()["model"] == "intfloat/multilingual-e5-large"
+
+
+# ---------------------------------------------------------------------------
+# End-to-end: one real port, one real uvicorn process, MCP + REST together
+# ---------------------------------------------------------------------------
+
+
+def _free_port() -> int:
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
+
+
+def _get(url: str, timeout: float = 5.0) -> tuple[int, str]:
+    with urllib.request.urlopen(url, timeout=timeout) as resp:  # noqa: S310 — loopback only
+        return resp.status, resp.read().decode()
+
+
+def _wait_for_health(url: str, timeout: float = 30.0) -> int:
+    deadline = time.time() + timeout
+    last_error: Exception | None = None
+    while time.time() < deadline:
+        try:
+            return _get(url)[0]
+        except Exception as exc:  # server still booting
+            last_error = exc
+            time.sleep(0.25)
+    raise AssertionError(f"server never became healthy at {url}: {last_error}")
+
+
+@pytest.mark.e2e
+def test_rest_and_mcp_coexist_on_one_real_port(tmp_path):
+    """`serve --rest --transport streamable-http`: MCP and REST on one port.
+
+    The full-scale reproduction of the defect: a real uvicorn process, a real
+    MCP client doing initialize + tools/list over HTTP, and real REST calls on
+    the same port. Before the fix this server answered GET /health with 200 and
+    POST /mcp with 500 ("Task group is not initialized. Make sure to use run()").
+    """
+    pytest.importorskip("mcp")
+    from mcp import ClientSession
+    from mcp.client.streamable_http import streamablehttp_client
+
+    db = tmp_path / "combined-e2e.db"
+    env = os.environ.copy()
+    env.update(
+        {
+            "GNOSIS_MCP_DATABASE_URL": str(db),
+            "GNOSIS_MCP_BACKEND": "sqlite",
+            "GNOSIS_MCP_LOG_LEVEL": "WARNING",
+            "GNOSIS_MCP_CORS_ORIGINS": "*",
+        }
+    )
+
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "widgets.md").write_text(
+        "---\ncategory: guides\n---\n\n"
+        "# Widget Guide\n\n"
+        "Widgets describe a pipeline stage in the gnosis-mcp documentation "
+        "server. This paragraph exists so the file survives the minimum chunk "
+        "size check that ingest applies to every document.\n\n"
+        "## Installing widgets\n\n"
+        "Install a widget with your package manager, then run the widget doctor "
+        "command against your documentation corpus to confirm it is reachable.\n"
+    )
+
+    for args in (["init-db"], ["ingest", str(docs)]):
+        done = subprocess.run(
+            [sys.executable, "-m", "gnosis_mcp", *args],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        assert done.returncode == 0, f"{args} failed: {done.stderr}"
+
+    port = _free_port()
+    log_path = tmp_path / "server.log"
+    with log_path.open("w") as log_file:
+        proc = subprocess.Popen(
+            [
+                sys.executable,
+                "-m",
+                "gnosis_mcp",
+                "serve",
+                "--rest",
+                "--transport",
+                "streamable-http",
+                "--host",
+                "127.0.0.1",
+                "--port",
+                str(port),
+            ],
+            env=env,
+            stdout=log_file,
+            stderr=subprocess.STDOUT,
+        )
+        base = f"http://127.0.0.1:{port}"
+        try:
+            assert _wait_for_health(f"{base}/health") == 200
+
+            # REST routes on the same port
+            status, body = _get(f"{base}/api/search?q=widget")
+            assert status == 200
+            assert json.loads(body)["results"][0]["file_path"] == "widgets.md"
+
+            status, body = _get(f"{base}/api/categories")
+            assert status == 200
+            assert json.loads(body)[0]["category"] == "guides"
+
+            # MCP transport on the same port, driven by the real SDK client
+            async def _drive_mcp() -> list[str]:
+                async with streamablehttp_client(f"{base}/mcp") as (read, write, _):
+                    async with ClientSession(read, write) as session:
+                        init = await session.initialize()
+                        assert init.serverInfo.name == "gnosis-mcp"
+                        tools = await session.list_tools()
+                        names = [t.name for t in tools.tools]
+                        result = await session.call_tool("search_docs", {"query": "widget"})
+                        hits = json.loads(result.content[0].text)
+                        assert hits[0]["file_path"] == "widgets.md"
+                        return names
+
+            names = asyncio.run(_drive_mcp())
+            assert {"search_docs", "get_doc", "get_related"}.issubset(set(names)), names
+        finally:
+            proc.terminate()
+            try:
+                proc.wait(timeout=15)
+            except subprocess.TimeoutExpired:  # pragma: no cover — hung shutdown
+                proc.kill()
+                proc.wait(timeout=15)
+
+    server_log = log_path.read_text()
+    assert "Task group is not initialized" not in server_log, server_log
+    assert "Traceback" not in server_log, server_log
