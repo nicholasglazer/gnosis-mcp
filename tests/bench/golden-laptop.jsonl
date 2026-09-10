@@ -1,0 +1,30 @@
+{"query": "track how many times items appear in a sequence", "expected_paths": ["library/collections.html"]}
+{"query": "compare two text files and show line by line differences", "expected_paths": ["library/difflib"]}
+{"query": "get current time with timezone offset", "expected_paths": ["library/datetime"]}
+{"query": "decode unicode bytes from an input stream", "expected_paths": ["library/codecs"]}
+{"query": "efficient lookup for inserting into a sorted list", "expected_paths": ["library/bisect"]}
+{"query": "smallest element pops first data structure", "expected_paths": ["library/heapq"]}
+{"query": "deep copy a nested dictionary so original stays intact", "expected_paths": ["library/copy"]}
+{"query": "signal that recomputes when source data changes", "expected_paths": ["docs/svelte/$derived"]}
+{"query": "lifecycle hook that runs after every reactive update", "expected_paths": ["docs/svelte/$effect"]}
+{"query": "declare inputs a component receives from its parent", "expected_paths": ["docs/svelte/$props"]}
+{"query": "expose a prop that parent can also mutate", "expected_paths": ["docs/svelte/$bindable"]}
+{"query": "watch a value and log it in dev mode only", "expected_paths": ["docs/svelte/$inspect"]}
+{"query": "repeat a block for every item in a collection", "expected_paths": ["docs/svelte/each"]}
+{"query": "template branch rendered only when predicate holds", "expected_paths": ["docs/svelte/if"]}
+{"query": "how adapter builds project for cloudflare workers deployment", "expected_paths": ["docs/kit/adapter-cloudflare-workers"]}
+{"query": "pre-rendering routes to static HTML at build time", "expected_paths": ["docs/kit/adapter-static"]}
+{"query": "loading data before a page renders server side", "expected_paths": ["docs/kit/load"]}
+{"query": "handling form submissions without page reload", "expected_paths": ["docs/kit/form-actions"]}
+{"query": "define a tool that an AI client can invoke", "expected_paths": ["llms-full.txt"]}
+{"query": "resources the LLM can read during a session", "expected_paths": ["llms-full.txt"]}
+{"query": "objects that proxy remote calls between client and compositor", "expected_paths": ["wayland-book.com/libwayland/proxies"]}
+{"query": "binding globals from the registry object", "expected_paths": ["wayland-book.com/registry/binding"]}
+{"query": "renew a lease on a direct rendering output", "expected_paths": ["drm-lease-v1"]}
+{"query": "screen lock to block input while machine is idle", "expected_paths": ["ext-session-lock-v1"]}
+{"query": "full text search index using trigram tokenizer", "expected_paths": ["fts5.html"]}
+{"query": "virtual table vector similarity using cosine", "expected_paths": ["asg017/sqlite-vec"]}
+{"query": "score how similar two sentences are with a bi-encoder", "expected_paths": ["semantic_textual_similarity"]}
+{"query": "fine tune a pre-trained transformer on domain text", "expected_paths": ["transformers/training"]}
+{"query": "run inference on CPU from a python program", "expected_paths": ["with-python.html"]}
+{"query": "looping constructs for control flow in javascript", "expected_paths": ["Loops_and_iteration"]}

@@ -400,9 +400,7 @@ def cmd_setup(args: argparse.Namespace) -> int:
     failures: list[str] = []
     for name in requested:
         try:
-            report = clients.configure(
-                name, write=args.write, env=env, use_cli=not args.no_cli
-            )
+            report = clients.configure(name, write=args.write, env=env, use_cli=not args.no_cli)
         except ValueError as exc:
             reports.append({"client": name, "error": str(exc)})
             failures.append(f"{name}: {exc}")
@@ -418,7 +416,9 @@ def cmd_setup(args: argparse.Namespace) -> int:
     command = clients.resolve_command()
     sys.stdout.write("\n  gnosis-mcp setup\n  " + "=" * 52 + "\n")
     sys.stdout.write(f"  server command   {' '.join(command)}\n")
-    sys.stdout.write(f"  mode             {'writing config' if args.write else 'preview (add --write)'}\n")
+    sys.stdout.write(
+        f"  mode             {'writing config' if args.write else 'preview (add --write)'}\n"
+    )
 
     for report in reports:
         sys.stdout.write("\n")
@@ -431,7 +431,9 @@ def cmd_setup(args: argparse.Namespace) -> int:
         if report.get("wrote"):
             sys.stdout.write(f"    wrote     {report.get('action', 'ok')}\n")
         if report.get("rules_path"):
-            sys.stdout.write(f"    rule      {report['rules_path']} ({report.get('rules_action')})\n")
+            sys.stdout.write(
+                f"    rule      {report['rules_path']} ({report.get('rules_action')})\n"
+            )
         cli = report.get("cli")
         if isinstance(cli, dict) and cli.get("argv"):
             sys.stdout.write(f"    via cli   {' '.join(cli['argv'])}\n")
@@ -504,7 +506,9 @@ def cmd_doctor(args: argparse.Namespace) -> int:
 
     probe = asyncio.run(_probe())
     wiring = clients.scan(env=env)
-    verified = {"checked": False, "detail": "skipped"} if args.no_verify else clients.verify_dsh(env)
+    verified = (
+        {"checked": False, "detail": "skipped"} if args.no_verify else clients.verify_dsh(env)
+    )
 
     wired = [row for row in wiring if row.get("configured")]
     usage = probe.get("usage") or []
@@ -560,7 +564,9 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         if "error" in row:
             sys.stdout.write(f"    {row['client']:<14} ?  {row['error']}\n")
             continue
-        state = "wired" if row.get("configured") else ("present" if row.get("exists") else "absent")
+        state = (
+            "wired" if row.get("configured") else ("present" if row.get("exists") else "absent")
+        )
         sys.stdout.write(f"    {row['client']:<14} {state:<8} {row['path']}\n")
 
     if verified.get("checked"):
@@ -583,9 +589,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
             )
         savings = probe.get("savings") or {}
         if savings.get("calls"):
-            sys.stdout.write(
-                f"    {'':<34}{savings.get('tokens_saved', 0):>7,} tokens saved\n"
-            )
+            sys.stdout.write(f"    {'':<34}{savings.get('tokens_saved', 0):>7,} tokens saved\n")
 
     problems: list[str] = []
     if probe.get("error"):
@@ -1762,7 +1766,9 @@ def main() -> None:
         choices=clients.client_names(),
         help="Client to configure; repeatable. Default: every client detected here.",
     )
-    p_setup.add_argument("--write", action="store_true", help="Apply the changes (default: preview)")
+    p_setup.add_argument(
+        "--write", action="store_true", help="Apply the changes (default: preview)"
+    )
     p_setup.add_argument(
         "--no-cli",
         action="store_true",
@@ -1783,7 +1789,9 @@ def main() -> None:
             "the access log says has actually called this server."
         ),
     )
-    p_doctor.add_argument("--days", type=int, default=30, help="Usage window in days (default: 30)")
+    p_doctor.add_argument(
+        "--days", type=int, default=30, help="Usage window in days (default: 30)"
+    )
     p_doctor.add_argument(
         "--strict", action="store_true", help="Exit 1 when wired but never called (for CI)"
     )

@@ -693,9 +693,16 @@ class TestCmdSetup:
         return home
 
     def test_preview_names_the_path_and_changes_nothing(self, harness_home, capsys):
-        code = cmd_setup(argparse.Namespace(
-            client=["dsh"], write=False, no_cli=False, dsh_profile=None, json=False, list_clients=False
-        ))
+        code = cmd_setup(
+            argparse.Namespace(
+                client=["dsh"],
+                write=False,
+                no_cli=False,
+                dsh_profile=None,
+                json=False,
+                list_clients=False,
+            )
+        )
 
         out = capsys.readouterr().out
         assert code == 0
@@ -704,9 +711,16 @@ class TestCmdSetup:
 
     def test_write_installs_a_row_the_harness_can_parse(self, harness_home):
         """The real proof of reproducibility: a fresh home becomes a wired home."""
-        code = cmd_setup(argparse.Namespace(
-            client=["dsh"], write=True, no_cli=False, dsh_profile=None, json=False, list_clients=False
-        ))
+        code = cmd_setup(
+            argparse.Namespace(
+                client=["dsh"],
+                write=True,
+                no_cli=False,
+                dsh_profile=None,
+                json=False,
+                list_clients=False,
+            )
+        )
 
         patch = (harness_home / "profiles" / "web" / "cordis.patch.yml").read_text()
         assert code == 0
@@ -719,7 +733,12 @@ class TestCmdSetup:
 
     def test_second_write_is_a_no_op(self, harness_home):
         args = argparse.Namespace(
-            client=["dsh"], write=True, no_cli=False, dsh_profile=None, json=False, list_clients=False
+            client=["dsh"],
+            write=True,
+            no_cli=False,
+            dsh_profile=None,
+            json=False,
+            list_clients=False,
         )
         cmd_setup(args)
         patch = harness_home / "profiles" / "web" / "cordis.patch.yml"
@@ -731,9 +750,16 @@ class TestCmdSetup:
         assert (patch.read_text(), agents.read_text()) == first
 
     def test_json_mode_is_machine_readable(self, harness_home, capsys):
-        cmd_setup(argparse.Namespace(
-            client=["dsh"], write=False, no_cli=False, dsh_profile=None, json=True, list_clients=False
-        ))
+        cmd_setup(
+            argparse.Namespace(
+                client=["dsh"],
+                write=False,
+                no_cli=False,
+                dsh_profile=None,
+                json=True,
+                list_clients=False,
+            )
+        )
 
         payload = json.loads(capsys.readouterr().out)
         assert payload["written"] is False
@@ -741,9 +767,16 @@ class TestCmdSetup:
         assert payload["clients"][0]["command"][-1] == "serve"
 
     def test_an_unknown_client_exits_nonzero_instead_of_pretending(self, harness_home, capsys):
-        code = cmd_setup(argparse.Namespace(
-            client=["vscodium"], write=True, no_cli=False, dsh_profile=None, json=True, list_clients=False
-        ))
+        code = cmd_setup(
+            argparse.Namespace(
+                client=["vscodium"],
+                write=True,
+                no_cli=False,
+                dsh_profile=None,
+                json=True,
+                list_clients=False,
+            )
+        )
 
         assert code == 1
         assert "vscodium" in capsys.readouterr().out
@@ -787,7 +820,9 @@ class TestCmdDoctor:
         conn.commit()
         conn.close()
 
-    def test_uninitialized_database_is_a_problem(self, monkeypatch, tmp_path, harness_home, capsys):
+    def test_uninitialized_database_is_a_problem(
+        self, monkeypatch, tmp_path, harness_home, capsys
+    ):
         _use_sqlite_db(monkeypatch, tmp_path / "never.db")
 
         code = cmd_doctor(self._args())
@@ -795,13 +830,22 @@ class TestCmdDoctor:
         assert code == 1
         assert "problem:" in capsys.readouterr().out
 
-    def test_wired_but_never_called_warns_without_failing(self, monkeypatch, tmp_path, harness_home, capsys):
+    def test_wired_but_never_called_warns_without_failing(
+        self, monkeypatch, tmp_path, harness_home, capsys
+    ):
         """A machine that installed gnosis five minutes ago is in exactly this state."""
         _use_sqlite_db(monkeypatch, tmp_path / "fresh.db")
         cmd_init_db(argparse.Namespace(dry_run=False))
-        cmd_setup(argparse.Namespace(
-            client=["dsh"], write=True, no_cli=False, dsh_profile=None, json=False, list_clients=False
-        ))
+        cmd_setup(
+            argparse.Namespace(
+                client=["dsh"],
+                write=True,
+                no_cli=False,
+                dsh_profile=None,
+                json=False,
+                list_clients=False,
+            )
+        )
         capsys.readouterr()
 
         assert cmd_doctor(self._args()) == 0
@@ -811,19 +855,35 @@ class TestCmdDoctor:
         """For a CI job that wants to assert real usage, not just wiring."""
         _use_sqlite_db(monkeypatch, tmp_path / "strict.db")
         cmd_init_db(argparse.Namespace(dry_run=False))
-        cmd_setup(argparse.Namespace(
-            client=["dsh"], write=True, no_cli=False, dsh_profile=None, json=False, list_clients=False
-        ))
+        cmd_setup(
+            argparse.Namespace(
+                client=["dsh"],
+                write=True,
+                no_cli=False,
+                dsh_profile=None,
+                json=False,
+                list_clients=False,
+            )
+        )
 
         assert cmd_doctor(self._args(strict=True)) == 1
 
-    def test_a_real_call_is_reported_as_live_wiring(self, monkeypatch, tmp_path, harness_home, capsys):
+    def test_a_real_call_is_reported_as_live_wiring(
+        self, monkeypatch, tmp_path, harness_home, capsys
+    ):
         db = tmp_path / "used.db"
         _use_sqlite_db(monkeypatch, db)
         cmd_init_db(argparse.Namespace(dry_run=False))
-        cmd_setup(argparse.Namespace(
-            client=["dsh"], write=True, no_cli=False, dsh_profile=None, json=False, list_clients=False
-        ))
+        cmd_setup(
+            argparse.Namespace(
+                client=["dsh"],
+                write=True,
+                no_cli=False,
+                dsh_profile=None,
+                json=False,
+                list_clients=False,
+            )
+        )
         self._seed_usage(db, [("docs/a.md", "search_docs", "q", 10, 900, "dsh-mcp-client/0.0.1")])
         capsys.readouterr()
 

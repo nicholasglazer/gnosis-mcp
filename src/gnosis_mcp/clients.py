@@ -177,10 +177,20 @@ def _cline_settings(env: Env) -> Path:
         )
     if env.platform.startswith("win"):
         return env.appdata(
-            "Code", "User", "globalStorage", "saoudrizwan.claude-dev", "settings", "cline_mcp_settings.json"
+            "Code",
+            "User",
+            "globalStorage",
+            "saoudrizwan.claude-dev",
+            "settings",
+            "cline_mcp_settings.json",
         )
     return env.xdg(
-        "Code", "User", "globalStorage", "saoudrizwan.claude-dev", "settings", "cline_mcp_settings.json"
+        "Code",
+        "User",
+        "globalStorage",
+        "saoudrizwan.claude-dev",
+        "settings",
+        "cline_mcp_settings.json",
     )
 
 
@@ -442,11 +452,15 @@ def render_agents_rule() -> str:
 
 def _render_mdc_rule() -> str:
     """Cursor's rule format: MDC is markdown with a frontmatter block."""
-    return f"---\ndescription: gnosis-mcp knowledge base\nalwaysApply: true\n---\n\n{AGENTS_RULE}\n"
+    return (
+        f"---\ndescription: gnosis-mcp knowledge base\nalwaysApply: true\n---\n\n{AGENTS_RULE}\n"
+    )
 
 
 def _rule_text(client: Client) -> str:
-    return _render_mdc_rule() if client.name == "cursor" else f"{MD_BEGIN}\n{AGENTS_RULE}\n{MD_END}\n"
+    return (
+        _render_mdc_rule() if client.name == "cursor" else f"{MD_BEGIN}\n{AGENTS_RULE}\n{MD_END}\n"
+    )
 
 
 def write_managed_text(path: Path, block: str, begin: str = MD_BEGIN, end: str = MD_END) -> str:
@@ -629,7 +643,9 @@ def configure(
             report["warning"] = stale
             report["action"] = "skipped"
             return report
-        report["action"] = write_managed_text(path, render_dsh_block(command), YAML_BEGIN, YAML_END)
+        report["action"] = write_managed_text(
+            path, render_dsh_block(command), YAML_BEGIN, YAML_END
+        )
         installed = True
     elif client.add_cli and use_cli:
         cli = _run_add_cli(client, command)
@@ -744,7 +760,10 @@ def client_present(client: Client, env: Env, *, use_cli: bool = True) -> bool:
             if path.parent != env.home and path.parent.is_dir():
                 return True
     return bool(
-        use_cli and client.add_cli is not None and client.add_cli[0] and shutil.which(client.add_cli[0])
+        use_cli
+        and client.add_cli is not None
+        and client.add_cli[0]
+        and shutil.which(client.add_cli[0])
     )
 
 

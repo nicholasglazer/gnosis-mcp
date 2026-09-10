@@ -129,7 +129,9 @@ class TestResolveCommand:
 
         assert resolve_command() == [str(public / "gnosis-mcp"), "serve"]
 
-    def test_does_not_follow_a_shim_into_the_package_managers_private_directory(self, monkeypatch, tmp_path):
+    def test_does_not_follow_a_shim_into_the_package_managers_private_directory(
+        self, monkeypatch, tmp_path
+    ):
         """The console script is usually a symlink; the config should name the link."""
         shim_dir = tmp_path / "local" / "bin"
         private = tmp_path / "uv" / "tools" / "gnosis-mcp" / "bin"
@@ -216,7 +218,10 @@ class TestWriteManagedText:
         path.write_text("- id: theirs\n")
         write_managed_text(path, f"{YAML_BEGIN}\nfirst\n{YAML_END}\n", YAML_BEGIN, YAML_END)
 
-        assert write_managed_text(path, f"{YAML_BEGIN}\nsecond\n{YAML_END}\n", YAML_BEGIN, YAML_END) == "updated"
+        assert (
+            write_managed_text(path, f"{YAML_BEGIN}\nsecond\n{YAML_END}\n", YAML_BEGIN, YAML_END)
+            == "updated"
+        )
         text = path.read_text()
         assert text.count(YAML_BEGIN) == 1
         assert "second" in text and "first" not in text
@@ -350,7 +355,9 @@ class TestConfigure:
 
     def test_a_failing_vendor_cli_is_reported_not_worked_around(self, env, monkeypatch):
         """If `claude` exists and refuses, do not silently write a rival config."""
-        monkeypatch.setattr(clients.shutil, "which", lambda n: "/usr/bin/claude" if n == "claude" else None)
+        monkeypatch.setattr(
+            clients.shutil, "which", lambda n: "/usr/bin/claude" if n == "claude" else None
+        )
         monkeypatch.setattr(
             clients.subprocess,
             "run",
@@ -449,7 +456,9 @@ class TestVerifyDsh:
     def test_reports_the_harness_verdict(self, env, monkeypatch):
         monkeypatch.setattr(clients.shutil, "which", lambda _n: "/usr/bin/dsh")
         monkeypatch.setattr(
-            clients.subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(a[0], 0, "tree", "")
+            clients.subprocess,
+            "run",
+            lambda *a, **k: subprocess.CompletedProcess(a[0], 0, "tree", ""),
         )
 
         result = verify_dsh(env)
