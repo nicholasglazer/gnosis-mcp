@@ -15,6 +15,7 @@ Run without the `e2e` mark to exclude:
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -147,3 +148,102 @@ def test_cli_check_exits_zero_on_healthy_db(tmp_path):
         timeout=30,
     )
     assert check.returncode == 0, f"check failed: rc={check.returncode} stderr={check.stderr}"
+
+
+def test_cli_check_exits_nonzero_on_uninitialized_db(tmp_path):
+    """`gnosis-mcp check` must exit 1 when the schema was never created.
+
+    Regression: the command used to print "Chunks table: does not exist" and
+    still exit 0, so it could not gate setup scripts, installers, or CI.
+    """
+    db = tmp_path / "uninitialized.db"
+    env = os.environ.copy()
+    env["GNOSIS_MCP_DATABASE_URL"] = f"sqlite:///{db}"
+    env["GNOSIS_MCP_BACKEND"] = "sqlite"
+
+    check = subprocess.run(
+        [sys.executable, "-m", "gnosis_mcp", "check"],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+
+    assert check.returncode == 1, f"expected rc=1, got {check.returncode}: {check.stderr}"
+    assert "Chunks table: does not exist" in check.stderr
+    assert "Run `gnosis-mcp init-db` to create tables." in check.stderr
+    assert "unhealthy" in check.stderr
+
+
+def test_cli_check_exits_nonzero_when_backend_cannot_start(tmp_path):
+    """A backend that cannot be opened is unhealthy too (path is a directory)."""
+    env = os.environ.copy()
+    env["GNOSIS_MCP_DATABASE_URL"] = f"sqlite:///{tmp_path}"
+    env["GNOSIS_MCP_BACKEND"] = "sqlite"
+
+    check = subprocess.run(
+        [sys.executable, "-m", "gnosis_mcp", "check"],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+
+    assert check.returncode == 1, f"expected rc=1, got {check.returncode}: {check.stderr}"
+    assert "Cannot start the sqlite backend" in check.stderr
+    assert "unhealthy" in check.stderr
+
+
+@pytest.mark.asyncio
+async def test_serve_flags_reach_mcp_tools(e2e_env):
+    """`serve --search-limit-max/--content-preview-chars` must reach the tools.
+
+    The tools read a config built by `from_env()` inside `db.app_lifespan()`,
+    which is why the CLI exports the values as env vars. A locally patched
+    config object would leave `limit=50` uncapped and the previews full-length.
+    """
+    params = StdioServerParameters(
+        command=sys.executable,
+        args=[
+            "-m",
+            "gnosis_mcp",
+            "serve",
+            "--search-limit-max",
+            "2",
+            "--content-preview-chars",
+            "60",
+        ],
+        env=e2e_env,
+    )
+
+    async with stdio_client(params) as (read, write):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+
+            for i in range(5):
+                upsert = await session.call_tool(
+                    "upsert_doc",
+                    {
+                        "path": f"flags/doc{i}.md",
+                        "content": (
+                            f"# Doc {i}\n\nThe quick brown fox jumps over the lazy dog "
+                            f"in document number {i}.\n"
+                        ),
+                        "title": f"Doc {i}",
+                        "category": "flags",
+                    },
+                )
+                assert upsert.content, "upsert returned empty content"
+
+            result = await session.call_tool(
+                "search_docs", {"query": "quick brown fox", "limit": 50}
+            )
+            texts = [c.text for c in result.content if hasattr(c, "text")]
+            results = json.loads("\n".join(texts))
+
+            assert isinstance(results, list), f"unexpected search payload: {texts!r}"
+            # 5 matching docs, but the CLI capped the limit at 2.
+            assert len(results) == 2, f"expected the cap to apply, got {len(results)} results"
+            for r in results:
+                preview = r.get("content_preview", "")
+                assert len(preview) <= 63, f"preview not truncated: {preview!r}"

@@ -17,10 +17,31 @@ __all__ = ["main"]
 log = logging.getLogger("gnosis_mcp")
 
 
+def _apply_serve_overrides(args: argparse.Namespace) -> None:
+    """Push `serve` tuning overrides into the environment before config is built.
+
+    `GnosisMcpConfig.from_env()` is the only construction point for `serve`, and
+    the FastMCP lifespan (`db.app_lifespan`) builds its *own* config from the
+    environment once the server starts — so a locally patched config object
+    (e.g. `dataclasses.replace`) would leave the MCP tools, the REST routes and
+    the watcher reading the old values. Setting the env vars keeps a single
+    config path, and `GnosisMcpConfig.__post_init__` then validates a bad CLI
+    value with the same `GNOSIS_MCP_*` message an env var would produce.
+    """
+    if args.search_limit_max is not None:
+        os.environ["GNOSIS_MCP_SEARCH_LIMIT_MAX"] = str(args.search_limit_max)
+    if args.content_preview_chars is not None:
+        os.environ["GNOSIS_MCP_CONTENT_PREVIEW_CHARS"] = str(args.content_preview_chars)
+
+
 def cmd_serve(args: argparse.Namespace) -> None:
     """Start the MCP server."""
     from gnosis_mcp.config import GnosisMcpConfig
     from gnosis_mcp.server import mcp
+
+    # Before any config is built — `from_env()` below and the lifespan's own
+    # `from_env()` inside the server process must both see the CLI values.
+    _apply_serve_overrides(args)
 
     config = GnosisMcpConfig.from_env()
 
@@ -150,18 +171,54 @@ def cmd_init_db(args: argparse.Namespace) -> None:
     asyncio.run(_run())
 
 
-def cmd_check(args: argparse.Namespace) -> None:
-    """Verify database connection and schema."""
+def _missing_schema_parts(health: dict) -> list[str]:
+    """Schema pieces the server needs that `check_health()` reports as absent.
+
+    Only keys the backend explicitly reports as `False` count — PostgreSQL has no
+    FTS5 index, and a backend that does not report a key at all is not making a
+    claim about it. `search_access_log` is deliberately absent from this list:
+    access logging is fire-and-forget, so a missing table degrades `get_context`
+    without breaking the server.
+    """
+    missing: list[str] = []
+    if health.get("chunks_table_exists") is False:
+        missing.append("chunks table")
+    if health.get("fts_table_exists") is False:
+        missing.append("FTS5 index")
+    if health.get("links_table_exists") is False:
+        missing.append("links table")
+    return missing
+
+
+def cmd_check(args: argparse.Namespace) -> int:
+    """Verify database connection and schema.
+
+    Returns the exit status `main()` turns into the process status: 0 when the
+    backend started and the tables the server needs are present, 1 when the
+    backend cannot be reached or the schema was never initialized. That makes
+    `gnosis-mcp check` usable as a gate in setup scripts, installers, and CI.
+    """
     from gnosis_mcp.backend import create_backend
     from gnosis_mcp.config import GnosisMcpConfig
 
     config = GnosisMcpConfig.from_env()
 
-    async def _run() -> None:
+    async def _run() -> int:
         backend = create_backend(config)
-        await backend.startup()
         try:
-            health = await backend.check_health()
+            await backend.startup()
+        except Exception as exc:
+            log.error("Cannot start the %s backend: %s", config.backend, exc)
+            log.error("Result: unhealthy — backend unreachable (exit 1).")
+            return 1
+
+        try:
+            try:
+                health = await backend.check_health()
+            except Exception as exc:
+                log.error("Health check failed: %s", exc)
+                log.error("Result: unhealthy — health check failed (exit 1).")
+                return 1
 
             log.info("Backend: %s", health.get("backend"))
             log.info("Version: %s", health.get("version", "unknown"))
@@ -192,14 +249,25 @@ def cmd_check(args: argparse.Namespace) -> None:
             if health.get("path"):
                 log.info("Database: %s", health["path"])
 
-            if health.get("chunks_table_exists"):
-                log.info("All checks passed.")
-            else:
+            missing = _missing_schema_parts(health)
+            if missing:
                 log.info("Run `gnosis-mcp init-db` to create tables.")
+            else:
+                log.info("All checks passed.")
+
+            if missing:
+                log.error(
+                    "Result: unhealthy — schema not initialized; missing: %s (exit 1).",
+                    ", ".join(missing),
+                )
+                return 1
+
+            log.info("Result: healthy (exit 0).")
+            return 0
         finally:
             await backend.shutdown()
 
-    asyncio.run(_run())
+    return asyncio.run(_run())
 
 
 def cmd_ingest(args: argparse.Namespace) -> None:
@@ -1022,6 +1090,26 @@ def main() -> None:
         default=False,
         help="Enable REST API endpoints alongside MCP (env: GNOSIS_MCP_REST)",
     )
+    p_serve.add_argument(
+        "--search-limit-max",
+        type=int,
+        default=None,
+        metavar="N",
+        help=(
+            "Cap on the result limit MCP clients may request "
+            "(default: 20, env: GNOSIS_MCP_SEARCH_LIMIT_MAX)"
+        ),
+    )
+    p_serve.add_argument(
+        "--content-preview-chars",
+        type=int,
+        default=None,
+        metavar="N",
+        help=(
+            "Snippet length in characters for tool output "
+            "(default: 200, env: GNOSIS_MCP_CONTENT_PREVIEW_CHARS)"
+        ),
+    )
 
     # init-db
     p_init = sub.add_parser("init-db", help="Create documentation tables")
@@ -1251,4 +1339,10 @@ def main() -> None:
         "prune": cmd_prune,
         "savings": cmd_savings,
     }
-    commands[args.command](args)
+    # Handlers return None everywhere except `check`, which reports health via
+    # its return value. sys.exit (not a bare `return`) is what carries that
+    # status through both entry points: the `gnosis-mcp` console script wraps
+    # main() in sys.exit(), while `python -m gnosis_mcp` calls main() directly.
+    exit_code = commands[args.command](args)
+    if exit_code:
+        sys.exit(exit_code)
