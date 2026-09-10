@@ -37,9 +37,11 @@ configuration the author had never tried.
   first chunk at the first H2, so the H1 and the introductory prose never became
   chunks: text in that region was unsearchable, and a document's title came out
   as its first H2. A document whose unique phrase lived in the intro could not be
-  found by `search_docs` at all. Existing corpora keep their old chunks until
-  they are re-ingested; `gnosis-mcp ingest <path>` is enough, since only changed
-  files re-chunk.
+  found by `search_docs` at all. Applying this to an existing corpus needs
+  `gnosis-mcp ingest <path> --force`: ingest skips files whose content hash is
+  unchanged, and the files have not changed, so a plain re-ingest reports
+  everything "unchanged" and re-chunks nothing. Run `gnosis-mcp embed` afterwards
+  to restore vectors for the re-chunked documents, which re-chunking deletes.
 - **`get_related` is monotonic in depth.** `depth=2` returned *fewer* rows than
   `depth=1` (5 → 3 → 3) because the traversal deduplicated results on the target
   path, discarding the first hop's parallel edges — the same neighbour reached in
