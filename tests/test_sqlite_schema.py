@@ -51,4 +51,5 @@ class TestGetSqliteSchema:
         stmts = get_sqlite_schema()
         joined = "\n".join(stmts)
         assert "search_access_log" in joined
+        assert "client TEXT" in joined
         assert "idx_search_access_log_file_path" in joined

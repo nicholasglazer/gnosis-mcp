@@ -61,11 +61,14 @@ CREATE INDEX IF NOT EXISTS idx_{links_table}_target
     ON {schema}.{links_table} (target_path);
 
 -- Access log for tracking document usage patterns
+-- `client` names the MCP client that made the call (session `initialize`
+-- handshake); NULL for rows logged by callers with no client identity.
 CREATE TABLE IF NOT EXISTS {schema}.search_access_log (
     id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     file_path text NOT NULL,
     query text,
     tool text NOT NULL DEFAULT 'search_docs',
+    client text,
     accessed_at timestamptz DEFAULT now()
 );
 

@@ -949,13 +949,25 @@ class PostgresBackend:
         query: str | None = None,
         tokens_returned: int | None = None,
         tokens_baseline: int | None = None,
+        *,
+        client: str | None = None,
     ) -> None:
         """Log a document access event. Fire-and-forget, never raises.
 
         Token fields match the SQLite backend's shape — see that backend's
-        docstring for semantics. If the target schema doesn't yet have the
-        v0.11.8 columns, the INSERT falls back to the old three-column form
-        so an old pgvector DB keeps logging access without failing the write.
+        docstring for semantics. `client` names the MCP client for the calling
+        session (e.g. `"claude-code/2.1.263"`) so a database shared by several
+        clients can attribute accesses per client; NULL when the caller has no
+        identity to report.
+
+        Column presence is feature-detected against `information_schema`
+        because an older pgvector DB lags the DDL: the INSERT only names the
+        token columns / `client` when they actually exist, so a pre-v0.11.8 (or
+        pre-client) schema keeps logging access instead of failing the write.
+        PostgreSQL has no ALTER TABLE migration helper analogue to
+        `SqliteBackend._ensure_post_v0_12_columns`, so such a DB gains the new
+        columns only by re-running `init-db` against a fresh schema or by a
+        manual `ALTER TABLE ... ADD COLUMN client text`.
         """
         try:
             cfg = self._cfg
@@ -968,25 +980,31 @@ class PostgresBackend:
                     ")",
                     cfg.schema,
                 )
+                has_client = await conn.fetchval(
+                    "SELECT EXISTS ("
+                    "  SELECT 1 FROM information_schema.columns"
+                    "  WHERE table_schema = $1 AND table_name = 'search_access_log'"
+                    "    AND column_name = 'client'"
+                    ")",
+                    cfg.schema,
+                )
+                # Build the INSERT from the columns the target schema has, so
+                # the $N placeholders stay aligned no matter which subset is
+                # present. Names are literals from this module, never user input.
+                cols = ["file_path", "tool", "query"]
+                params: list[Any] = [file_path, tool, query]
                 if has_tokens:
-                    await conn.execute(
-                        f"INSERT INTO {cfg.schema}.search_access_log "
-                        f"(file_path, tool, query, tokens_returned, tokens_baseline) "
-                        f"VALUES ($1, $2, $3, $4, $5)",
-                        file_path,
-                        tool,
-                        query,
-                        tokens_returned,
-                        tokens_baseline,
-                    )
-                else:
-                    await conn.execute(
-                        f"INSERT INTO {cfg.schema}.search_access_log "
-                        f"(file_path, tool, query) VALUES ($1, $2, $3)",
-                        file_path,
-                        tool,
-                        query,
-                    )
+                    cols += ["tokens_returned", "tokens_baseline"]
+                    params += [tokens_returned, tokens_baseline]
+                if has_client:
+                    cols.append("client")
+                    params.append(client)
+                placeholders = ", ".join(f"${i}" for i in range(1, len(cols) + 1))
+                await conn.execute(
+                    f"INSERT INTO {cfg.schema}.search_access_log "
+                    f"({', '.join(cols)}) VALUES ({placeholders})",
+                    *params,
+                )
         except Exception:
             log.debug("access_log.write_failed", exc_info=True)
 

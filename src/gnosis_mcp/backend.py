@@ -184,6 +184,8 @@ class DocBackend(Protocol):
         query: str | None = None,
         tokens_returned: int | None = None,
         tokens_baseline: int | None = None,
+        *,
+        client: str | None = None,
     ) -> None:
         """Log a document access event. Fire-and-forget, never raises.
 
@@ -191,6 +193,13 @@ class DocBackend(Protocol):
         feed the `gnosis-mcp savings` ledger. Implementations that don't track
         tokens (older schemas) should accept the kwargs and silently ignore
         them so callers stay backend-agnostic.
+
+        `client` optionally identifies the MCP client that made the call
+        (e.g. `"claude-code/2.1.263"`, built from the session's `initialize`
+        handshake). It is stored verbatim so one database shared by several
+        clients can attribute accesses per client. Callers that don't know
+        their client omit it: the row keeps a NULL `client`, indistinguishable
+        from every pre-existing row.
         """
         ...
 

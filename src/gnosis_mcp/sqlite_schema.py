@@ -76,6 +76,9 @@ CREATE TABLE IF NOT EXISTS documentation_links (
         # (`tokens_returned`) and the tokens a naive Read of the target doc
         # would have cost (`tokens_baseline`). The difference is the saving
         # for that call; summing over time gives the lifetime estimate.
+        # `client` names the MCP client that made the call (from the session's
+        # `initialize` handshake) so a database shared by two clients doesn't
+        # conflate their statistics.
         # Columns are nullable so historical rows stay readable after the
         # v0.11.8 migration; see also the ALTER TABLE pair below which
         # retrofits them onto DBs initialised before this schema version.
@@ -87,6 +90,7 @@ CREATE TABLE IF NOT EXISTS search_access_log (
     tool TEXT NOT NULL DEFAULT 'search_docs',
     tokens_returned INTEGER,
     tokens_baseline INTEGER,
+    client TEXT,
     accessed_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 )""",
         "CREATE INDEX IF NOT EXISTS idx_search_access_log_file_path ON search_access_log (file_path)",

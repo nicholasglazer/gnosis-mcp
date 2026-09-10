@@ -140,6 +140,38 @@ class TestSqliteBackendLifecycle:
         finally:
             await backend.shutdown()
 
+    async def test_startup_migration_adds_client_column(self, tmp_path):
+        """Regression: a DB from before access-log attribution gains `client`
+        on startup, so log_access keeps writing instead of silently failing.
+        """
+        import aiosqlite
+
+        from gnosis_mcp.backend import create_backend
+        from gnosis_mcp.config import GnosisMcpConfig
+
+        db_path = str(tmp_path / "pre-client.db")
+        async with aiosqlite.connect(db_path) as raw:
+            # Simulate the pre-client schema — tokens_* exist, client doesn't.
+            await raw.execute(
+                "CREATE TABLE search_access_log (id INTEGER PRIMARY KEY, "
+                "file_path TEXT, query TEXT, tool TEXT, tokens_returned INTEGER, "
+                "tokens_baseline INTEGER, accessed_at TEXT)"
+            )
+            await raw.commit()
+
+        cfg = GnosisMcpConfig(database_url=db_path, backend="sqlite")
+        backend = create_backend(cfg)
+        await backend.startup()
+        try:
+            assert await backend.has_column("search_access_log", "client")
+            await backend.log_access("a.md", tool="get_doc", client="other-harness/1.0")
+            rows = await backend._db.execute_fetchall(
+                "SELECT file_path, client FROM search_access_log"
+            )
+            assert [tuple(r) for r in rows] == [("a.md", "other-harness/1.0")]
+        finally:
+            await backend.shutdown()
+
     async def test_savings_report_empty_window(self, backend):
         """No logged calls → all zeros, no by_tool entries."""
         report = await backend.savings_report(days=7)
@@ -491,6 +523,22 @@ class TestAccessLog:
         assert deleted >= 1
         top = await backend.get_top_accessed(limit=10, days=30)
         assert top == []
+
+    @pytest.mark.asyncio
+    async def test_log_access_records_client(self, backend):
+        """The MCP client identity round-trips into search_access_log."""
+        await backend.log_access(
+            "a.md", tool="search_docs", tokens_returned=10, client="claude-code/2.1.263"
+        )
+        await backend.log_access("b.md", tool="get_doc")
+        rows = await backend._db.execute_fetchall(
+            "SELECT file_path, tool, tokens_returned, client FROM search_access_log "
+            "ORDER BY file_path"
+        )
+        assert [tuple(r) for r in rows] == [
+            ("a.md", "search_docs", 10, "claude-code/2.1.263"),
+            ("b.md", "get_doc", None, None),
+        ]
 
     @pytest.mark.asyncio
     async def test_missing_table_no_error(self):

@@ -106,4 +106,5 @@ class TestGetInitSql:
         cfg = GnosisMcpConfig(database_url="postgresql://localhost/db")
         sql = get_init_sql(cfg)
         assert "search_access_log" in sql
+        assert "client text" in sql
         assert "idx_search_access_log_file_path" in sql

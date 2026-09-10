@@ -103,21 +103,28 @@ class SqliteBackend:
         )
 
     async def _ensure_post_v0_12_columns(self) -> None:
-        """Add the tokens_returned / tokens_baseline columns if missing.
+        """Add the tokens_returned / tokens_baseline / client columns if missing.
 
         Separate from `init_schema()` so it runs on plain `startup()` too —
         `gnosis-mcp savings` on a pre-v0.12 DB used to raise `OperationalError:
         no such column` because the migration was tied to `init-db` alone.
+        `client` (the MCP client identity) rides along here so a DB created
+        before access-log attribution also gains it, instead of silently
+        dropping every `log_access` INSERT that now names the column.
         Silently returns if the table doesn't exist yet (first-ever startup
         before init_schema creates it).
         """
         if not await self._table_exists("search_access_log"):
             return
-        for col in ("tokens_returned", "tokens_baseline"):
+        for col, col_type in (
+            ("tokens_returned", "INTEGER"),
+            ("tokens_baseline", "INTEGER"),
+            ("client", "TEXT"),
+        ):
             if not await self.has_column("search_access_log", col):
                 try:
                     await self._db.execute(
-                        f"ALTER TABLE search_access_log ADD COLUMN {col} INTEGER"
+                        f"ALTER TABLE search_access_log ADD COLUMN {col} {col_type}"
                     )
                 except Exception:
                     log.debug("ALTER TABLE for %s failed", col, exc_info=True)
@@ -154,12 +161,19 @@ class SqliteBackend:
             await self._db.execute(stmt)
 
         # Idempotent migration for DBs initialised before v0.11.8 that are
-        # missing the two token-savings columns. ALTER TABLE ADD COLUMN is
+        # missing the two token-savings columns, plus `client` for DBs that
+        # predate per-client attribution. ALTER TABLE ADD COLUMN is
         # cheap on SQLite and failing-safe (re-raises surface the rare case
         # where the table exists but is owned by a parallel init).
-        for col in ("tokens_returned", "tokens_baseline"):
+        for col, col_type in (
+            ("tokens_returned", "INTEGER"),
+            ("tokens_baseline", "INTEGER"),
+            ("client", "TEXT"),
+        ):
             if not await self.has_column("search_access_log", col):
-                await self._db.execute(f"ALTER TABLE search_access_log ADD COLUMN {col} INTEGER")
+                await self._db.execute(
+                    f"ALTER TABLE search_access_log ADD COLUMN {col} {col_type}"
+                )
 
         if self._has_vec:
             vec0_statements = get_vec0_schema(dim=self._cfg.embed_dim)
@@ -873,6 +887,8 @@ class SqliteBackend:
         query: str | None = None,
         tokens_returned: int | None = None,
         tokens_baseline: int | None = None,
+        *,
+        client: str | None = None,
     ) -> None:
         """Log a document access event. Fire-and-forget, never raises.
 
@@ -882,13 +898,17 @@ class SqliteBackend:
         gnosis-mcp — the full content length of the referenced document.
         Both are optional so older call sites still work; `gnosis-mcp savings`
         aggregates `tokens_baseline - tokens_returned` over rows that have both.
+        `client` is the MCP client identity for the calling session
+        (e.g. `"claude-code/2.1.263"`); NULL when the caller doesn't know it,
+        which keeps such rows in the overall ledger without attributing them
+        to any single client.
         """
         try:
             await self._db.execute(
                 "INSERT INTO search_access_log "
-                "(file_path, tool, query, tokens_returned, tokens_baseline) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (file_path, tool, query, tokens_returned, tokens_baseline),
+                "(file_path, tool, query, tokens_returned, tokens_baseline, client) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (file_path, tool, query, tokens_returned, tokens_baseline, client),
             )
             await self._db.commit()
         except Exception:
