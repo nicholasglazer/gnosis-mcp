@@ -187,14 +187,28 @@ jobs:
         run: |
           TAG="${{ needs.check.outputs.version }}"
           # Only create if release doesn't already exist
-          if ! gh release view "$TAG" >/dev/null 2>&1; then
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists, skipping"
+            exit 0
+          fi
+          # Prefer the CHANGELOG section. `--generate-notes` only sees merged pull
+          # requests, so v0.16.0 — some twenty fixes landed as direct commits — went
+          # out as "one PR: exit non-zero when --embed embedded nothing", and
+          # v0.15.0 credited github-actions[bot] as a "New Contributor". The
+          # CHANGELOG is the accurate record, so it becomes the release body.
+          if bash scripts/release-notes.sh "$TAG" > /tmp/release-notes.md 2>/dev/null \
+             && [ -s /tmp/release-notes.md ]; then
+            gh release create "$TAG" \
+              --title "$TAG" \
+              --notes-file /tmp/release-notes.md \
+              --latest
+            echo "Created release $TAG from CHANGELOG.md"
+          else
             gh release create "$TAG" \
               --title "$TAG" \
               --generate-notes \
               --latest
-            echo "Created release $TAG"
-          else
-            echo "Release $TAG already exists, skipping"
+            echo "Created release $TAG from generated notes (no CHANGELOG section for $TAG)"
           fi
 
   # ------------------------------------------------------------------------

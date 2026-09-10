@@ -149,6 +149,12 @@ Every version commit MUST:
 
 **Pipeline**: push to main with changed `pyproject.toml` → `publish.yml` builds, publishes to PyPI + MCP Registry, then creates `vX.Y.Z` tag. Also triggers on manual `v*` tag pushes. No manual tagging needed.
 
+**Release notes**: the GitHub Release body is the `CHANGELOG.md` section for
+that version, extracted by `scripts/release-notes.sh`. `--generate-notes` only sees
+merged pull requests — it published a twenty-fix release as a single embed fix and
+credited `github-actions[bot]` as a new contributor — so it remains only as the
+fallback for a version with no CHANGELOG section.
+
 **CRITICAL**: PyPI renders README.md as the package page. Any change to README.md, images, or llms\*.txt MUST include a patch version bump — otherwise the changes never reach PyPI. When in doubt, bump the patch version.
 
 **Remotes**: push to `selify` + `codeberg` + `github` (open-source project).
