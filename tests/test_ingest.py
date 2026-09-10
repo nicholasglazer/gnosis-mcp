@@ -28,6 +28,7 @@ from gnosis_mcp.ingest import (
     scan_files,
 )
 from gnosis_mcp.config import GnosisMcpConfig
+from gnosis_mcp.embed import contextual_header
 
 
 # ---------------------------------------------------------------------------
@@ -366,21 +367,21 @@ class TestChunkByHeadings:
     def test_single_h2(self):
         md = "# Doc\n\nIntro\n\n## Section One\n\nContent of section one."
         chunks = chunk_by_headings(md, "test.md")
-        assert len(chunks) == 1
-        assert chunks[0]["title"] == "Section One"
-        assert "Content of section one" in chunks[0]["content"]
+        # chunks[0] is the "# Doc" + "Intro" preamble chunk
+        assert [c["title"] for c in chunks] == ["Doc", "Section One"]
+        assert "Content of section one" in chunks[1]["content"]
 
     def test_multiple_h2(self):
         md = "# Doc\n\n## First\n\nFirst content.\n\n## Second\n\nSecond content."
         chunks = chunk_by_headings(md, "test.md")
-        assert len(chunks) == 2
-        assert chunks[0]["title"] == "First"
-        assert chunks[1]["title"] == "Second"
+        # The H1 preamble chunk precedes the two H2 sections
+        assert [c["title"] for c in chunks] == ["Doc", "First", "Second"]
 
     def test_section_path(self):
         md = "# My Doc\n\n## Setup\n\nSetup instructions."
         chunks = chunk_by_headings(md, "test.md")
-        assert chunks[0]["section_path"] == "My Doc > Setup"
+        setup = next(c for c in chunks if c["title"] == "Setup")
+        assert setup["section_path"] == "My Doc > Setup"
 
     def test_no_h1_uses_filename(self):
         md = "## Section\n\nContent here that is long enough."
@@ -396,7 +397,8 @@ class TestChunkByHeadings:
     def test_preserves_content(self):
         md = "# Doc\n\n## Code Example\n\n```python\ndef hello():\n    pass\n```\n\nMore text."
         chunks = chunk_by_headings(md, "test.md")
-        assert "```python" in chunks[0]["content"]
+        example = next(c for c in chunks if c["title"] == "Code Example")
+        assert "```python" in example["content"]
 
     def test_oversized_h2_splits_by_h3(self):
         """An oversized H2 section should split at H3 boundaries."""
@@ -467,7 +469,107 @@ class TestChunkByHeadings:
         """Default max_chunk_size is 4000."""
         md = "# Doc\n\n## Section\n\n" + "x " * 1500
         chunks = chunk_by_headings(md, "test.md")
-        assert len(chunks) == 1  # 3000 chars < 4000 default
+        # The 3000-char section stays whole (< 4000 default) and is the only
+        # chunk holding the body; the preamble chunk is just the H1.
+        body_chunks = [c for c in chunks if "x x" in c["content"]]
+        assert len(body_chunks) == 1
+        assert body_chunks[0]["title"] == "Section"
+
+    # ------------------------------------------------------------------
+    # Preamble (text above the first H2) — regression coverage
+    # ------------------------------------------------------------------
+
+    def test_h1_and_intro_before_first_h2_become_preamble_chunk(self):
+        """Text above the first H2 is retained, not silently dropped.
+
+        Regression: the H2 loop started at the first H2 match, so an H1 and any
+        intro paragraph never became chunks — unsearchable content — and the
+        document title (read from the first chunk) came out as the first H2.
+        """
+        md = (
+            "# Alpha Guide\n\n"
+            "Intro paragraph with the unique phrase zeta-nine.\n\n"
+            "## Installation\n\nInstallation steps for the server."
+        )
+        chunks = chunk_by_headings(md, "alpha.md")
+        assert chunks[0]["title"] == "Alpha Guide"
+        assert chunks[0]["section_path"] == "Alpha Guide"
+        assert "# Alpha Guide" in chunks[0]["content"]
+        assert "unique phrase zeta-nine" in chunks[0]["content"]
+        assert chunks[1]["title"] == "Installation"
+
+    def test_preamble_chunk_title_keeps_contextual_header_sensible(self):
+        """A preamble chunk has no section, so its header comes from the H1.
+
+        `contextual_header` prepends "Document: <path> | Section: <title>";
+        titling the preamble chunk with the document title keeps that context
+        instead of leaving the header with only the path.
+        """
+        md = "# Alpha Guide\n\nIntro prose.\n\n## Installation\n\nInstallation steps."
+        preamble = chunk_by_headings(md, "guides/alpha.md")[0]
+        header = contextual_header("guides/alpha.md", preamble["title"])
+        assert header == "Document: guides/alpha.md | Section: Alpha Guide\n\n"
+
+    def test_no_headings_at_all(self):
+        """A document with no headings stays one chunk, title from the filename."""
+        md = "Plain prose with no headings at all, still fully searchable content."
+        chunks = chunk_by_headings(md, "plain-notes.md")
+        assert len(chunks) == 1
+        assert chunks[0]["content"] == md
+        assert chunks[0]["title"] == "plain-notes"
+
+    def test_only_h1(self):
+        """A document that is only an H1 yields one chunk titled by that H1."""
+        chunks = chunk_by_headings("# Alpha Guide", "alpha.md")
+        assert chunks == [
+            {"title": "Alpha Guide", "content": "# Alpha Guide", "section_path": "Alpha Guide"}
+        ]
+
+    def test_first_heading_is_h3(self):
+        """An H3 before any H2 belongs to the preamble; later H2s still split."""
+        md = (
+            "# Alpha Guide\n\nIntro line.\n\n"
+            "### Details\n\nH3 body kept with the intro.\n\n"
+            "## Installation\n\nInstallation steps."
+        )
+        chunks = chunk_by_headings(md, "alpha.md")
+        assert chunks[0]["title"] == "Alpha Guide"
+        assert "Intro line." in chunks[0]["content"]
+        assert "H3 body kept with the intro." in chunks[0]["content"]
+        assert chunks[1]["title"] == "Installation"
+
+    def test_oversized_preamble_splits_by_paragraph(self):
+        """A preamble larger than max_chunk_size splits instead of staying whole."""
+        paras = "\n\n".join(f"Intro paragraph {i} " + "x" * 90 for i in range(12))
+        md = f"# Alpha Guide\n\n{paras}\n\n## Section\n\nSection body."
+        chunks = chunk_by_headings(md, "alpha.md", max_chunk_size=300)
+
+        section = chunks[-1]
+        assert section["title"] == "Section"
+        preamble_chunks = chunks[:-1]
+        assert len(preamble_chunks) > 1
+        assert preamble_chunks[0]["title"] == "Alpha Guide"
+        assert all(c["title"] == "Alpha Guide (cont.)" for c in preamble_chunks[1:])
+
+        joined = "\n\n".join(c["content"] for c in preamble_chunks)
+        for i in range(12):
+            assert f"Intro paragraph {i} " in joined
+        # No single chunk swallowed the whole oversized preamble
+        assert max(len(c["content"]) for c in chunks) < 2 * 300
+
+    def test_oversized_preamble_keeps_code_fence_intact(self):
+        """The preamble split honours protected ranges (no split inside a fence)."""
+        code = "```python\n" + "\n".join(f"line_{i} = {i}" for i in range(30)) + "\n```"
+        md = (
+            "# Alpha Guide\n\nIntro prose paragraph.\n\n"
+            f"{code}\n\nProse after the code block.\n\n"
+            "## Section\n\nSection body."
+        )
+        chunks = chunk_by_headings(md, "alpha.md", max_chunk_size=200)
+        code_chunks = [c for c in chunks if "```python" in c["content"]]
+        assert code_chunks
+        for c in code_chunks:
+            assert c["content"].count("```") >= 2
 
 
 # ---------------------------------------------------------------------------
@@ -953,10 +1055,76 @@ class TestIngestPath:
         dry = [r for r in results if r.action == "dry-run"]
         assert len(dry) >= 2
 
+    async def test_ingest_keeps_h1_title_and_intro_content(self, tmp_path):
+        """End-to-end: the H1 is the doc title and the intro text is stored.
+
+        Regression: `get_doc` reported the first H2 ("Installation") as the
+        title of a document titled "Alpha Guide", and the intro paragraph was
+        not in the database at all.
+        """
+        db = str(tmp_path / "test.db")
+        (tmp_path / "docs").mkdir()
+        (tmp_path / "docs" / "alpha.md").write_text(
+            "# Alpha Guide\n\n"
+            "Intro paragraph with the unique phrase zeta-nine.\n\n"
+            "## Installation\n\nInstallation steps for the documentation server."
+        )
+        cfg = GnosisMcpConfig(database_url=db, backend="sqlite")
+        await ingest_path(cfg, str(tmp_path / "docs"))
+
+        from gnosis_mcp.backend import create_backend
+
+        backend = create_backend(cfg)
+        await backend.startup()
+        try:
+            rows = await backend.get_doc("alpha.md")
+        finally:
+            await backend.shutdown()
+
+        assert rows[0]["title"] == "Alpha Guide"
+        assert any("unique phrase zeta-nine" in r["content"] for r in rows)
+
 
 # ---------------------------------------------------------------------------
 # diff_path (async integration)
 # ---------------------------------------------------------------------------
+
+
+def _make_pdf(text: str) -> bytes:
+    """Build a minimal one-page PDF whose bytes are not valid UTF-8.
+
+    Real PDFs are binary (the ``%âãÏÓ`` marker, CRLF terminators, compressed
+    streams). That matters for change detection: `ingest` used to hash the raw
+    bytes while `diff` hashed the UTF-8-decoded text, and those two inputs only
+    differ for files like this one.
+    """
+    stream = f"BT /F1 12 Tf 72 720 Td ({text}) Tj ET".encode()
+    objects = [
+        b"<</Type/Catalog/Pages 2 0 R>>",
+        b"<</Type/Pages/Kids[3 0 R]/Count 1>>",
+        b"<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]/Contents 4 0 R"
+        b"/Resources<</Font<</F1 5 0 R>>>>>>",
+        b"<</Length "
+        + str(len(stream)).encode()
+        + b">>\r\nstream\r\n"
+        + stream
+        + b"\r\nendstream",
+        b"<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>",
+    ]
+    out = bytearray(b"%PDF-1.4\r\n%\xe2\xe3\xcf\xd3\r\n")
+    offsets = []
+    for i, obj in enumerate(objects, 1):
+        offsets.append(len(out))
+        out += b"%d 0 obj\r\n" % i + obj + b"\r\nendobj\r\n"
+    startxref = len(out)
+    out += b"xref\r\n0 %d\r\n0000000000 65535 f \r\n" % (len(objects) + 1)
+    for offset in offsets:
+        out += b"%010d 00000 n \r\n" % offset
+    out += b"trailer\r\n<</Size %d/Root 1 0 R>>\r\nstartxref\r\n%d\r\n%%%%EOF\r\n" % (
+        len(objects) + 1,
+        startxref,
+    )
+    return bytes(out)
 
 
 class TestDiffPath:
@@ -1043,6 +1211,53 @@ class TestDiffPath:
         )
         diff = await diff_path(cfg, str(tmp_path / "docs"))
         assert len(diff["modified"]) == 1
+
+    async def test_diff_and_ingest_agree_on_binary_pdf(self, tmp_path):
+        """A non-UTF-8 PDF must not be reported modified forever.
+
+        Regression: `ingest_path` hashed PDFs as raw bytes while `diff_path`
+        hashed their decoded text, so the stored digest could never match and
+        `gnosis-mcp diff` printed `paper.pdf (modified)` even right after a
+        clean re-ingest reported it unchanged.
+        """
+        pytest.importorskip("pypdf")
+        db = str(tmp_path / "test.db")
+        docs = tmp_path / "docs"
+        docs.mkdir()
+        pdf = docs / "paper.pdf"
+        pdf_bytes = _make_pdf("Gnosis retrieval verification phrase zeta-nine-unique")
+        # The mismatch only exists for bytes that a UTF-8 decode would alter
+        roundtripped = pdf_bytes.decode("utf-8", errors="replace").encode(
+            "utf-8", errors="replace"
+        )
+        assert roundtripped != pdf_bytes
+        pdf.write_bytes(pdf_bytes)
+        (docs / "guide.md").write_text(
+            "# Guide\n\nInstallation instructions for gnosis-mcp documentation server."
+        )
+        cfg = GnosisMcpConfig(database_url=db, backend="sqlite")
+
+        first = await ingest_path(cfg, str(docs))
+        assert {r.path: r.action for r in first} == {
+            "guide.md": "ingested",
+            "paper.pdf": "ingested",
+        }
+
+        # Re-ingest and diff agree: neither format looks changed.
+        again = await ingest_path(cfg, str(docs))
+        assert all(r.action == "unchanged" for r in again)
+        diff = await diff_path(cfg, str(docs))
+        assert diff["modified"] == []
+        assert diff["unchanged"] == ["guide.md", "paper.pdf"]
+
+        # A real change is still detected, by both entry points.
+        pdf.write_bytes(_make_pdf("Replacement verification phrase eta-two-different"))
+        diff = await diff_path(cfg, str(docs))
+        assert diff["modified"] == ["paper.pdf"]
+        changed = await ingest_path(cfg, str(docs))
+        assert {r.path: r.action for r in changed}["paper.pdf"] == "ingested"
+        diff = await diff_path(cfg, str(docs))
+        assert diff["modified"] == []
 
 
 # ---------------------------------------------------------------------------

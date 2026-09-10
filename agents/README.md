@@ -1,9 +1,12 @@
 # Agents for gnosis-mcp
 
-Subagent definitions for [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
-(and any other MCP client that supports the `agents/` folder
-convention). The goal: you shouldn't have to write your own "how to
-talk to gnosis-mcp" prompt — these are the ones we use ourselves.
+Subagent definitions for [Claude Code](https://code.claude.com/docs/en/sub-agents).
+They live in this repo's plugin `agents/` directory — the layout Claude
+Code loads for a plugin (see `.claude-plugin/plugin.json` and
+`marketplace.json`) — and are also plain markdown you can copy into
+`.claude/agents/` or `~/.claude/agents/`. The goal: you shouldn't have to
+write your own "how to talk to gnosis-mcp" prompt — these are the ones we
+use ourselves.
 
 ## Install
 
@@ -21,9 +24,11 @@ guide.
 |---|---|---|---|
 | **context-loader** | haiku | Fast doc-graph primer — pulls the most-accessed docs before you start | `/gnosis:context` |
 | **doc-explorer** | sonnet | Read-only navigator — search, follow the link graph, cross-reference git | `/gnosis:search` |
-| **doc-keeper** | sonnet | Single-file CRUD + drift audits — upsert, delete, update metadata | `/gnosis:manage` |
+| **doc-keeper** | sonnet | Repairs existing docs — single-file upsert/delete, metadata and staleness fixes | `/gnosis:manage` |
 | **corpus-sync** | sonnet | Bulk lifecycle — file ingest, git history, web crawl, prune, re-embed | `/gnosis:ingest` |
 | **doc-reviewer** | sonnet | Pre-release audit — cross-refs docs against real code, reports drift | (produces reports, no skill pair) |
+| **retrieval-eval** | sonnet | Retrieval metrics + regression attribution (chunk size / embedder / reranker) | `/gnosis:eval`, `/gnosis:tune` |
+| **deployment-check** | sonnet | Verifies a deployed HTTP/REST/embeddings instance and its startup hook | (produces reports, no skill pair) |
 
 ### Which one do I spawn when?
 
@@ -32,6 +37,15 @@ guide.
 - *"I added a new doc / reorganized the folder / want to index a vendor site"* → `corpus-sync`
 - *"I need to add / delete / retag one specific file"* → `doc-keeper`
 - *"Pre-release: are these docs accurate against current code?"* → `doc-reviewer`
+- *"Did search get worse? Which knob did it?"* → `retrieval-eval`
+- *"Did the deployment survive? Is `/v1/embed` actually up?"* → `deployment-check`
+
+The three easily-confused pairs, stated as boundaries:
+
+- **doc-reviewer finds drift, doc-keeper fixes it, corpus-sync bulk-loads.**
+- **retrieval-eval reports metrics and attributes a regression; `/gnosis:tune`
+  runs the long sweeps.**
+- **deployment-check verifies a running service; nobody here changes its config.**
 
 ---
 
@@ -74,10 +88,12 @@ Never writes. If the user wants a doc changed, it hands off to
 
 ### doc-keeper (sonnet, single-file writes)
 
-The surgeon — precise, single-file changes. Adds one doc, deletes one
-doc, patches metadata without re-chunking. Also runs the drift-audit
-playbook: find docs related to a feature, compare against the code,
-report discrepancies without modifying anything.
+The surgeon — precise, changes to docs that are already in the corpus.
+Adds one doc, deletes one doc, patches metadata without re-chunking, or
+repairs a doc someone flagged as stale. Owns `upsert_doc`, `delete_doc`,
+`update_metadata` and the access-log cleanup; it does **not** run bulk
+ingest, prune, crawl or git-history indexing (that's `corpus-sync`), and it
+does not decide whether drift exists (that's `doc-reviewer`).
 
 ```
 "Add the new deployment-safety guide to the index"
@@ -87,14 +103,15 @@ report discrepancies without modifying anything.
 → get_doc(...) to verify
 → report chunks written
 
-"Review all affiliate-system docs for drift against code"
-→ search_docs("affiliate")
-→ get_doc each hit
-→ Grep the source tree for function names mentioned in the doc
-→ drift report with file:line evidence
+"Fix the three drift items in doc-reviewer's report"
+→ Read each doc
+→ re-verify each claim against source
+→ Edit, upsert_doc, stamp last_verified
+→ report claims checked / corrected / unverified
 ```
 
-Requires `GNOSIS_MCP_WRITABLE=true` on the server for any write.
+Requires `GNOSIS_MCP_WRITABLE=true` on the server. Without it the three
+write tools aren't even listed in `tools/list`.
 
 ### corpus-sync (sonnet, bulk ingestion)
 
@@ -136,6 +153,44 @@ drift report.
 Never modifies docs. Report is input for the human or for
 `doc-keeper` to act on.
 
+### retrieval-eval (sonnet, measurement)
+
+Runs the retrieval harness, diffs against the saved baseline, and — when
+something dropped — isolates *which* knob moved it by changing one variable
+at a time: chunk size, embedder model/dim, or reranker. Knows the key
+limitation and says it out loud: `gnosis-mcp eval` scores a **fixed
+in-repo fixture**, not your corpus, so corpus-specific numbers come from
+`tests/bench/bench_real_corpus.py` with your own golden query file.
+
+```
+"Search feels worse since we re-ingested"
+→ gnosis-mcp eval --json  → compare to ~/.local/share/gnosis-mcp/eval-baseline.json
+→ corpus harness at the old vs new GNOSIS_MCP_CHUNK_SIZE
+→ verdict: chunk size, with the two runs as evidence
+```
+
+Sweeps are `/gnosis:tune`'s job; this agent runs targeted comparisons and
+reports metrics with their case counts.
+
+### deployment-check (sonnet, read-only verification)
+
+Checks a running shared instance against what its config claims:
+`GET /health`, `POST /v1/embed` (shape, dim, one vector per input, plus the
+401/400/503 negative cases), bearer auth on `/api/*`, Docker/systemd
+plumbing, and whether the SessionStart hook in `hooks/hooks.json` still
+agrees with reality (exit code of `gnosis-mcp check` in the *client's*
+environment).
+
+```
+"Is the embeddings service healthy after the upgrade?"
+→ curl /health, curl /v1/embed with a 1-text probe
+→ unauthenticated + authenticated /api/search (expect 401 / 200)
+→ docker inspect health status; gnosis-mcp check exit code
+→ pass/fail/skipped table with the raw evidence
+```
+
+Never edits config or restarts anything — the fix is reported, not applied.
+
 ---
 
 ## How they compose (common flows)
@@ -173,6 +228,29 @@ spawn: doc-keeper
   ↓ (reads each doc, edits, upserts)
 ```
 
+### After every ingest: did retrieval hold?
+
+```
+spawn: corpus-sync
+  ↓
+  "Re-ingest ./docs at the new chunk size"
+  ↓ (stats delta)
+
+spawn: retrieval-eval
+  ↓
+  "Quality held, or which knob moved it?"
+  ↓ (metrics + baseline delta + one attribution verdict)
+```
+
+### Deploying or upgrading a shared instance
+
+```
+spawn: deployment-check
+  ↓
+  "New container is up — verify /health, /v1/embed, auth, and the startup hook"
+  ↓ (pass/fail/skipped table with raw evidence)
+```
+
 ### Onboarding a new vendor dependency
 
 ```
@@ -199,40 +277,54 @@ can run on `haiku` (the former already does).
 
 ### Add project-specific tools
 
-Add to the `allowedTools:` list. Common additions:
+Every agent here restricts itself with the real frontmatter fields:
+`tools:` (allowlist) and `disallowedTools:` (denylist). Add to whichever
+fits. Common additions:
 
 - `Bash` — for project-specific shell (tests, builds, migrations)
-- `Edit` / `Write` — for agents that modify files (doc-keeper
-  already has these)
-- `mcp__postgres__query` — if your project has a Postgres MCP server
-  for schema introspection
+- `Edit` / `Write` — for agents that modify files (doc-keeper already has
+  both; the report-only agents deny them)
+- `mcp__postgres__query` — if your project has a Postgres MCP server for
+  schema introspection
 
-### Restrict MCP server access
+Both fields accept MCP server-level patterns: `mcp__gnosis` (or
+`mcp__gnosis__*`) grants or removes every tool from that server, and
+`mcp__*` in `disallowedTools` removes every MCP tool. If both fields are
+set, `disallowedTools` is applied first, then `tools` is resolved against
+what remains.
 
-Add `allowedMcpServers: ["gnosis"]` to scope an agent to only talk to
-gnosis-mcp (keeps it from wandering into other MCP servers).
+### Scope an agent to gnosis-mcp only
+
+List the gnosis tools you want in `tools:` and nothing else — that already
+scopes the agent to one MCP server, because unlisted tools from other
+servers simply aren't in its pool. There is no `allowedMcpServers` field.
+To keep agents from spawning further subagents, omit `Agent` from `tools:`.
 
 ### Scope-by-directory
 
-For monorepos, point agents at a subtree:
-
-```yaml
-allowedPaths:
-  - docs/**
-  - src/**
-```
+There is no per-agent path field: `allowedPaths` does not exist, and Claude
+Code's path-scoped permission rules apply to the whole session, not to one
+subagent. In practice you scope an agent by saying so in the delegation
+prompt ("only touch `docs/**`"), and you enforce it with session-level
+`permissions.allow` / `permissions.deny` rules in `settings.json` when it
+has to be a hard boundary.
 
 ---
 
 ## Requirements
 
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI or
-  IDE extension (any MCP-capable client works in principle)
+  IDE extension (subagent frontmatter is Claude Code's format; other
+  clients would need these files adapted)
 - gnosis-mcp server running (stdio, streamable-http, or sse)
-- For write operations (doc-keeper, corpus-sync):
-  `GNOSIS_MCP_WRITABLE=true`
+- For the MCP write tools (doc-keeper): `GNOSIS_MCP_WRITABLE=true`, or the
+  tools aren't listed at all
 - For embeddings: `pip install 'gnosis-mcp[embeddings]'`
 - For web crawl: `pip install 'gnosis-mcp[web]'`
+
+`corpus-sync` needs none of the env gates: the CLI (`ingest`, `prune`,
+`crawl`, `embed`) writes straight to the database and does not consult
+`GNOSIS_MCP_WRITABLE`.
 
 ---
 
@@ -246,6 +338,7 @@ structured CLI-style args:
 |---|---|
 | `/gnosis:setup` | First-time wizard: install → init-db → ingest → wire your editor |
 | `/gnosis:ingest` | Bulk ingest (files, git, crawl) + re-ingest + prune |
+| `/gnosis:eval` | Run the retrieval harness, interpret the metrics, diff the baseline |
 | `/gnosis:tune` | Chunk-size sweep against your own golden query set |
 | `/gnosis:search` | Keyword / hybrid / git-history search with formatted output |
 | `/gnosis:manage` | Single-file CRUD (add, delete, update metadata, related) |

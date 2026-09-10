@@ -89,6 +89,22 @@ def content_hash(text: str) -> str:
     return hashlib.sha256(text.encode()).hexdigest()[:16]
 
 
+def _file_digest(path: Path, text: str | None = None) -> str:
+    """Change-detection digest for a file on disk — the single hashing rule.
+
+    `ingest_path` stores this digest and `diff_path` recomputes it, so both must
+    hash exactly the same view of the file or every file looks modified forever.
+    That view is the decoded text (``errors="replace"``, universal newlines):
+    PDFs used to be hashed as raw bytes by `ingest_path` only, which could never
+    match the text digest `diff_path` computed for them.
+
+    Pass ``text`` when the caller already read the file, to avoid a second read.
+    """
+    if text is None:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    return content_hash(text)
+
+
 def parse_frontmatter(markdown: str) -> tuple[dict[str, str], str]:
     """Parse YAML-like frontmatter without a yaml dependency.
 
@@ -539,11 +555,12 @@ def chunk_by_headings(markdown: str, file_path: str, max_chunk_size: int = 4000)
     """Split markdown into chunks by headings with structure-aware boundaries.
 
     Strategy:
-    1. Split at H2 boundaries (primary)
-    2. Oversized H2 sections split at H3, then H4
-    3. Still too large: split at paragraph boundaries
-    4. Never splits inside fenced code blocks or tables
-    5. No headings: paragraph-based recursive splitting
+    1. Text before the first H2 (H1 title + intro) becomes a preamble chunk
+    2. Split at H2 boundaries (primary)
+    3. Oversized H2 sections split at H3, then H4
+    4. Still too large: split at paragraph boundaries
+    5. Never splits inside fenced code blocks or tables
+    6. No headings: paragraph-based recursive splitting
 
     Returns list of {"title", "content", "section_path"}.
     """
@@ -567,6 +584,30 @@ def chunk_by_headings(markdown: str, file_path: str, max_chunk_size: int = 4000)
         ] or [{"title": doc_title, "content": stripped, "section_path": doc_title}]
 
     chunks = []
+
+    # Everything above the first H2 — the H1 title and any intro prose — was
+    # previously dropped: the H2 loop started at matches[0], so that region was
+    # neither searchable nor reflected in the document's title (read from the
+    # first chunk, which made an H1-titled doc look titled after its first H2).
+    # It belongs in a preamble chunk of its own, titled by the document title.
+    preamble = markdown[: matches[0].start()].strip()
+    if preamble:
+        if len(preamble) <= max_chunk_size:
+            chunks.append({"title": doc_title, "content": preamble, "section_path": doc_title})
+        else:
+            # Oversized preamble: same paragraph-safe split as the no-H2 path.
+            chunks.extend(
+                [
+                    {
+                        "title": doc_title if i == 0 else f"{doc_title} (cont.)",
+                        "content": p,
+                        "section_path": doc_title,
+                    }
+                    for i, p in enumerate(_split_paragraphs_safe(preamble, max_chunk_size))
+                    if p.strip()
+                ]
+            )
+
     for i, match in enumerate(matches):
         title = match.group(1).strip()
         start = match.start()
@@ -1003,8 +1044,7 @@ async def ingest_path(
             try:
                 if f.suffix.lower() == ".pdf":
                     raw = f.read_bytes()
-                    text = raw.hex()[:100]  # Placeholder for hash input
-                    digest = hashlib.sha256(raw).hexdigest()[:16]
+                    digest = _file_digest(f)
                     md_text = _convert_pdf(raw, f)
                     if not md_text or len(md_text.strip()) < 50:
                         results.append(
@@ -1030,7 +1070,7 @@ async def ingest_path(
                             IngestResult(path=rel, chunks=0, action="skipped", detail="Too small")
                         )
                         continue
-                    digest = content_hash(text)
+                    digest = _file_digest(f, text)
                     md_text = _convert_to_markdown(text, f)
                     # Post-convert size check: some converters (empty ipynb,
                     # CSVs with only a header) return tiny/empty output that
@@ -1193,8 +1233,7 @@ async def diff_path(config, root: str) -> dict[str, list[str]]:
             if rel not in db_paths:
                 new.append(rel)
             elif has_hash:
-                text = f.read_text(encoding="utf-8", errors="replace")
-                digest = content_hash(text)
+                digest = _file_digest(f)
                 if db_hashes.get(rel) != digest:
                     modified.append(rel)
                 else:

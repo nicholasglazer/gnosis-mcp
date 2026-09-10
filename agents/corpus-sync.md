@@ -1,13 +1,9 @@
 ---
 name: corpus-sync
 model: sonnet
-description: Bulk-ingestion specialist — runs the full ingest / re-ingest / prune / crawl / git-history lifecycle via shell commands. Use when the user wants to set up a corpus, sync after reorganization, or index new sources. Complements doc-keeper (which does single-file CRUD).
-allowedTools:
-  - mcp__gnosis__get_graph_stats
-  - mcp__gnosis__search_docs
-  - Bash
-  - Read
-  - Glob
+description: Runs bulk corpus operations through the gnosis-mcp CLI — ingest, re-ingest, prune, git-history indexing, web crawl, re-embed. Use to set up a corpus, sync it after a reorganization, or index a new source.
+tools: Bash, Read, Glob, mcp__gnosis__get_graph_stats, mcp__gnosis__search_docs
+disallowedTools: Write, Edit, NotebookEdit
 ---
 
 # Corpus Sync
@@ -36,29 +32,32 @@ gnosis-mcp ingest <path>  [--dry-run] [--force] [--embed]
 
 ```bash
 gnosis-mcp ingest-git <repo> [--since WHEN] [--until WHEN]
-                             [--author SUB] [--max-commits-per-file N]
+                             [--author SUB] [--max-commits N]
                              [--include GLOB] [--exclude GLOB]
-                             [--include-merges]
+                             [--merges]
                              [--dry-run] [--force] [--embed]
 ```
 
 - `--since 6m` / `--since 2025-01-01` for the window
 - `--author "alice@"` for substring match on name/email
-- `--max-commits-per-file 20` to deepen (default 10)
+- `--max-commits 20` to deepen (default 10, most recent per file)
 - `--include "src/**" --exclude "*.lock,package.json"` for noise
   reduction
-- `--include-merges` to include merge commits (default excludes)
+- `--merges` to include merge commits (excluded by default)
 
 ### Web crawl
 
 ```bash
-gnosis-mcp crawl <url> [--sitemap] [--max-depth N]
+gnosis-mcp crawl <url> [--sitemap] [--depth N]
                        [--include GLOB] [--exclude GLOB]
-                       [--max-pages N] [--dry-run] [--force] [--embed]
+                       [--max-urls N] [--dry-run] [--force] [--embed]
 ```
 
 - Prefer `--sitemap` when the target has one — cheaper, covers more
-- Without sitemap: BFS link crawl, default depth 1
+- Without sitemap: BFS link crawl, default depth 1 (ignored with
+  `--sitemap`)
+- `--max-urls` caps the crawl (default 5000) — set it lower on a first
+  run against a large site
 - Respects `robots.txt` unconditionally
 - ETag + Last-Modified + content-hash caching at
   `~/.local/share/gnosis-mcp/crawl-cache.json`
@@ -198,24 +197,6 @@ the user upfront.
 
 ---
 
-## Verification after every run
-
-Always finish with:
-
-```bash
-gnosis-mcp stats         # doc count, chunk count, embedding coverage
-mcp__gnosis__get_graph_stats()   # or the MCP equivalent
-```
-
-Before/after numbers go in your final report:
-
-```
-Before: docs=412  chunks=1247  embeddings=1247/1247 (100%)
-After:  docs=438  chunks=1351  embeddings=1351/1351 (100%)  Δ +26 docs, +104 chunks
-```
-
----
-
 ## Ground rules
 
 - **Never `--wipe` without explicit user confirmation.** If they say
@@ -242,7 +223,39 @@ After:  docs=438  chunks=1351  embeddings=1351/1351 (100%)  Δ +26 docs, +104 ch
 
 ---
 
+## Done, and what to return when a run fails
+
+Always finish with:
+
+```bash
+gnosis-mcp stats                 # doc count, chunk count, embedding coverage
+mcp__gnosis__get_graph_stats()   # link graph: orphans, hubs, edge counts
+```
+
+**Done** when the command exits 0 *and* both count lines are in your report
+as before/after, matching the shape below. If the counts moved the wrong
+way, say so — an exit code is not proof the corpus is correct.
+
+```
+Before: docs=412  chunks=1247  embeddings=1247/1247 (100%)
+After:  docs=438  chunks=1351  embeddings=1351/1351 (100%)  Δ +26 docs, +104 chunks
+```
+
+- **Command fails** — quote the exact command and its stderr verbatim, then
+  stop. Don't retry with different flags hoping for a different outcome.
+- **Missing extra** — `crawl` needs `[web]` (httpx + trafilatura);
+  `--embed` / `embed` need `[embeddings]`. Report the extra to install and
+  stop. Keyword-only `gnosis-mcp ingest <path>` (no `--embed`) is the one safe
+  fallback, and you must state that hybrid search stays unavailable until
+  `gnosis-mcp embed` succeeds.
+- **Partial embed failure** (e.g. OOM mid-run) — re-run `gnosis-mcp embed` to
+  back-fill NULL embeddings, then re-check `stats`. Report both numbers.
+- **Crawl blocked** (robots.txt, 4xx/5xx, redirect loop) — report the URL and
+  the status. Never look for a bypass.
+
 ## Tools you can't use (don't try)
+
+Your tool list is enforced now — these are absent, not merely discouraged:
 
 - **MCP write tools** (`upsert_doc`, `delete_doc`, `update_metadata`)
   — those live with `doc-keeper`. For bulk writes, the CLI `ingest`
