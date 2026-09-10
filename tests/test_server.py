@@ -4,7 +4,9 @@ import json
 import urllib.request
 
 import pytest
+from mcp.server.fastmcp.exceptions import ToolError
 
+from gnosis_mcp import __version__
 from gnosis_mcp.config import GnosisMcpConfig
 from gnosis_mcp.db import AppContext
 from gnosis_mcp.pg_backend import _row_count, _to_or_query
@@ -334,8 +336,9 @@ class TestSearchDocsTool:
 class TestGetDocTool:
     @pytest.mark.asyncio
     async def test_not_found(self, writable_ctx):
-        result = await get_doc("nonexistent.md")
-        data = json.loads(result)
+        with pytest.raises(ToolError) as excinfo:
+            await get_doc("nonexistent.md")
+        data = json.loads(str(excinfo.value))
         assert "error" in data
 
     @pytest.mark.asyncio
@@ -438,22 +441,25 @@ class TestGetContextTool:
 class TestWriteGate:
     @pytest.mark.asyncio
     async def test_upsert_blocked(self, readonly_ctx):
-        result = await upsert_doc("test.md", "content")
-        data = json.loads(result)
+        with pytest.raises(ToolError) as excinfo:
+            await upsert_doc("test.md", "content")
+        data = json.loads(str(excinfo.value))
         assert "error" in data
         assert "GNOSIS_MCP_WRITABLE" in data["error"]
 
     @pytest.mark.asyncio
     async def test_delete_blocked(self, readonly_ctx):
-        result = await delete_doc("test.md")
-        data = json.loads(result)
+        with pytest.raises(ToolError) as excinfo:
+            await delete_doc("test.md")
+        data = json.loads(str(excinfo.value))
         assert "error" in data
         assert "GNOSIS_MCP_WRITABLE" in data["error"]
 
     @pytest.mark.asyncio
     async def test_update_metadata_blocked(self, readonly_ctx):
-        result = await update_metadata("test.md", title="New")
-        data = json.loads(result)
+        with pytest.raises(ToolError) as excinfo:
+            await update_metadata("test.md", title="New")
+        data = json.loads(str(excinfo.value))
         assert "error" in data
         assert "GNOSIS_MCP_WRITABLE" in data["error"]
 
@@ -481,12 +487,13 @@ class TestUpsertDocTool:
 
     @pytest.mark.asyncio
     async def test_embeddings_count_mismatch(self, writable_ctx):
-        result = await upsert_doc(
-            "bad.md",
-            "Short content",
-            embeddings=[[0.1, 0.2], [0.3, 0.4]],  # 2 embeddings for 1 chunk
-        )
-        data = json.loads(result)
+        with pytest.raises(ToolError) as excinfo:
+            await upsert_doc(
+                "bad.md",
+                "Short content",
+                embeddings=[[0.1, 0.2], [0.3, 0.4]],  # 2 embeddings for 1 chunk
+            )
+        data = json.loads(str(excinfo.value))
         assert "error" in data
         assert "Embeddings count" in data["error"]
 
@@ -509,8 +516,9 @@ class TestDeleteDocTool:
 
     @pytest.mark.asyncio
     async def test_delete_nonexistent(self, writable_ctx):
-        result = await delete_doc("nope.md")
-        data = json.loads(result)
+        with pytest.raises(ToolError) as excinfo:
+            await delete_doc("nope.md")
+        data = json.loads(str(excinfo.value))
         assert "error" in data
 
 
@@ -530,15 +538,17 @@ class TestUpdateMetadataTool:
 
     @pytest.mark.asyncio
     async def test_no_fields_error(self, writable_ctx):
-        result = await update_metadata("meta.md")
-        data = json.loads(result)
+        with pytest.raises(ToolError) as excinfo:
+            await update_metadata("meta.md")
+        data = json.loads(str(excinfo.value))
         assert "error" in data
         assert "No fields to update" in data["error"]
 
     @pytest.mark.asyncio
     async def test_nonexistent_path(self, writable_ctx):
-        result = await update_metadata("missing.md", title="X")
-        data = json.loads(result)
+        with pytest.raises(ToolError) as excinfo:
+            await update_metadata("missing.md", title="X")
+        data = json.loads(str(excinfo.value))
         assert "error" in data
 
 
@@ -567,8 +577,9 @@ class TestListDocsResource:
 class TestReadDocResource:
     @pytest.mark.asyncio
     async def test_not_found(self, writable_ctx):
-        result = await read_doc_resource("nope.md")
-        data = json.loads(result)
+        with pytest.raises(ToolError) as excinfo:
+            await read_doc_resource("nope.md")
+        data = json.loads(str(excinfo.value))
         assert "error" in data
 
     @pytest.mark.asyncio
@@ -606,8 +617,9 @@ class TestListCategoriesResource:
 class TestSearchGitHistoryTool:
     @pytest.mark.asyncio
     async def test_empty_query_error(self, writable_ctx):
-        result = await search_git_history("")
-        data = json.loads(result)
+        with pytest.raises(ToolError) as excinfo:
+            await search_git_history("")
+        data = json.loads(str(excinfo.value))
         assert "error" in data
         assert "Empty query" in data["error"]
 
@@ -803,3 +815,39 @@ class TestGetGraphStatsTool:
         data = json.loads(result)
         assert data["total_edges"] == 1
         assert len(data["hubs"]) > 0
+
+
+class TestClientNeutralProtocolSurface:
+    """What any MCP client sees — not just Claude Code.
+
+    These pin the four things a second client cannot be expected to work around:
+    the version we advertise, the initialize instructions, a failure that reports
+    itself as a failure, and a tool list that matches what can actually succeed.
+    """
+
+    def test_server_info_reports_our_version(self):
+        """FastMCP never forwards a version, so the low-level server fell back to
+        the installed `mcp` SDK's version and every client saw `1.27.0`."""
+        options = server_mod.mcp._mcp_server.create_initialization_options()
+        assert options.server_version == __version__
+
+    def test_initialize_carries_instructions(self):
+        options = server_mod.mcp._mcp_server.create_initialization_options()
+        assert options.instructions
+        assert "search_docs" in options.instructions
+
+    def test_fail_raises_tool_error_carrying_the_payload(self):
+        with pytest.raises(ToolError) as excinfo:
+            server_mod._fail(error="boom", hint="try again")
+        assert json.loads(str(excinfo.value)) == {"error": "boom", "hint": "try again"}
+
+    def test_write_tools_are_the_three_documented_ones(self):
+        assert server_mod._WRITE_TOOLS == ("upsert_doc", "delete_doc", "update_metadata")
+
+    def test_lifespan_wrapper_is_the_mounted_one(self):
+        """Write-tool gating rides the lifespan, so the wrapper must be installed."""
+        assert server_mod.mcp.settings.lifespan is server_mod._lifespan
+
+    def test_client_name_is_none_without_a_session(self):
+        """In-process callers have no session; the helper must degrade, not raise."""
+        assert server_mod._client_name() is None

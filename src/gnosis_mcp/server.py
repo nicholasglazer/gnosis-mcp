@@ -6,18 +6,91 @@ import ipaddress
 import json
 import logging
 import socket
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from typing import AsyncIterator, NoReturn
 from urllib.parse import urlparse
 
 from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp.exceptions import ToolError
 
+from gnosis_mcp import __version__
 from gnosis_mcp.db import AppContext, app_lifespan
 
 __all__ = ["mcp"]
 
 log = logging.getLogger("gnosis_mcp")
 
-mcp = FastMCP("gnosis-mcp", lifespan=app_lifespan, streamable_http_path="/mcp")
+# Write tools are absent from `tools/list` unless writes are enabled: a client
+# should never be handed a tool whose only possible outcome is an error.
+_WRITE_TOOLS = ("upsert_doc", "delete_doc", "update_metadata")
+
+# The `instructions` field of the MCP `initialize` result — the only
+# client-neutral place to describe how the server wants to be used. Clients that
+# surface tools but not instructions still get the guidance, because each tool
+# description stands on its own.
+_INSTRUCTIONS = """\
+gnosis-mcp exposes this workspace's indexed documentation as a searchable
+knowledge base. Prefer it over reading files when you need to understand a topic
+rather than one specific file.
+
+- `get_context` (with or without a topic) is the cheapest way to orient yourself:
+  it returns the most-accessed documents plus corpus statistics.
+- `search_docs` answers a specific question and returns ranked previews with file
+  paths; follow up with `get_doc` on one path instead of reading the whole corpus.
+- `get_related` walks the link graph (frontmatter `relates_to`, body links, git
+  co-change) when you need a document's surrounding context.
+- `search_git_history` answers "when and why did this change" questions.
+- `get_graph_stats` reports corpus topology before a large documentation cleanup.
+
+Write tools (`upsert_doc`, `delete_doc`, `update_metadata`) exist only when the
+server runs with writes enabled (`GNOSIS_MCP_WRITABLE=true`) and are not listed
+otherwise.
+"""
+
+
+def _fail(**payload: object) -> NoReturn:
+    """Raise a tool error carrying the payload the tools used to return.
+
+    MCP has always had `isError` for tool failures. Returning a `{"error": ...}`
+    body as ordinary content produced a *successful* result that every client had
+    to sniff for an `error` key, so a failed call was indistinguishable from data
+    and no client could retry or report it uniformly.
+    """
+    raise ToolError(json.dumps(payload))
+
+
+@asynccontextmanager
+async def _lifespan(server) -> AsyncIterator[AppContext]:
+    """The backend lifespan, plus the tool surface that lifespan implies."""
+    async with app_lifespan(server) as app:
+        if not app.config.writable:
+            # `remove_tool` raises on an unknown name, and a startup failure here
+            # would take the whole server down over a cosmetic surface change, so
+            # withdraw only what is actually registered.
+            present = {tool.name for tool in await mcp.list_tools()}
+            withdrawn = [name for name in _WRITE_TOOLS if name in present]
+            for name in withdrawn:
+                mcp.remove_tool(name)
+            missing = [name for name in _WRITE_TOOLS if name not in present]
+            if missing:
+                log.warning("write tools not registered, nothing to withdraw: %s", missing)
+            log.debug("writes disabled: withdrew %s", ", ".join(withdrawn))
+        yield app
+
+
+mcp = FastMCP(
+    "gnosis-mcp",
+    instructions=_INSTRUCTIONS,
+    lifespan=_lifespan,
+    streamable_http_path="/mcp",
+)
+
+# FastMCP never forwards a version to the low-level server, which then reports the
+# installed `mcp` SDK's version in `serverInfo` — every client saw the SDK's number
+# instead of ours. Assign it directly until FastMCP accepts a `version=` argument;
+# tests pin this so an upstream change cannot silently regress it.
+mcp._mcp_server.version = __version__
 
 # In-memory search counters for observability (reset on server restart)
 _search_stats: dict[str, int] = {"total": 0, "misses": 0, "hybrid": 0, "keyword": 0}
@@ -30,6 +103,26 @@ _search_stats: dict[str, int] = {"total": 0, "misses": 0, "hybrid": 0, "keyword"
 
 async def _get_ctx() -> AppContext:
     return mcp.get_context().request_context.lifespan_context
+
+
+def _client_name() -> str | None:
+    """Identify the calling MCP client, e.g. `claude-code/2.1.263`.
+
+    MCP sends `clientInfo` with every `initialize`, so this costs no
+    configuration. Recording it is what lets `savings` and `stats` distinguish
+    two clients sharing one database instead of conflating their traffic.
+    Returns None when there is no session to read (in-process callers, resources).
+    """
+    try:
+        params = mcp.get_context().session.client_params
+    except Exception:
+        return None
+    info = getattr(params, "clientInfo", None) or getattr(params, "client_info", None)
+    name = getattr(info, "name", None)
+    if not name:
+        return None
+    version = getattr(info, "version", None)
+    return f"{name}/{version}" if version else str(name)
 
 
 def _is_private_address(host: str) -> bool:
@@ -242,6 +335,7 @@ async def _log_access(
     """
     if not ctx.config.access_log:
         return
+    client = _client_name()
     try:
         for i, fp in enumerate(file_paths):
             t_ret = tokens_returned[i] if tokens_returned and i < len(tokens_returned) else None
@@ -252,6 +346,7 @@ async def _log_access(
                 query=query,
                 tokens_returned=t_ret,
                 tokens_baseline=t_base,
+                client=client,
             )
     except Exception:
         log.debug("access log failed", exc_info=True)
@@ -269,11 +364,11 @@ async def list_docs() -> str:
     try:
         docs = await ctx.backend.list_docs()
         return json.dumps(docs, indent=2)
+    except ToolError:
+        raise
     except Exception as e:
         log.exception("list_docs resource failed")
-        return json.dumps(
-            {"error": f"{type(e).__name__}: {e}", "hint": "Run `gnosis-mcp check` to diagnose."}
-        )
+        _fail(error=f"{type(e).__name__}: {e}", hint="Run `gnosis-mcp check` to diagnose.")
 
 
 @mcp.resource("gnosis://docs/{path}")
@@ -283,13 +378,13 @@ async def read_doc_resource(path: str) -> str:
     try:
         rows = await ctx.backend.get_doc(path)
         if not rows:
-            return json.dumps({"error": f"No document at: {path}"})
+            _fail(error=f"No document at: {path}")
         return "\n\n".join(r["content"] for r in rows)
+    except ToolError:
+        raise
     except Exception as e:
         log.exception("read_doc_resource failed for path=%s", path)
-        return json.dumps(
-            {"error": f"{type(e).__name__}: {e}", "hint": "Run `gnosis-mcp check` to diagnose."}
-        )
+        _fail(error=f"{type(e).__name__}: {e}", hint="Run `gnosis-mcp check` to diagnose.")
 
 
 @mcp.resource("gnosis://categories")
@@ -299,11 +394,11 @@ async def list_categories() -> str:
     try:
         cats = await ctx.backend.list_categories()
         return json.dumps(cats, indent=2)
+    except ToolError:
+        raise
     except Exception as e:
         log.exception("list_categories resource failed")
-        return json.dumps(
-            {"error": f"{type(e).__name__}: {e}", "hint": "Run `gnosis-mcp check` to diagnose."}
-        )
+        _fail(error=f"{type(e).__name__}: {e}", hint="Run `gnosis-mcp check` to diagnose.")
 
 
 # ---------------------------------------------------------------------------
@@ -334,12 +429,10 @@ async def search_docs(
     cfg = ctx.config
 
     if not query or not query.strip():
-        return json.dumps({"error": "Empty query. Provide a search term."})
+        _fail(error="Empty query. Provide a search term.")
 
     if len(query) > cfg.max_query_chars:
-        return json.dumps(
-            {"error": f"Query exceeds {cfg.max_query_chars} chars. Shorten the query."}
-        )
+        _fail(error=f"Query exceeds {cfg.max_query_chars} chars. Shorten the query.")
 
     use_rerank = cfg.rerank_enabled if rerank is None else rerank
     fetch_limit = max(limit, cfg.rerank_pool) if use_rerank else limit
@@ -470,13 +563,16 @@ async def search_docs(
             )
 
         return json.dumps(items, indent=2)
+    except ToolError:
+        raise
     except Exception as e:
         log.exception("search_docs failed")
-        return json.dumps(
-            {
-                "error": f"{type(e).__name__}: {e}",
-                "hint": "Run `gnosis-mcp check` to verify the DB is initialised and reachable.",
-            }
+        _fail(
+            error=f"{type(e).__name__}: {e}",
+            hint=(
+                "Run `gnosis-mcp init-db` to create the schema, then "
+                "`gnosis-mcp ingest <path>` to load documents."
+            ),
         )
 
 
@@ -495,7 +591,7 @@ async def get_doc(path: str, max_length: int | None = None) -> str:
         rows = await ctx.backend.get_doc(path)
 
         if not rows:
-            return json.dumps({"error": f"No document found at path: {path}"})
+            _fail(error=f"No document found at path: {path}")
 
         first = rows[0]
         content = "\n\n".join(r["content"] for r in rows)
@@ -530,13 +626,16 @@ async def get_doc(path: str, max_length: int | None = None) -> str:
                 query=None,
                 tokens_returned=returned_tokens,
                 tokens_baseline=full_tokens,
+                client=_client_name(),
             )
         except Exception:
             log.debug("access log failed", exc_info=True)
         return json.dumps(result, indent=2)
+    except ToolError:
+        raise
     except Exception:
         log.exception("get_doc failed for path=%s", path)
-        return json.dumps({"error": f"Failed to retrieve document: {path}"})
+        _fail(error=f"Failed to retrieve document: {path}")
 
 
 @mcp.tool()
@@ -562,7 +661,7 @@ async def search_git_history(
     cfg = ctx.config
 
     if not query or not query.strip():
-        return json.dumps({"error": "Empty query. Provide a search term."})
+        _fail(error="Empty query. Provide a search term.")
 
     limit = max(1, min(cfg.search_limit_max, limit))
 
@@ -608,9 +707,11 @@ async def search_git_history(
             file_path,
         )
         return json.dumps(items, indent=2)
+    except ToolError:
+        raise
     except Exception:
         log.exception("search_git_history failed")
-        return json.dumps({"error": f"Search failed for query: {query!r}"})
+        _fail(error=f"Search failed for query: {query!r}")
 
 
 @mcp.tool()
@@ -650,9 +751,11 @@ async def get_related(
             )
 
         return json.dumps(results, indent=2, default=str)
+    except ToolError:
+        raise
     except Exception:
         log.exception("get_related failed for path=%s", path)
-        return json.dumps({"error": f"Failed to find related documents for: {path}"})
+        _fail(error=f"Failed to find related documents for: {path}")
 
 
 @mcp.tool()
@@ -735,9 +838,11 @@ async def get_context(
 
         log.info("get_context: topic=%r docs=%d", topic, len(docs))
         return json.dumps({"docs": docs, "stats": stats}, indent=2)
+    except ToolError:
+        raise
     except Exception:
         log.exception("get_context failed")
-        return json.dumps({"error": "Failed to get context"})
+        _fail(error="Failed to get context")
 
 
 @mcp.tool()
@@ -759,9 +864,11 @@ async def get_graph_stats(category: str | None = None) -> str:
             )
 
         return json.dumps(stats, indent=2, default=str)
+    except ToolError:
+        raise
     except Exception:
         log.exception("get_graph_stats failed")
-        return json.dumps({"error": "Failed to get graph stats"})
+        _fail(error="Failed to get graph stats")
 
 
 # ---------------------------------------------------------------------------
@@ -798,14 +905,10 @@ async def upsert_doc(
     cfg = ctx.config
 
     if not cfg.writable:
-        return json.dumps(
-            {"error": "Write operations disabled. Set GNOSIS_MCP_WRITABLE=true to enable."}
-        )
+        _fail(error="Write operations disabled. Set GNOSIS_MCP_WRITABLE=true to enable.")
 
     if len(content.encode("utf-8")) > cfg.max_doc_bytes:
-        return json.dumps(
-            {"error": f"Content exceeds max_doc_bytes ({cfg.max_doc_bytes}). Split the document."}
-        )
+        _fail(error=f"Content exceeds max_doc_bytes ({cfg.max_doc_bytes}). Split the document.")
 
     # Auto-extract title from first heading if not provided
     if title is None:
@@ -820,11 +923,9 @@ async def upsert_doc(
 
     # Validate embeddings count matches chunks
     if embeddings is not None and len(embeddings) != len(chunks):
-        return json.dumps(
-            {
-                "error": f"Embeddings count ({len(embeddings)}) does not match "
-                f"chunk count ({len(chunks)}). Provide one embedding per chunk."
-            }
+        _fail(
+            error=f"Embeddings count ({len(embeddings)}) does not match "
+            f"chunk count ({len(chunks)}). Provide one embedding per chunk."
         )
 
     try:
@@ -840,9 +941,11 @@ async def upsert_doc(
         await _notify_webhook(ctx, "upsert", path)
         log.info("upsert_doc: path=%s chunks=%d", path, count)
         return json.dumps({"path": path, "chunks": count, "action": "upserted"})
+    except ToolError:
+        raise
     except Exception:
         log.exception("upsert_doc failed for path=%s", path)
-        return json.dumps({"error": f"Failed to upsert document: {path}"})
+        _fail(error=f"Failed to upsert document: {path}")
 
 
 @mcp.tool()
@@ -856,15 +959,13 @@ async def delete_doc(path: str) -> str:
     cfg = ctx.config
 
     if not cfg.writable:
-        return json.dumps(
-            {"error": "Write operations disabled. Set GNOSIS_MCP_WRITABLE=true to enable."}
-        )
+        _fail(error="Write operations disabled. Set GNOSIS_MCP_WRITABLE=true to enable.")
 
     try:
         result = await ctx.backend.delete_doc(path)
 
         if result["chunks_deleted"] == 0:
-            return json.dumps({"error": f"No document found at path: {path}"})
+            _fail(error=f"No document found at path: {path}")
 
         await _notify_webhook(ctx, "delete", path)
         log.info(
@@ -881,9 +982,11 @@ async def delete_doc(path: str) -> str:
                 "action": "deleted",
             }
         )
+    except ToolError:
+        raise
     except Exception:
         log.exception("delete_doc failed for path=%s", path)
-        return json.dumps({"error": f"Failed to delete document: {path}"})
+        _fail(error=f"Failed to delete document: {path}")
 
 
 @mcp.tool()
@@ -909,15 +1012,11 @@ async def update_metadata(
     cfg = ctx.config
 
     if not cfg.writable:
-        return json.dumps(
-            {"error": "Write operations disabled. Set GNOSIS_MCP_WRITABLE=true to enable."}
-        )
+        _fail(error="Write operations disabled. Set GNOSIS_MCP_WRITABLE=true to enable.")
 
     if title is None and category is None and audience is None and tags is None:
-        return json.dumps(
-            {
-                "error": "No fields to update. Provide at least one of: title, category, audience, tags."
-            }
+        _fail(
+            error="No fields to update. Provide at least one of: title, category, audience, tags."
         )
 
     try:
@@ -926,14 +1025,16 @@ async def update_metadata(
         )
 
         if affected == 0:
-            return json.dumps({"error": f"No document found at path: {path}"})
+            _fail(error=f"No document found at path: {path}")
 
         await _notify_webhook(ctx, "update_metadata", path)
         log.info("update_metadata: path=%s chunks_updated=%d", path, affected)
         return json.dumps({"path": path, "chunks_updated": affected, "action": "metadata_updated"})
+    except ToolError:
+        raise
     except Exception:
         log.exception("update_metadata failed for path=%s", path)
-        return json.dumps({"error": f"Failed to update metadata for: {path}"})
+        _fail(error=f"Failed to update metadata for: {path}")
 
 
 # ---------------------------------------------------------------------------
