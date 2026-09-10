@@ -46,13 +46,28 @@ __all__ = [
     "url_matches_pattern",
     "load_cache",
     "save_cache",
+    "cache_file",
     "crawl_url",
 ]
 
 log = logging.getLogger("gnosis_mcp")
 
-_CACHE_DIR = Path.home() / ".local" / "share" / "gnosis-mcp"
-_CACHE_FILE = _CACHE_DIR / "crawl-cache.json"
+
+def cache_file() -> Path:
+    """Resolve the crawl cache path using XDG conventions.
+
+    This module used to compute the path once, at import, from a hardcoded
+    `~/.local/share` — while config, local_embed and rerank all honour
+    `XDG_DATA_HOME`. The consequence was real: a crawl run under an isolated
+    `XDG_DATA_HOME` (tests, containers, CI) still wrote into the user's live
+    cache. Resolving per call also means an environment set before crawling is
+    respected, which an import-time constant can never be.
+    """
+    xdg = os.environ.get("XDG_DATA_HOME")
+    base = Path(xdg) if xdg else Path.home() / ".local" / "share"
+    return base / "gnosis-mcp" / "crawl-cache.json"
+
+
 _MAX_XML_SIZE = 10 * 1024 * 1024  # 10 MB — reject oversized sitemaps
 _MAX_RESPONSE_SIZE = 50 * 1024 * 1024  # 50 MB — reject oversized HTML responses
 _MAX_DEPTH = 10  # Hard cap on BFS crawl depth
@@ -232,7 +247,7 @@ def url_matches_pattern(url: str, pattern: str) -> bool:
 
 def load_cache(path: Path | None = None) -> dict:
     """Load crawl cache from JSON file."""
-    cache_path = path or _CACHE_FILE
+    cache_path = path or cache_file()
     if cache_path.exists():
         try:
             return json.loads(cache_path.read_text())
@@ -243,7 +258,7 @@ def load_cache(path: Path | None = None) -> dict:
 
 def save_cache(data: dict, path: Path | None = None) -> None:
     """Save crawl cache atomically to JSON file with restricted permissions."""
-    cache_path = path or _CACHE_FILE
+    cache_path = path or cache_file()
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     # Atomic write: temp file + os.replace prevents corruption on crash
     fd, tmp_path = tempfile.mkstemp(dir=cache_path.parent, suffix=".tmp")

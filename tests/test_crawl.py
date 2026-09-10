@@ -19,6 +19,7 @@ from gnosis_mcp.crawl import (
     _MAX_DEPTH,
     _MAX_XML_SIZE,
     _parse_robots,
+    cache_file,
     check_robots,
     extract_links,
     load_cache,
@@ -1153,3 +1154,29 @@ class TestCrawlSingle:
         )
         # Should NOT be blocked — should reach fetch and get error
         assert result.action == "error"
+
+
+class TestCrawlCacheLocation:
+    """The cache path must follow XDG_DATA_HOME like the rest of the package.
+
+    This module hardcoded `~/.local/share`, so an isolated run — a test, a
+    container, CI, an `XDG_DATA_HOME=/tmp/...` invocation — still wrote into the
+    user's live cache file. A verification pass hit exactly that: an isolated
+    crawl added four entries to the real `~/.local/share/gnosis-mcp/crawl-cache.json`.
+    """
+
+    def test_honours_xdg_data_home(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+        assert cache_file() == tmp_path / "gnosis-mcp" / "crawl-cache.json"
+
+    def test_falls_back_to_home_without_xdg(self, monkeypatch, tmp_path):
+        monkeypatch.delenv("XDG_DATA_HOME", raising=False)
+        monkeypatch.setenv("HOME", str(tmp_path))
+        expected = tmp_path / ".local" / "share" / "gnosis-mcp" / "crawl-cache.json"
+        assert cache_file() == expected
+
+    def test_round_trip_stays_inside_the_isolated_root(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+        save_cache({"https://example.com/": {"etag": "abc"}})
+        assert load_cache() == {"https://example.com/": {"etag": "abc"}}
+        assert (tmp_path / "gnosis-mcp" / "crawl-cache.json").exists()
