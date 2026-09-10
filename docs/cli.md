@@ -33,6 +33,7 @@ vars (see [config.md](config.md)) — flags override env.
 | [`cleanup`](#cleanup) | Purge old access-log rows. |
 | [`fix-link-types`](#fix-link-types) | One-off migration for pre-0.10 git-history links. |
 | [`eval`](#eval) | Retrieval-quality harness (Hit@K, MRR, Precision@K). |
+| [`savings`](#savings) | Token-savings ledger from the access log. |
 
 ---
 
@@ -368,6 +369,24 @@ python tests/bench/bench_real_corpus.py \
 `{"query": "...", "expected_paths": ["docs/x.md"]}` lines. `--modes`,
 `--k`, `--rerank-n`, `--title-prepend`, and `--chunk-size` let you compare
 configurations. Unlike `eval`, this one reports nDCG@10 as well.
+
+---
+
+## `savings`
+
+```bash
+gnosis-mcp savings [--days N] [--json]
+```
+
+What the access log says your agents saved by searching this corpus instead of
+reading whole documents: tool calls, tokens returned, the baseline those same
+queries would have cost as full reads, and the resulting ratio — broken down per
+tool, over the last `--days` (default 30). `--json` emits the same numbers for
+scripting.
+
+The ledger is written by `search_docs` (its top three hits) and `get_doc`. Turn it
+off with `GNOSIS_MCP_ACCESS_LOG=false`, and purge it with
+[`cleanup`](#cleanup).
 
 ---
 

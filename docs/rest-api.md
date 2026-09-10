@@ -163,6 +163,22 @@ curl -s "http://localhost:8000/api/graph/stats?category=docs"
 
 ---
 
+### `POST /v1/embed`
+
+OpenAI-compatible embeddings from the local ONNX model, so another service can use
+this deployment as its embedding backend without calling a cloud API.
+
+```bash
+curl -s localhost:8000/v1/embed -H 'Content-Type: application/json' \
+  -d '{"texts": ["how do I get residency?"]}'
+```
+
+Returns `{model, dim, vectors, usage}`. Limits are 256 texts per request and
+50 KB per individual text — both answer `400`. It needs a configured embedding
+provider: without `GNOSIS_MCP_EMBED_PROVIDER` the endpoint answers `503`. Like the
+other endpoints it requires the bearer token when `GNOSIS_MCP_API_KEY` is set.
+Full details: [embeddings-service.md](embeddings-service.md).
+
 ## Errors
 
 All errors return a JSON body with a single `error` key. The string is

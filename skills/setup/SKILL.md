@@ -19,118 +19,44 @@ Gets you from nothing to "agent searching my docs" in 60 seconds.
 
 ---
 
-## Step 1 — Install
+## The procedure lives in one place
 
-Pick the extras you need. They're additive.
+**[llms-install.md](https://github.com/nicholasglazer/gnosis-mcp/blob/main/llms-install.md)
+is the install procedure.** Follow its
+[agent checklist](https://github.com/nicholasglazer/gnosis-mcp/blob/main/llms-install.md#agent-checklist)
+in order instead of re-deriving the steps here:
 
-```bash
-pip install gnosis-mcp                        # core (SQLite, keyword search)
-pip install 'gnosis-mcp[embeddings]'          # + local ONNX embeddings (hybrid search)
-pip install 'gnosis-mcp[web]'                 # + web crawler (sitemap / BFS)
-pip install 'gnosis-mcp[postgres]'            # + PostgreSQL backend
-pip install 'gnosis-mcp[rst,pdf]'             # + .rst and .pdf file ingestion
-pip install 'gnosis-mcp[reranking]'           # + cross-encoder reranker
-                                              #   (OFF by default; tune before turning on —
-                                              #    the bundled MS-MARCO model can HURT
-                                              #    dev-doc retrieval by ~27 nDCG@10)
-```
+1. Install the package — `pip install 'gnosis-mcp[embeddings,web]'`, or `uv tool install` when the
+   machine has no suitable Python.
+2. `gnosis-mcp init-db` — creates the schema; idempotent.
+3. `gnosis-mcp check` — must print `FTS5: ready` and exit 0. **If FTS5 is missing, stop and tell the
+   user** rather than ingesting: keyword search cannot work on that Python build.
+4. `gnosis-mcp ingest <path> --dry-run` to preview, then `gnosis-mcp ingest <path> --embed`.
+5. `gnosis-mcp search "<a query you know the answer to>"` — the first real verification.
 
-Full stack in one shot:
+Backend choice (SQLite by default; PostgreSQL for concurrent writers or > 100 k chunks), extras,
+flags, write mode, and the platform notes (Windows `.exe` paths, WSL2, remote HTTP transport) are in
+that file. If this skill and llms-install.md ever disagree, llms-install.md wins.
 
-```bash
-pip install 'gnosis-mcp[embeddings,web,postgres,rst,pdf]'
-```
+## Claude Code extras — plugin, agents, skills
 
-Verify:
+Search works with the MCP server alone; the extras are 5 subagents, 8 slash commands and a
+session-start hook. Two ways in:
 
-```bash
-gnosis-mcp --version     # should print the semver (≥ 0.10.13)
-```
+- **Plugin (Path A)** — `claude plugin marketplace add nicholasglazer/gnosis-mcp`, then
+  `claude plugin install gnosis`, then restart Claude Code.
+- **Manual copy (Path B)** — clone the repo and copy the agents and skills you want into
+  `.claude/agents/` and `.claude/skills/` in your project. Exact commands, and how to cherry-pick a
+  subset, are in
+  [Path B](https://github.com/nicholasglazer/gnosis-mcp/blob/main/llms-install.md#path-b--manual-copy-paste).
 
----
-
-## Step 2 — Pick a backend (usually SQLite)
-
-**SQLite (default):** zero config. Database auto-creates at
-`~/.local/share/gnosis-mcp/docs.db`. Great up to ~100 k chunks.
-
-**PostgreSQL:** use when you have multiple concurrent writers, need a
-shared index across machines, or corpus > 100 k chunks.
-
-```bash
-# Postgres (only if you need it)
-export GNOSIS_MCP_DATABASE_URL="postgresql://user:pass@localhost:5432/mydb"
-```
-
-Check that pgvector is available on the server:
-
-```bash
-psql "$GNOSIS_MCP_DATABASE_URL" -c "CREATE EXTENSION IF NOT EXISTS vector;"
-```
+Say which route the user took when you report — the manual route installs a subset.
 
 ---
 
-## Step 3 — Initialise the database
+## Wire your editor
 
-Idempotent. Safe to run any time.
-
-```bash
-gnosis-mcp init-db
-```
-
----
-
-## Step 4 — Ingest your docs
-
-If `$ARGUMENTS` includes a path, use it. Otherwise ask the user where
-their docs live.
-
-```bash
-# Preview (dry-run): lists files that would be ingested
-gnosis-mcp ingest /path/to/docs --dry-run
-
-# Real ingest, with embeddings for hybrid search
-gnosis-mcp ingest /path/to/docs --embed
-```
-
-**Default chunk size is 2000 characters** (peak of the v0.11 sweep on
-real dev-docs). Tune it for your corpus with `/gnosis:tune` after
-you've got some real queries to score against.
-
-Watch mode — auto re-ingests on file changes, no cron needed:
-
-```bash
-gnosis-mcp serve --watch /path/to/docs --transport streamable-http --rest
-```
-
----
-
-## Step 5 — Verify
-
-```bash
-gnosis-mcp check     # DB connectivity + schema sanity
-gnosis-mcp stats     # doc / chunk / embedding counts
-```
-
-Expect something like:
-
-```
-Backend:       sqlite
-Version:       SQLite 3.46.0
-chunks_table:  ✓ (1,742 rows)
-fts_table:     ✓
-sqlite_vec:    ✓ (1,742 vectors)
-links_table:   ✓ (812 rows)
-```
-
-If anything says `✗`, run `/gnosis:status` for diagnosis.
-
----
-
-## Step 6 — Wire your editor
-
-Pick one. Each config goes in the project root (or global config — see
-each editor's docs).
+Each config goes in the project root (or the editor's global config — see each editor's docs).
 
 ### Claude Code — `.mcp.json` in the project root, or `claude mcp add --scope user`
 
@@ -145,7 +71,7 @@ each editor's docs).
 }
 ```
 
-For shared-state setups (agent teams, parallel tabs) — use HTTP:
+For shared-state setups (agent teams, parallel tabs) — one server, many clients — use HTTP:
 
 ```json
 {
@@ -164,44 +90,13 @@ Start the server separately:
 gnosis-mcp serve --transport streamable-http --rest --watch ./docs
 ```
 
-### Cursor — `.cursor/mcp.json`
-
-Same shape as Claude Code. Drop the JSON above.
-
-### Windsurf — `~/.codeium/windsurf/mcp_config.json`
-
-Same shape.
-
-### VS Code (GitHub Copilot) — `.vscode/mcp.json`
-
-Key is `"servers"`, not `"mcpServers"`:
-
-```json
-{
-  "servers": {
-    "gnosis": {
-      "command": "gnosis-mcp",
-      "args": ["serve"]
-    }
-  }
-}
-```
-
-### JetBrains — Settings → Tools → AI Assistant → MCP Servers
-
-Command: `gnosis-mcp`, args: `serve`.
-
-### Cline — Cline's MCP panel in the sidebar
-
-Command: `gnosis-mcp`, args: `["serve"]`.
-
-Full per-editor guidance (including auth, env vars for write mode, and
-team / remote setups) lives in
-[llms-install.md](https://github.com/nicholasglazer/gnosis-mcp/blob/main/llms-install.md).
+Other editors — Cursor (`.cursor/mcp.json`), Windsurf, VS Code (`.vscode/mcp.json`, key
+`"servers"`), Zed (`context_servers`), opencode, JetBrains, Cline — have copy-paste configs in
+[Path C](https://github.com/nicholasglazer/gnosis-mcp/blob/main/llms-install.md#path-c--mcp-server-only-any-editor).
 
 ---
 
-## Step 7 — Report
+## Report
 
 Print a compact summary to the user:
 
@@ -224,6 +119,10 @@ Next:
   /gnosis:ingest git <repo>            — index commit history too (optional)
 ```
 
+If any step failed, report that instead of a success table. Anything from the checklist above that
+went wrong: `/gnosis:status` diagnoses connectivity and schema; failure modes are catalogued in
+[docs/troubleshooting.md](https://github.com/nicholasglazer/gnosis-mcp/blob/main/docs/troubleshooting.md).
+
 ---
 
 ## Optional — extras
@@ -240,13 +139,27 @@ gnosis-mcp ingest-git . --since 6m --embed
 gnosis-mcp crawl https://docs.stripe.com --sitemap --embed
 ```
 
+### Watch mode (no cron needed)
+
+```bash
+gnosis-mcp serve --watch /path/to/docs --transport streamable-http --rest
+```
+
 ### Writes from your agent
 
 Off by default for safety. Enable only if you want your agent to call
-`upsert_doc` / `delete_doc`:
+`upsert_doc` / `delete_doc` / `update_metadata`:
 
 ```bash
 export GNOSIS_MCP_WRITABLE=true
+```
+
+### PostgreSQL
+
+```bash
+export GNOSIS_MCP_DATABASE_URL="postgresql://user:pass@localhost:5432/mydb"
+psql "$GNOSIS_MCP_DATABASE_URL" -c "CREATE EXTENSION IF NOT EXISTS vector;"   # hybrid search
+gnosis-mcp init-db && gnosis-mcp ingest /path/to/docs --embed
 ```
 
 ### REST API on the same port
@@ -269,6 +182,8 @@ export GNOSIS_MCP_API_KEY="$(python -c 'import secrets; print(secrets.token_urls
 
 - **Re-running ingest is cheap** — content hashes skip unchanged files
 - **Watch mode beats cron** — mtime polling + debounce, no fsnotify dep
+- **Chunk size defaults to 2000 characters** (peak of the v0.11 sweep on real
+  dev-docs). Tune it against your own queries with `/gnosis:tune`
 - **Rerankers are off by default**: they help in some domains, hurt in
   others. Run `/gnosis:tune full` to find out which applies to your
   corpus before enabling

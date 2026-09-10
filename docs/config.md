@@ -145,10 +145,45 @@ Constant in the Reciprocal-Rank-Fusion formula used by hybrid search:
 `score = Σ 1 / (k + rank_i)`. Higher `k` flattens the rank curve and lets
 vector scores contribute more relative to BM25. Typical values are 30–120.
 
+### `GNOSIS_MCP_COLLAPSE_BY_DOC`
+`true | false` — default **`false`**.
+
+Post-processes the top-K results to keep at most one chunk per document (its
+highest-scoring one), so a single popular document cannot fill the whole result
+list. Opt-in so result shapes stay stable for existing callers.
+
+### `GNOSIS_MCP_FTS5_TITLE_WEIGHT` / `GNOSIS_MCP_FTS5_CONTENT_WEIGHT`
+Floats — defaults **`10.0`** and **`1.0`**. *SQLite only.*
+
+The `bm25()` column weights, i.e. how much a title match counts against a body
+match. The defaults keep the historical 10:1 ratio; set both to `1.0` for uniform
+scoring.
+
+### `GNOSIS_MCP_MMR_LAMBDA`
+Float — default **`1.0`** (disabled).
+
+Below `1.0`, the top-K candidates are re-ranked with Maximal Marginal Relevance
+(Carbonell & Goldstein, 1998) to trade relevance for diversity: `1.0` is pure
+relevance, `0.0` pure diversity, and `0.6` a common middle ground for developer
+docs. Requires an active embedder — it falls back to the original order when
+embedding fails.
+
 ### `GNOSIS_MCP_SEARCH_FUNCTION`
-*(Postgres only.)* Name of a user-defined `func(query, limit) → table`. When
-set, `search_docs` delegates to it instead of the built-in path. Useful for
-plugging in experimental ranking without forking the server.
+*(Postgres only.)* Name of a user-defined function that `search_docs` delegates
+to instead of the built-in path — useful for plugging in experimental ranking
+without forking the server. It is called as:
+
+```sql
+SELECT * FROM your_function(
+  p_query_text := $1::text,  p_embedding := $2::vector,
+  p_categories := $3::text[], p_limit     := $4::integer)
+```
+
+`p_embedding` is `NULL` when no embedding is available and `p_categories` is
+`NULL` unless a category filter is set, so give both defaults. It must return the
+same columns as the built-in search functions:
+`(file_path text, title text, content text, category text,
+combined_score double precision)`.
 
 ---
 
@@ -193,6 +228,17 @@ Opt-in cross-encoder reranker (22M-param ONNX) applied to the top candidates
 from `search_docs` before returning. Requires the `[reranking]` extra.
 
 Typical cost: ~20 ms per query for the default top-20 pool on laptop CPU.
+
+### `GNOSIS_MCP_RERANK_MODEL`
+Default **`cross-encoder/ms-marco-MiniLM-L6-v2`**. The cross-encoder to download
+and run. It must be a genuine cross-encoder (a `BertForSequenceClassification`
+style model that scores a query/passage pair) — pointing it at an embedding model
+produces no usable scores. A model that cannot be fetched is reported at startup
+and searches then return unranked results, so verify it on your corpus.
+
+### `GNOSIS_MCP_RERANK_POOL`
+Integer — default **`20`**. How many candidates are fetched and re-scored before
+the top `limit` are returned. A larger pool is more accurate and slower.
 
 ---
 
@@ -277,7 +323,10 @@ Default **`public`**. Alternate schema for all gnosis-mcp tables.
 
 ### `GNOSIS_MCP_CHUNKS_TABLE`
 Default **`documentation_chunks`**. Single name or comma-separated list —
-with multiple tables, search queries use `UNION ALL`.
+with multiple tables, search queries use `UNION ALL`. All tables must share the
+same schema (identical column names and types), and **writes** (`ingest`,
+`upsert_doc`, `delete_doc`, `update_metadata`) target the **first** table in the
+list.
 
 ### `GNOSIS_MCP_LINKS_TABLE`
 Default **`documentation_links`**.

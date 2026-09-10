@@ -10,6 +10,58 @@ Three install paths, pick the one that matches how you work:
 
 All three paths install the same underlying `gnosis-mcp` Python package. The difference is what wires up around it.
 
+## Agent checklist
+
+*For an AI agent installing gnosis-mcp on a user's behalf.* Work these in order — each step says how
+to verify it and what to do when it fails. The prose below is the same procedure written for humans;
+[Path C](#path-c--mcp-server-only-any-editor) is the closest match.
+
+1. **Confirm the target.** Ask which folder of docs to index, and whether the user wants the Claude
+   Code extras ([Path A](#path-a--claude-code-plugin-recommended) or
+   [Path B](#path-b--manual-copy-paste)) or only the MCP server
+   ([Path C](#path-c--mcp-server-only-any-editor)). Don't guess the docs path.
+2. **Install.** Python 3.11 or later (`python --version`).
+
+   ```bash
+   pip install 'gnosis-mcp[embeddings,web]'
+   # or, when the machine has no suitable Python:
+   uv tool install 'gnosis-mcp[embeddings,web]'
+   ```
+
+   *Verify:* `gnosis-mcp --version` prints a version. *If it fails:* no Python 3.11+ — install
+   [uv](https://docs.astral.sh/uv/) and use the `uv tool install` form; on Windows see
+   [Platforms](#platforms) for the `.exe` path.
+3. **Check that SQLite has FTS5 — before ingesting.** Keyword search needs SQLite **FTS5**, which is
+   compiled into the Python build rather than guaranteed by it. Run this with the same Python that
+   runs `gnosis-mcp`:
+
+   ```bash
+   python -c "import sqlite3; sqlite3.connect(':memory:').execute('CREATE VIRTUAL TABLE t USING fts5(x)')"
+   ```
+
+   Exit 0 = FTS5 is present. `no such module: fts5` = it is not — **stop and tell the user**, because
+   every later step would appear to succeed while search returns nothing. Fix the Python (python.org
+   installer, `uv python install`) or use PostgreSQL instead.
+4. **Initialise the database.** `gnosis-mcp init-db` (idempotent). *Verify:* `gnosis-mcp check`
+   prints `FTS5: ready` and ends with `Result: healthy (exit 0)` — the exit code is the gate. A
+   non-zero exit here is a stop condition, not a warning.
+5. **Ingest.** `gnosis-mcp ingest <path> --dry-run` to preview, then
+   `gnosis-mcp ingest <path> --embed`. *Verify:* `gnosis-mcp stats` reports a non-zero
+   Documents / Chunks count.
+6. **Prove retrieval works.** `gnosis-mcp search "<a phrase you know is in the docs>"` must return
+   hits. If it returns nothing, the user's agent will find nothing either — fix that before wiring a
+   client.
+7. **Wire the client.** Add the stdio entry for the user's client
+   ([Path C](#path-c--mcp-server-only-any-editor)); on Windows use the full path to
+   `gnosis-mcp.exe` ([Platforms](#platforms)). A read-only client sees six tools — write tools are
+   advertised only with `GNOSIS_MCP_WRITABLE=true`.
+8. **Report.** Docs path, database path, backend, doc/chunk counts, the client config file you
+   wrote, and anything you skipped. If a step failed, report the failure instead of continuing or
+   claiming success.
+
+Failures at any step: [`docs/troubleshooting.md`](docs/troubleshooting.md). Never report "setup
+complete" without the `check` and `search` output to back it.
+
 ## Any other MCP client
 
 Claude Code is not required. Any MCP client works — install the package, index your docs, then add this stdio entry to the client's config:
@@ -38,6 +90,57 @@ Config file location, and the clients that use a different key than `mcpServers`
 - A folder of markdown files you want your AI agent to search
 
 No database server required — SQLite works out of the box.
+
+---
+
+## Platforms
+
+| Platform | Install | Database | Notes |
+|---|---|---|---|
+| **Linux / macOS** | `pip install 'gnosis-mcp[embeddings,web]'`, or `uv tool install` | `~/.local/share/gnosis-mcp/docs.db` | Docker, systemd and the reverse-proxy recipes in [`docs/deployment.md`](docs/deployment.md) assume Linux. |
+| **Windows (native)** | `winget install astral-sh.uv`, then `uv tool install 'gnosis-mcp[embeddings,web]'` — plain `pip install` works too | `%USERPROFILE%\.local\share\gnosis-mcp\docs.db` | Before ingesting, run the FTS5 probe from [step 3](#agent-checklist) of the checklist: keyword search needs SQLite **FTS5**, which is compiled into the Python build rather than guaranteed by it. `pip`/`uv` install console scripts as `.exe` shims under `%USERPROFILE%\.local\bin`, so point your MCP client at the full path to `gnosis-mcp.exe` instead of relying on PATH inheritance. |
+| **Windows via WSL2** | Same as Linux, inside WSL | Inside the WSL filesystem | The simplest route to Docker or systemd from Windows — localhost forwarding means a Windows client reaches `http://127.0.0.1:8000/mcp`. Index docs that live in the Linux filesystem. |
+| **Remote server / VM** | Same as Linux, on the host | On the host | Serve over HTTP and connect to the host's address (below). Set `GNOSIS_MCP_API_KEY` whenever the network is not trusted. |
+
+### Windows: worked MCP server entry
+
+Stdio, with the full path to the `.exe` (backslashes doubled for JSON):
+
+```json
+{
+  "mcpServers": {
+    "gnosis": {
+      "command": "C:\\Users\\you\\.local\\bin\\gnosis-mcp.exe",
+      "args": ["serve"]
+    }
+  }
+}
+```
+
+### Remote / WSL / VM: HTTP transport
+
+Start the server on the machine that holds the database:
+
+```bash
+gnosis-mcp serve --transport streamable-http --host 0.0.0.0 --port 8000
+```
+
+Then point the client at it — `127.0.0.1` from a Windows client under WSL2 (localhost forwarding),
+or the host's address from anywhere else:
+
+```json
+{
+  "mcpServers": {
+    "gnosis": {
+      "type": "url",
+      "url": "http://127.0.0.1:8000/mcp"
+    }
+  }
+}
+```
+
+Set `GNOSIS_MCP_API_KEY` on the server for any non-loopback exposure — see the security checklist in
+[`docs/deployment.md`](docs/deployment.md).
 
 ---
 
@@ -176,10 +279,17 @@ gnosis-mcp ingest ./docs/ --dry-run
 ### Step 3: Verify
 
 ```bash
-gnosis-mcp check    # verify database connection
+gnosis-mcp check    # verify database connection, schema, and FTS5
 gnosis-mcp stats    # see document and chunk counts
 gnosis-mcp search "getting started"   # test a search
 ```
+
+`check` is the gate: it exits `0` only when the backend started and the tables the server needs are
+present, and it names whatever is missing before exiting `1`. On SQLite it must print
+`FTS5: ready` — keyword search needs FTS5, which is compiled into your Python's SQLite rather than
+guaranteed by it. On a brand-new database `check` reports the schema as missing until the first
+`init-db` (or the first `ingest`, which creates the schema itself); after that, a non-zero exit
+means something is actually wrong — [`docs/troubleshooting.md`](docs/troubleshooting.md).
 
 ### Step 4: Connect to Your Editor
 
@@ -306,7 +416,10 @@ For PostgreSQL, add an `env` block to any of the above (Zed takes the same `env`
 
 ## Optional: Enable Write Mode
 
-By default, only read tools (search, get, related) are enabled. To let your AI agent create, update, and delete docs:
+By default a read-only client sees **six** tools — `search_docs`, `get_doc`, `get_related`,
+`search_git_history`, `get_context`, `get_graph_stats`. To let your AI agent create, update, and
+delete docs, set `GNOSIS_MCP_WRITABLE=true`, which adds the other three (`upsert_doc`, `delete_doc`,
+`update_metadata`) to `tools/list`:
 
 ```json
 {

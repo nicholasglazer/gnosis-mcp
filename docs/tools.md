@@ -11,8 +11,9 @@ relates_to:
 
 # MCP Tools Reference
 
-gnosis-mcp exposes **9 tools** and **3 resources** over the Model Context
-Protocol. The same API surface is available via stdio, streamable-HTTP, and
+gnosis-mcp exposes **nine tools** — six read, always advertised; three write,
+gated behind `GNOSIS_MCP_WRITABLE=true` — and **3 resources** over the Model
+Context Protocol. The same API surface is available via stdio, streamable-HTTP, and
 (opt-in) a REST mirror on the HTTP port.
 
 Tools marked *read* are always available. Tools marked *write* require

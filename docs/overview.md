@@ -43,12 +43,20 @@ pip install gnosis-mcp[rst,pdf]    # extra input formats
 # 1. index your docs
 gnosis-mcp ingest ./knowledge
 
-# 2. serve (MCP stdio by default — for Claude Code, Cursor, Windsurf, …)
+# 2. verify — FTS5, schema, row counts. Non-zero exit means something is wrong
+gnosis-mcp check
+
+# 3. serve (MCP stdio by default — for Claude Code, Cursor, Windsurf, …)
 gnosis-mcp serve
 
 # or expose on HTTP with a REST mirror
 gnosis-mcp serve --transport streamable-http --rest
 ```
+
+`check` must print `FTS5: ready` and end with `Result: healthy (exit 0)`; keyword
+search needs SQLite FTS5, which is compiled into the Python build rather than
+guaranteed by it. Failures are covered in
+[Troubleshooting](troubleshooting.md).
 
 Point your editor at it. See [`llms-install.md`](../llms-install.md) for
 copy-paste snippets for every popular client.
@@ -59,11 +67,12 @@ copy-paste snippets for every popular client.
 
 Start here:
 
-- [**MCP Tools**](tools.md) — the 9 tools + 3 resources. This is the API
-  your LLM sees.
+- [**MCP Tools**](tools.md) — the six read tools a client sees by default, the
+  three write tools `GNOSIS_MCP_WRITABLE=true` adds, and 3 resources. This is
+  the API your LLM sees.
 - [**CLI**](cli.md) — every subcommand (`serve`, `ingest`, `crawl`,
   `ingest-git`, `embed`, `search`, `stats`, `export`, `diff`, `check`,
-  `cleanup`, `prune`, `fix-link-types`, `eval`, `init-db`).
+  `cleanup`, `prune`, `fix-link-types`, `eval`, `savings`, `init-db`).
 - [**Configuration**](config.md) — every `GNOSIS_MCP_*` environment
   variable, grouped by what it controls.
 - [**REST API**](rest-api.md) — optional HTTP/JSON mirror on the same port.

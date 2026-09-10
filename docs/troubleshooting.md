@@ -30,6 +30,27 @@ loadable extensions. Options:
    `GNOSIS_MCP_DATABASE_URL=postgresql://…`.
 3. On Linux distros, install `libsqlite3-dev` and rebuild Python.
 
+### `no such module: fts5` (or `check` reports `FTS5: not initialized`)
+Keyword search needs SQLite **FTS5**, which is compiled into the SQLite that
+ships with your Python — it is not something gnosis-mcp can add at runtime.
+The first `init-db` / `ingest` fails on the `CREATE VIRTUAL TABLE … USING
+fts5` statement; afterwards `check` exits 1 naming `FTS5 index` as missing.
+Confirm the build directly (same Python that runs `gnosis-mcp`):
+
+```bash
+python -c "import sqlite3; sqlite3.connect(':memory:').execute('CREATE VIRTUAL TABLE t USING fts5(x)')"
+```
+
+Exit 0 means FTS5 is present; `no such module: fts5` means it is not. Options:
+
+1. Use a Python that ships FTS5 — the python.org installer, a `uv python
+   install`-managed CPython, or a distro Python built with `--enable-fts5`.
+   Minimal or embedded distributions (and some stripped-down Windows builds)
+   omit it.
+2. Use Postgres instead — `pip install gnosis-mcp[postgres]`, set
+   `GNOSIS_MCP_DATABASE_URL`, then `init-db` + `ingest`. tsvector needs no
+   FTS5.
+
 ### `ONNXRuntimeError: LoadLibrary failed`
 ONNX Runtime couldn't load its native binary. Usually a mismatch between
 `onnxruntime` and glibc on very old Linux. Options:
@@ -45,6 +66,18 @@ ONNX Runtime couldn't load its native binary. Usually a mismatch between
 
 ### `gnosis-mcp check` reports *no such table: documentation_chunks*
 You haven't initialised the database. Run `gnosis-mcp init-db` once.
+
+### `check` exits 1 on a brand-new database
+Nothing is wrong yet. Until `init-db` (or a first `ingest`, which creates the
+schema itself) has run, `check` reports the schema as missing:
+
+```
+Result: unhealthy — schema not initialized; missing: chunks table, FTS5 index, links table (exit 1).
+```
+
+Run `gnosis-mcp init-db`, then `gnosis-mcp check` again — it should print
+`FTS5: ready` and end with `Result: healthy (exit 0)`. That exit code is what
+setup scripts and agents should gate on.
 
 ### `gnosis-mcp check` reports *vec0 table not present* (SQLite)
 You installed the core package without embeddings. This is fine if you're
@@ -188,7 +221,7 @@ Respect it. If you own the target and it's a config mistake, fix the
 `robots.txt`. gnosis-mcp will not bypass.
 
 ### Crawl finishes with fewer pages than expected
-- You passed `--max-pages N` (default 5000) and hit it.
+- You passed `--max-urls N` (default 5000) and hit it.
 - Many links point to non-HTML assets (PDFs without `[pdf]` extra, images).
 - `--include` / `--exclude` globs filtered them out.
 - Rate limiting by the target — retry with exponential backoff
