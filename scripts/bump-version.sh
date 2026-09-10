@@ -19,7 +19,7 @@
 #   - pkg/arch/.SRCINFO (regenerated from PKGBUILD if makepkg is installed)
 #   - llms.txt / llms-full.txt (in-place sed on v$OLD → v$NEW; measured
 #     numbers like test count and MCP latency stay hand-edited)
-#   - uv.lock (via `uv sync`)
+#   - uv.lock (via `uv lock` — never `uv sync`, which strips the dev extra)
 #
 # Does NOT touch:
 #   - Historical benchmark docs ("captured on v0.10.13" — that's measured-at, not current)
@@ -229,10 +229,14 @@ done
 if command -v uv &>/dev/null; then
   echo ""
   echo "regenerating uv.lock …"
-  uv sync --quiet
+  # `uv lock`, not `uv sync`: the goal is to refresh the project's own version in
+  # the lock, and `sync` also *reconciles the environment* against the default
+  # dependency set — which uninstalls the `dev` extra. A release bump should not
+  # leave the checkout without pytest and ruff, and it did, twice.
+  uv lock --quiet
   echo "✓ uv.lock"
 else
-  echo "⚠ uv not on PATH — skipping uv.lock regeneration; run \`uv sync\` manually"
+  echo "⚠ uv not on PATH — skipping uv.lock regeneration; run \`uv lock\` manually"
 fi
 
 # ---- 9. parity check ------------------------------------------------------
