@@ -271,6 +271,12 @@ def _format_search_result(row: dict, preview_chars: int) -> dict:
     """Shape a backend search row as the MCP-tool result dict.
 
     Shared by `search_docs` and `search_git_history` so their output stays in lockstep.
+
+    Optional fields a backend may attach are passed through rather than rebuilt
+    away: `rerank_score` (without it a reranked result set shows retrieval scores
+    that disagree with the order the caller is reading) and `category`. Both are
+    added only when present, so `search_git_history`, which never reranks, is
+    unaffected.
     """
     content = row["content"]
     item = {
@@ -281,6 +287,9 @@ def _format_search_result(row: dict, preview_chars: int) -> dict:
         ),
         "score": round(float(row["score"]), 4),
     }
+    for optional in ("rerank_score", "category"):
+        if row.get(optional) is not None:
+            item[optional] = row[optional]
     if row.get("highlight"):
         item["highlight"] = row["highlight"]
     return item

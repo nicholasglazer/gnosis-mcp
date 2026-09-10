@@ -112,7 +112,12 @@ class GnosisMcpConfig:
 
     # Reranking (opt-in, requires [reranking] extra)
     rerank_enabled: bool = False
-    rerank_model: str = "onnx-community/ms-marco-MiniLM-L6-v2-ONNX"
+    # Must be a *cross-encoder* repo with an ONNX export. The previous default,
+    # `onnx-community/ms-marco-MiniLM-L6-v2-ONNX`, does not exist — HuggingFace
+    # answers 401 for every path, so enabling reranking could never work.
+    # `cross-encoder/ms-marco-MiniLM-L6-v2` is the same MiniLM cross-encoder
+    # (6 layers, Apache-2.0) that `rerank._DEFAULT_MODEL` and the benchmarks use.
+    rerank_model: str = "cross-encoder/ms-marco-MiniLM-L6-v2"
     rerank_pool: int = 20  # fetch this many before reranking, return `limit` after
 
     # Search quality knobs.
@@ -353,7 +358,7 @@ class GnosisMcpConfig:
             crawl_extract_timeout_s=env_int("CRAWL_EXTRACT_TIMEOUT_S", 30),
             rrf_k=env_int("RRF_K", 60),
             rerank_enabled=env("RERANK_ENABLED", "").lower() in ("1", "true", "yes"),
-            rerank_model=env("RERANK_MODEL", "onnx-community/ms-marco-MiniLM-L6-v2-ONNX"),
+            rerank_model=env("RERANK_MODEL", "cross-encoder/ms-marco-MiniLM-L6-v2"),
             rerank_pool=env_int("RERANK_POOL", 20),
             collapse_by_doc=env("COLLAPSE_BY_DOC", "").lower() in ("1", "true", "yes"),
             fts5_title_weight=env_float("FTS5_TITLE_WEIGHT", 10.0),

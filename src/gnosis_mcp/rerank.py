@@ -4,9 +4,10 @@ Re-scores an initial search result set using a sequence-pair cross-encoder.
 Opt-in: requires the `[reranking]` extra (onnxruntime + tokenizers, already in
 `[embeddings]`) and a model whose HuggingFace repo ships an ONNX export.
 
-Default model: `onnx-community/ms-marco-MiniLM-L6-v2-ONNX` (22M params, Apache
-2.0, ~90 MB). Cross-encoder style: concatenates query and passage, outputs one
-relevance score.
+Default model: `cross-encoder/ms-marco-MiniLM-L6-v2` (22M params, Apache 2.0,
+~90 MB). Cross-encoder style: concatenates query and passage, outputs one
+relevance score. It is the same repo `GnosisMcpConfig.rerank_model` defaults to,
+so `GNOSIS_MCP_RERANK_MODEL` can be left unset.
 
 Why opt-in? Cross-encoders add ~50-300 ms per call. On small corpora (<5 000
 chunks) where keyword search already hits ~1.0 Hit@5, reranking adds latency
@@ -19,14 +20,16 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import urllib.error
 import urllib.request
 from pathlib import Path
 
-__all__ = ["Reranker", "get_reranker"]
+__all__ = ["Reranker", "check_model_available", "get_reranker", "model_is_cached"]
 
 log = logging.getLogger("gnosis_mcp")
 
-_DEFAULT_MODEL = "cross-encoder/ms-marco-MiniLM-L6-v2"
+DEFAULT_MODEL = "cross-encoder/ms-marco-MiniLM-L6-v2"
+_DEFAULT_MODEL = DEFAULT_MODEL
 
 _MODEL_FILES = [
     "onnx/model.onnx",
@@ -35,6 +38,12 @@ _MODEL_FILES = [
     "special_tokens_map.json",
     "config.json",
 ]
+
+#: Assets a model must have to be usable. The rest of `_MODEL_FILES` is optional.
+_REQUIRED_MODEL_FILES = ("tokenizer.json",)
+
+#: Repos occasionally keep the export at the top level instead of under onnx/.
+_ONNX_CANDIDATES = ("onnx/model.onnx", "model.onnx")
 
 _HF_BASE = "https://huggingface.co"
 
@@ -60,9 +69,76 @@ def _get_cache_dir() -> Path:
     return base / "gnosis-mcp" / "rerankers"
 
 
+def _model_dir(model_id: str, cache_dir: Path | None = None) -> Path:
+    return (cache_dir or _get_cache_dir()) / model_id.replace("/", "--")
+
+
+def model_is_cached(model_id: str, cache_dir: Path | None = None) -> bool:
+    """True when every required asset for `model_id` is already on disk."""
+    model_dir = _model_dir(model_id, cache_dir)
+    if not all((model_dir / rel_path).exists() for rel_path in _REQUIRED_MODEL_FILES):
+        return False
+    return any((model_dir / rel_path).exists() for rel_path in _ONNX_CANDIDATES)
+
+
+def _http_status(exc: BaseException) -> str:
+    """`HTTP 401` for urllib's HTTPError, otherwise the exception class name."""
+    code = getattr(exc, "code", None)
+    return f"HTTP {code}" if isinstance(code, int) else type(exc).__name__
+
+
+def _unavailable_message(model_id: str, url: str, exc: BaseException) -> str:
+    """Actionable one-liner for a reranker asset that cannot be fetched.
+
+    Reranking degrades quietly by design — `search_docs` catches the failure and
+    returns unranked results — so a model that 401s (the shape the old default
+    `onnx-community/ms-marco-MiniLM-L6-v2-ONNX` had) looked like a slow search
+    rather than a misconfiguration. Every message that reaches an operator now
+    names the model, the HTTP status, and both ways to fix it.
+    """
+    return (
+        f"Reranker model '{model_id}' is unusable: could not fetch {url} "
+        f"({_http_status(exc)}). Set GNOSIS_MCP_RERANK_MODEL to a fetchable "
+        f"cross-encoder (e.g. '{DEFAULT_MODEL}'), or turn reranking off with "
+        f"GNOSIS_MCP_RERANK_ENABLED=false. Searches keep returning unranked "
+        f"results until then."
+    )
+
+
+def check_model_available(
+    model_id: str, timeout: float = 3.0, cache_dir: Path | None = None
+) -> tuple[bool, str]:
+    """Probe whether a reranker repo can be fetched, without downloading it.
+
+    Returns `(ok, detail)`. Used by `serve` to complain at startup instead of
+    degrading every search to unranked results. HEAD requests only: the weights
+    are ~90 MB and are still fetched lazily on first use. A model already in the
+    cache short-circuits without touching the network.
+    """
+    if model_is_cached(model_id, cache_dir):
+        return True, "cached"
+    last_reason = "no ONNX export found"
+    for rel_path in _ONNX_CANDIDATES:
+        url = f"{_HF_BASE}/{model_id}/resolve/main/{rel_path}"
+        if not url.startswith("https://huggingface.co/"):
+            return False, f"refusing non-HuggingFace URL: {url}"
+        try:
+            request = urllib.request.Request(url, method="HEAD")
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                if response.status < 400:  # noqa: PLR2004 — urllib raises >= 400 anyway
+                    return True, url
+        except urllib.error.HTTPError as exc:
+            last_reason = f"{_http_status(exc)} for {rel_path}"
+            if exc.code != 404:  # noqa: PLR2004 — any other status won't change per path
+                break
+        except Exception as exc:
+            last_reason = f"{type(exc).__name__} for {rel_path}"
+            break
+    return False, last_reason
+
+
 def _download_model(model_id: str, cache_dir: Path) -> Path:
-    safe_name = model_id.replace("/", "--")
-    model_dir = cache_dir / safe_name
+    model_dir = _model_dir(model_id, cache_dir)
     model_dir.mkdir(parents=True, exist_ok=True)
 
     for rel_path in _MODEL_FILES:
@@ -82,7 +158,7 @@ def _download_model(model_id: str, cache_dir: Path) -> Path:
             if rel_path in ("tokenizer_config.json", "special_tokens_map.json", "config.json"):
                 log.debug("Optional reranker asset %s not available, continuing", rel_path)
                 continue
-            raise RuntimeError(f"Failed to download {url}: {exc}") from exc
+            raise RuntimeError(_unavailable_message(model_id, url, exc)) from exc
 
         expected = _MODEL_CHECKSUMS.get((model_id, rel_path))
         if expected:
@@ -190,7 +266,13 @@ class Reranker:
         output: list[dict] = []
         for s, r in ranked:
             new = dict(r)
-            new["rerank_score"] = round(float(s), 4)
+            # Six decimals, not four: sigmoid saturates for an irrelevant pair
+            # (logit -11 → 1.2e-05), and rounding those to 4 dp collapsed
+            # *differently scored* passages to the same 0.0 — so a client
+            # comparing the scores it was shown could not reproduce the order it
+            # was given. Logits below roughly -14 still collapse; that is the
+            # sigmoid's limit, not the rounding's.
+            new["rerank_score"] = round(float(s), 6)
             output.append(new)
         if top_k:
             output = output[:top_k]
