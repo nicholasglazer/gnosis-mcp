@@ -10,12 +10,63 @@ Versioning follows [Semantic Versioning](https://semver.org/) (pre-1.0).
 ### Added
 ### Changed
 ### Fixed
+### Security
+
+## [0.16.2] - 2026-09-10
+
+A documentation release, plus the first contribution to land since 0.16.0.
+Nothing in the package changed; what changed is whether you can find out how to
+use it.
+
+### Added
+- **`llms-install.md` now carries an agent checklist.** Eight ordered steps, each
+  with the command that verifies it and what to do when it fails, for the case
+  where you ask an AI agent to set gnosis-mcp up on your behalf. Step 3 probes
+  SQLite for FTS5 *before* anything is ingested, because a Python built without
+  FTS5 fails in the worst possible way: every later step appears to succeed while
+  search quietly returns nothing.
+- **Platform guidance** for Linux/macOS, native Windows (including the full
+  `gnosis-mcp.exe` path an MCP client needs), WSL2, and a remote/VM deployment
+  over streamable HTTP, with a worked Windows server entry.
+
+### Changed
+- **The README is 284 lines instead of 706.** It had grown into a second copy of
+  the documentation — the full configuration reference, the tools reference, the
+  REST API, deployment, and 84 lines of per-editor JSON. Those are pointers now,
+  and a `## Documentation` index makes the whole `docs/` tree reachable from the
+  front page; nine of the thirteen documents were unreachable before.
+- **Doc links in the README are absolute.** It doubles as the PyPI package page,
+  where relative links do not resolve — `](docs/cli.md)` became
+  `pypi.org/project/gnosis-mcp/docs/cli.md`, a 404. There were 22 of them.
+- `skills/setup/SKILL.md` no longer restates the install procedure; it points at
+  `llms-install.md`, the one canonical copy (−128 lines). That duplication is how
+  the wrong config path for Claude Code spread across several files at once, and
+  how "9 tools" outlived the behaviour by three releases.
+
+### Fixed
 - **OpenAI-compatible embedding requests identify the client** — remote
   gateways may reject requests with no `User-Agent`; OpenAI-compatible
   embedding requests now send `gnosis-mcp/<version>`. This preserves the
   existing request body and authentication behavior while improving
   compatibility with hosted OpenAI-compatible gateways, including Nous
   Portal-style endpoints.
+- **Six environment variables the code reads were documented nowhere**:
+  `GNOSIS_MCP_COLLAPSE_BY_DOC`, `GNOSIS_MCP_FTS5_TITLE_WEIGHT`,
+  `GNOSIS_MCP_FTS5_CONTENT_WEIGHT`, `GNOSIS_MCP_MMR_LAMBDA`,
+  `GNOSIS_MCP_RERANK_MODEL` and `GNOSIS_MCP_RERANK_POOL`. Comparing every variable
+  the code reads against `docs/config.md` now comes back empty.
+- `GNOSIS_MCP_SEARCH_FUNCTION` documented a signature the server never calls. It
+  now shows the real call (`p_query_text`, `p_embedding`, `p_categories`,
+  `p_limit`) and the columns a custom function must return.
+- Multi-table mode's two unstated rules: the tables must share a schema, and
+  writes target the first one.
+- `gnosis-mcp savings` had no entry in the CLI reference, and `POST /v1/embed` was
+  missing from the REST reference.
+- Tool counts in `docs/overview.md` and `docs/tools.md` still said nine tools
+  without the read/write gating, and the README claimed 632 tests where the suite
+  collects 782. `docs/troubleshooting.md` gained the two missing first-run
+  failures: FTS5 unavailable, and `check` exiting 1 on a brand-new database.
+
 ### Security
 
 ## [0.16.1] - 2026-09-10
