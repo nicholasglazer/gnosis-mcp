@@ -12,6 +12,72 @@ Versioning follows [Semantic Versioning](https://semver.org/) (pre-1.0).
 ### Fixed
 ### Security
 
+## [0.16.0] - 2026-09-10
+
+This release comes out of a full feature retest of v0.15.0 — every CLI
+subcommand, MCP tool, resource and REST route exercised against isolated
+databases — plus the first contribution from outside the project (see Fixed).
+Several defects were only reachable because the retest used a corpus and a
+configuration the author had never tried.
+
+### Added
+- **`rerank_score` reaches the client.** Reranking reordered results but the
+  score it computed never left the server, so a reranked result set shipped
+  retrieval scores that contradicted the order the caller was reading. `category`
+  is passed through with it, and only when present.
+- `serve` probes the configured reranker at startup — a HEAD request, instant
+  when the model is cached, never fatal — so an unfetchable model is reported
+  rather than silently degrading every search.
+- Per-invocation guidance from the CLI: eight subcommands now answer a
+  never-initialized database with one line naming `gnosis-mcp init-db` and
+  `gnosis-mcp ingest <path>` instead of a raw driver traceback.
+
+### Changed
+- **Re-ingest to pick up preamble content.** `chunk_by_headings` started its
+  first chunk at the first H2, so the H1 and the introductory prose never became
+  chunks: text in that region was unsearchable, and a document's title came out
+  as its first H2. A document whose unique phrase lived in the intro could not be
+  found by `search_docs` at all. Existing corpora keep their old chunks until
+  they are re-ingested; `gnosis-mcp ingest <path>` is enough, since only changed
+  files re-chunk.
+- **`get_related` is monotonic in depth.** `depth=2` returned *fewer* rows than
+  `depth=1` (5 → 3 → 3) because the traversal deduplicated results on the target
+  path, discarding the first hop's parallel edges — the same neighbour reached in
+  the opposite direction, or through a second relation type. Deeper traversal is
+  now a superset of shallower.
+- **The default reranker model is one that exists.** `config.py` defaulted to
+  `onnx-community/ms-marco-MiniLM-L6-v2-ONNX`, which returns HTTP 401, while
+  `rerank.py`'s own default was already the correct
+  `cross-encoder/ms-marco-MiniLM-L6-v2`. Both now agree, and an unfetchable model
+  fails with the URL, the status and both remedies instead of a silent fallback.
+- `export -f csv` reports the real chunk count. It previously counted blank lines
+  in the joined content, reporting 6 chunks for a 2-chunk document.
+- `crawl` honours `XDG_DATA_HOME` for its cache. The path was hardcoded, so an
+  isolated run — a test, a container, CI — wrote into the user's live cache.
+- Agent definitions under `agents/` no longer claim write access they should not
+  have, and no longer document CLI flags that do not exist.
+
+### Fixed
+- **`serve --rest` with `--transport streamable-http` no longer breaks `/mcp`.**
+  Every MCP request returned HTTP 500 while the REST routes worked: the combined
+  app mounted the MCP app but ran only the REST lifespan, and Starlette never
+  enters a mounted sub-app's lifespan — which is where FastMCP starts the
+  streamable-HTTP session task group. Both surfaces now serve one port as
+  documented.
+- **`diff` and `ingest` agree about PDFs.** Ingest hashed raw bytes while `diff`
+  hashed decoded text, so every PDF was reported as modified forever.
+- **A total embedding failure is no longer exit 0** (contributed by
+  @kikeamzar in #11). `embed` and `ingest --embed` reported success while
+  embedding nothing, which any wrapping script or CI read as a healthy run.
+- `fix-link-types` crashed with an unhandled `IntegrityError` on the upgraded
+  database shape it exists to migrate.
+- Documentation corrected where it disagreed with the code: `ingest-git` and
+  `crawl` flags that do not exist, `eval` described as evaluating your corpus
+  when it uses a fixed fixture, `GNOSIS_MCP_PUBLIC_PATHS` documented but never
+  implemented, and four wrong REST response samples.
+
+### Security
+
 ## [0.15.0] - 2026-09-10
 
 This release is the first that treats a non-Claude MCP client as a first-class
