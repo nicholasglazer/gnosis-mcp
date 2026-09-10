@@ -621,6 +621,100 @@ class TestGetRelatedEnriched:
         paths = {r["related_path"] for r in related}
         assert paths == {"b.md"}  # No duplicates, no infinite loop
 
+    @pytest.mark.asyncio
+    async def test_depth_is_monotonic_in_rows(self, backend):
+        """A deeper traversal is never smaller than a shallower one.
+
+        Regression: the BFS deduplicated results on related_path alone, so the
+        first hop collapsed to one row per target and depth=2 returned *fewer*
+        rows than depth=1.
+        """
+        await backend.upsert_doc("a.md", ["A"], title="A")
+        await backend.upsert_doc("b.md", ["B"], title="B")
+        await backend.upsert_doc("c.md", ["C"], title="C")
+        await backend.upsert_doc("d.md", ["D"], title="D")
+        # a <-> b through two relation types (so hop 1 already holds several rows
+        # for one neighbour), then b -> c and c -> d: every hop adds a document.
+        # One insert per (source, relation_type) — insert_links replaces a
+        # source's edges of the same type.
+        await backend.insert_links("a.md", ["b.md"], relation_type="relates_to")
+        await backend.insert_links("a.md", ["b.md"], relation_type="content_link")
+        await backend.insert_links("b.md", ["a.md"], relation_type="relates_to")
+        await backend.insert_links("b.md", ["c.md"], relation_type="content_link")
+        await backend.insert_links("c.md", ["d.md"], relation_type="content_link")
+
+        d1 = await backend.get_related("a.md", depth=1)
+        d2 = await backend.get_related("a.md", depth=2)
+        d3 = await backend.get_related("a.md", depth=3)
+
+        assert len(d2) >= len(d1)
+        assert len(d3) >= len(d2)
+
+        def edges(rows):
+            return {(r["related_path"], r["relation_type"], r["direction"]) for r in rows}
+
+        # Not just the counts: every shallower row survives the deeper traversal.
+        assert edges(d1) <= edges(d2) <= edges(d3)
+        # And the extra hops are actually reached.
+        assert {r["related_path"] for r in d1} == {"b.md"}
+        assert {r["related_path"] for r in d3} == {"b.md", "c.md", "d.md"}
+
+        # depth is clamped to 3, and the clamp still only ever adds rows.
+        d99 = await backend.get_related("a.md", depth=99)
+        assert len(d99) >= len(d3)
+        assert edges(d99) == edges(d3)
+
+    @pytest.mark.asyncio
+    async def test_depth_keeps_parallel_edges(self, backend):
+        """Targets reached through several relations/directions keep every row."""
+        await backend.upsert_doc("a.md", ["A"], title="A")
+        await backend.upsert_doc("b.md", ["B"], title="B")
+        # Same neighbour, three distinct edges: two directions + a second relation.
+        await backend.insert_links("a.md", ["b.md"], relation_type="relates_to")
+        await backend.insert_links("b.md", ["a.md"], relation_type="relates_to")
+        await backend.insert_links("a.md", ["b.md"], relation_type="content_link")
+
+        d1 = await backend.get_related("a.md", depth=1)
+        d2 = await backend.get_related("a.md", depth=2)
+
+        assert len(d1) == 3
+        assert len(d2) >= len(d1)
+        assert {(r["related_path"], r["relation_type"], r["direction"]) for r in d1} <= {
+            (r["related_path"], r["relation_type"], r["direction"]) for r in d2
+        }
+
+    @pytest.mark.asyncio
+    async def test_depth_does_not_truncate_the_first_hop(self, backend):
+        """A hub's deeper result is capped above its own depth=1 result."""
+        await backend.upsert_doc("hub.md", ["Hub"], title="Hub")
+        leaves = [f"leaf-{i:02d}.md" for i in range(60)]
+        await backend.insert_links("hub.md", leaves)
+
+        d1 = await backend.get_related("hub.md", depth=1)
+        d2 = await backend.get_related("hub.md", depth=2)
+
+        assert len(d1) == 60  # depth=1 is not capped
+        assert len(d2) >= len(d1)  # and the cap cannot shrink it either
+
+    @pytest.mark.asyncio
+    async def test_link_targets_without_documents_are_reported(self, backend):
+        """Dangling targets are part of the link graph, not dropped from it.
+
+        documentation_links legitimately holds edges to paths with no chunks row
+        (git_ref -> source files, crawl links_to -> URLs, unresolved wikilinks),
+        so a dangling target is reported without title/category rather than
+        filtered out — an existence filter would erase whole relation types.
+        """
+        await backend.upsert_doc("a.md", ["A"], title="A")
+        await backend.insert_links("a.md", ["missing.md"], relation_type="content_link")
+
+        related = await backend.get_related("a.md")
+        assert [r["related_path"] for r in related] == ["missing.md"]
+
+        titled = await backend.get_related("a.md", include_titles=True)
+        assert titled[0]["related_path"] == "missing.md"
+        assert titled[0]["title"] is None
+
 
 class TestGraphStats:
     @pytest.fixture

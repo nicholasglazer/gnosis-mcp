@@ -17,6 +17,11 @@ log = logging.getLogger("gnosis_mcp")
 # tune the fusion weight without forking the module.
 _RRF_K = 60
 
+# How many rows a multi-hop expansion may add on top of the depth=1 result.
+# The first hop is never truncated, so a deeper traversal is always a superset of
+# a shallower one instead of an independently limited sample of it.
+_MULTI_HOP_ROW_BUDGET = 50
+
 # Characters that have special meaning in FTS5 queries
 _FTS5_SPECIAL = re.compile(r'["\*\(\)\-\+\^:]')
 
@@ -507,10 +512,22 @@ class SqliteBackend:
         if depth == 1:
             return await self._get_related_one_hop(path, relation_type, include_titles)
 
-        # Multi-hop: BFS in Python
+        # Multi-hop: BFS in Python.
+        #
+        # ``visited`` and ``seen_edges`` answer two different questions:
+        #   * ``visited`` bounds *expansion* — every document is expanded once,
+        #     which is what makes cycles (a <-> b <-> a) terminate.
+        #   * ``seen_edges`` dedups *results* on the whole edge identity, not on
+        #     the target path alone. A target reachable through several relation
+        #     types, or through the same type in both directions, keeps one row
+        #     per edge; keying results on related_path alone silently dropped
+        #     those parallel rows, so depth=2/3 could return *fewer* rows than
+        #     depth=1 (the first hop's incoming rows were the usual casualties).
         visited: set[str] = {path}
+        seen_edges: set[tuple[str, str, str]] = set()
         results: list[dict[str, Any]] = []
         frontier = [path]
+        first_hop_rows = 0
 
         for hop in range(1, depth + 1):
             next_frontier: list[str] = []
@@ -520,28 +537,47 @@ class SqliteBackend:
                     continue
                 for r in related:
                     rp = r["related_path"]
+                    # The start document is never its own neighbour past the
+                    # first hop; its own edges are already reported there.
+                    if rp == path and hop > 1:
+                        continue
+                    edge = (rp, r["relation_type"], r["direction"])
+                    if edge in seen_edges:
+                        continue
+                    seen_edges.add(edge)
+                    r["hops"] = hop
+                    results.append(r)
                     if rp not in visited:
                         visited.add(rp)
-                        r["hops"] = hop
-                        results.append(r)
                         next_frontier.append(rp)
+            if hop == 1:
+                first_hop_rows = len(results)
             frontier = next_frontier
             if not frontier:
                 break
 
+        # The first hop is exactly the depth=1 result set, and rows are appended
+        # in BFS order, so truncating here can only ever cut rows that a shallower
+        # traversal could not have produced.
+        results = results[: first_hop_rows + _MULTI_HOP_ROW_BUDGET]
+
         # Optionally enrich with titles
         if include_titles:
+            resolved: dict[str, tuple[str | None, str | None] | None] = {}
             for r in results:
-                rows = await self._db.execute_fetchall(
-                    "SELECT title, category FROM documentation_chunks "
-                    "WHERE file_path = ? AND chunk_index = 0",
-                    (r["related_path"],),
-                )
-                if rows:
-                    r["title"] = rows[0][0]
-                    r["category"] = rows[0][1]
+                rp = r["related_path"]
+                if rp not in resolved:
+                    rows = await self._db.execute_fetchall(
+                        "SELECT title, category FROM documentation_chunks "
+                        "WHERE file_path = ? AND chunk_index = 0",
+                        (rp,),
+                    )
+                    resolved[rp] = (rows[0][0], rows[0][1]) if rows else None
+                hit = resolved[rp]
+                if hit:
+                    r["title"], r["category"] = hit
 
-        return results[:50]
+        return results
 
     async def _get_related_one_hop(
         self,

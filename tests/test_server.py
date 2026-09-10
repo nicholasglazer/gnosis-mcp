@@ -378,6 +378,28 @@ class TestGetRelatedTool:
         assert isinstance(data, list)
         assert data == []
 
+    @pytest.mark.asyncio
+    async def test_depth_never_returns_fewer_rows(self, writable_ctx):
+        """Through the tool, depth=2 is a superset of depth=1."""
+        backend = writable_ctx.backend
+        for path in ("a.md", "b.md", "c.md"):
+            await backend.upsert_doc(path, [f"{path} body"], title=path, category="test")
+        # a <-> b, then b -> c: hop 2 adds a document while hop 1 already returns
+        # two rows for the same neighbour (one per direction).
+        await backend.insert_links("a.md", ["b.md"], relation_type="relates_to")
+        await backend.insert_links("b.md", ["a.md"], relation_type="relates_to")
+        await backend.insert_links("b.md", ["c.md"], relation_type="content_link")
+
+        d1 = json.loads(await get_related("a.md", depth=1))
+        d2 = json.loads(await get_related("a.md", depth=2))
+
+        def edges(rows):
+            return {(r["related_path"], r["relation_type"], r["direction"]) for r in rows}
+
+        assert len(d2) >= len(d1)
+        assert edges(d1) <= edges(d2)
+        assert "c.md" in {r["related_path"] for r in d2}
+
 
 # ---------------------------------------------------------------------------
 # MCP Tool tests — get_context
