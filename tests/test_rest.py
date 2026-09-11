@@ -212,6 +212,52 @@ class TestContextEndpoint:
         data = r.json()
         assert "docs" in data
 
+    def test_context_topic_auto_embeds(self, monkeypatch, tmp_path):
+        """A natural-language topic is embedded, not handed to keyword search."""
+        import gnosis_mcp.embed as embed_mod
+        from gnosis_mcp.backend import create_backend
+        from gnosis_mcp.rest import create_rest_app
+        from gnosis_mcp.sqlite_backend import SqliteBackend
+
+        monkeypatch.setenv("GNOSIS_MCP_DATABASE_URL", str(tmp_path / "topic-embed.db"))
+        monkeypatch.delenv("DATABASE_URL", raising=False)
+        monkeypatch.setenv("GNOSIS_MCP_REST", "true")
+
+        config = GnosisMcpConfig.from_env()
+        object.__setattr__(config, "embed_provider", "local")
+
+        # The REST lifespan starts the backend but never creates the schema —
+        # that is `init-db`'s job in production, and the seeding step here.
+        async def _init_schema():
+            backend = create_backend(config)
+            await backend.startup()
+            await backend.init_schema()
+            await backend.shutdown()
+
+        asyncio.run(_init_schema())
+
+        calls = {}
+
+        async def _spy_search(self, query, **kwargs):
+            calls["query"] = query
+            calls.update(kwargs)
+            return []
+
+        def _fake_embed(texts, **kwargs):
+            calls["embedded"] = texts
+            return [[0.1, 0.2, 0.3]]
+
+        monkeypatch.setattr(SqliteBackend, "search", _spy_search)
+        monkeypatch.setattr(embed_mod, "embed_texts", _fake_embed)
+
+        topic = "how does the file watcher re-ingest changed files"
+        with TestClient(create_rest_app(config)) as client:
+            r = client.get("/api/context", params={"topic": topic})
+
+        assert r.status_code == 200
+        assert calls["embedded"] == [topic]
+        assert calls["query_embedding"] == [0.1, 0.2, 0.3]
+
     def test_context_with_limit(self, seeded_client):
         r = seeded_client.get("/api/context?limit=1")
         assert r.status_code == 200

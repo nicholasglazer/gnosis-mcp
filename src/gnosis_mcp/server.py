@@ -792,10 +792,28 @@ async def get_context(
         docs = []
 
         if topic:
+            # A natural-language topic is the documented way to call this, and
+            # keyword search alone finds nothing for one — "how does X work"
+            # shares no tsvector terms with any chunk. Auto-embed exactly as
+            # search_docs does, degrading to keyword-only on any failure.
+            query_embedding = None
+            if cfg.embed_provider == "local":
+                try:
+                    from gnosis_mcp.embed import embed_texts
+
+                    vectors = embed_texts(
+                        [topic], provider="local", model=cfg.embed_model, dim=cfg.embed_dim
+                    )
+                    query_embedding = vectors[0] if vectors else None
+                except ImportError:
+                    pass  # [embeddings] not installed
+                except Exception as exc:
+                    log.warning("Auto-embed failed (%s); serving keyword-only results", exc)
             results = await ctx.backend.search(
                 topic,
                 category=category,
                 limit=limit,
+                query_embedding=query_embedding,
             )
             top_accessed = await ctx.backend.get_top_accessed(
                 limit=limit,

@@ -397,7 +397,28 @@ async def get_context(request: Request) -> JSONResponse:
     try:
         docs = []
         if topic:
-            results = await backend.search(topic, category=cat, limit=limit)
+            # Same auto-embed as /api/search: a natural-language topic matches
+            # nothing by keyword alone, so without the vector leg this endpoint
+            # returned [] for every topic except exact terms.
+            query_embedding = None
+            if cfg.embed_provider == "local":
+                try:
+                    from gnosis_mcp.embed import embed_texts
+
+                    vectors = embed_texts(
+                        [topic], provider="local", model=cfg.embed_model, dim=cfg.embed_dim
+                    )
+                    query_embedding = vectors[0] if vectors else None
+                except ImportError:
+                    pass
+                except Exception as exc:
+                    log.warning("Auto-embed failed (%s); serving keyword-only results", exc)
+            results = await backend.search(
+                topic,
+                category=cat,
+                limit=limit,
+                query_embedding=query_embedding,
+            )
             top_accessed = await backend.get_top_accessed(
                 limit=limit,
                 days=30,

@@ -12,6 +12,20 @@ Versioning follows [Semantic Versioning](https://semver.org/) (pre-1.0).
 ### Fixed
 ### Security
 
+## [0.17.2] - 2026-09-11
+
+`get_context` answered with the wrong search — or none at all — when you gave
+it a topic.
+
+### Fixed
+
+- **`get_context` with a `topic` ran keyword-only search** (MCP tool and
+  `GET /api/context`), so a natural-language topic — the way the argument is
+  documented — matched no tsvector terms and returned `[]`. Both paths now
+  auto-embed the topic into `query_embedding` exactly as `search_docs` /
+  `GET /api/search` do, keeping the same degrade-to-keyword behaviour when the
+  embeddings extra or model is unavailable.
+
 ## [0.17.1] - 2026-09-11
 
 A one-bug patch. `get_context` had been failing on Postgres for every caller

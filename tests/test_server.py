@@ -430,6 +430,36 @@ class TestGetContextTool:
         assert "file_path" in data["docs"][0]
 
     @pytest.mark.asyncio
+    async def test_topic_auto_embeds(self, writable_ctx, monkeypatch):
+        """A topic is embedded and passed through, exactly as search_docs does.
+
+        Keyword-only search returned [] for natural-language topics — the way
+        the argument is documented and used.
+        """
+        import gnosis_mcp.embed as embed_mod
+
+        calls = {}
+
+        async def _spy_search(query, **kwargs):
+            calls["query"] = query
+            calls.update(kwargs)
+            return []
+
+        def _fake_embed(texts, **kwargs):
+            calls["embedded"] = texts
+            return [[0.1, 0.2, 0.3]]
+
+        monkeypatch.setattr(writable_ctx.backend, "search", _spy_search)
+        monkeypatch.setattr(embed_mod, "embed_texts", _fake_embed)
+        object.__setattr__(writable_ctx.config, "embed_provider", "local")
+
+        topic = "how does the file watcher re-ingest changed files"
+        await get_context(topic=topic)
+
+        assert calls["embedded"] == [topic]
+        assert calls["query_embedding"] == [0.1, 0.2, 0.3]
+
+    @pytest.mark.asyncio
     async def test_without_topic_uses_access_log(self, writable_ctx):
         await writable_ctx.backend.upsert_doc(
             "popular.md",
