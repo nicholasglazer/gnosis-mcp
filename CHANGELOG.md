@@ -12,6 +12,29 @@ Versioning follows [Semantic Versioning](https://semver.org/) (pre-1.0).
 ### Fixed
 ### Security
 
+## [0.17.3] - 2026-09-11
+
+Files that live on disk but shouldn't be searchable can now be excluded at
+ingest time — and an exclude added later actually removes what was already
+indexed.
+
+### Added
+
+- **`GNOSIS_MCP_INGEST_EXCLUDE`** — comma-separated root-relative path prefixes
+  (`.internal/audit-logs/` excludes a directory, `llms-full.txt` one file) that
+  `ingest`, `diff` and `prune` skip. `prune` treats an excluded file as _not on
+  disk_, so documents indexed before the exclude was configured are deleted on
+  the next prune instead of staying searchable forever — the startup scan
+  skips them from then on, so nothing else would ever revisit those rows.
+- **The watcher prunes when a tracked file is deleted.** Previously a deleted
+  file kept its chunks until someone ran `prune` by hand.
+
+### Changed
+
+### Fixed
+
+### Security
+
 ## [0.17.2] - 2026-09-11
 
 `get_context` answered with the wrong search — or none at all — when you gave

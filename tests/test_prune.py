@@ -147,6 +147,42 @@ async def test_prune_include_generated_opts_in(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_prune_honours_ingest_exclude(tmp_path):
+    """A file that is on disk but excluded from ingest is treated as gone.
+
+    Without this, an exclude added after the file was indexed would keep the
+    old chunks searchable forever — the startup scan skips the file, so
+    nothing else ever revisits those rows.
+    """
+    kb = tmp_path / "kb"
+    logs = kb / ".internal" / "audit-logs"
+    logs.mkdir(parents=True)
+    (kb / "kept.md").write_text("# Kept\n\nbody\n")
+    (logs / "2026-01-01-0000.md").write_text("# Log\n\nbody\n")
+
+    excluded = ".internal/audit-logs/2026-01-01-0000.md"
+    cfg = GnosisMcpConfig(
+        database_url=str(tmp_path / "prune.db"),
+        backend="sqlite",
+        ingest_exclude=(".internal/audit-logs/",),
+    )
+    backend = await _mk_backend(tmp_path)
+    try:
+        await backend.upsert_doc("kept.md", ["body"], title="Kept", category="g")
+        await backend.upsert_doc(excluded, ["body"], title="Log", category="g")
+
+        # Without a config the excluded file still counts as on disk.
+        assert (await prune_stale(backend, str(kb)))["pruned"] == []
+
+        report = await prune_stale(backend, str(kb), config=cfg)
+        assert report["pruned"] == [excluded]
+        remaining = {d["file_path"] for d in await backend.list_docs()}
+        assert remaining == {"kept.md"}
+    finally:
+        await backend.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_prune_still_removes_deleted_files_from_this_root(tmp_path):
     """The protection must not defeat the feature it protects."""
     kb = tmp_path / "kb"

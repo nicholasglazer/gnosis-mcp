@@ -189,3 +189,24 @@ class TestProcessChanges:
 
         second = await _process_changes(str(tmp_path), config, embed=False)
         assert second == 0
+
+    @pytest.mark.asyncio
+    async def test_prune_removes_deleted_docs(self, tmp_path):
+        """prune=True drops DB docs whose file was deleted from disk."""
+        from gnosis_mcp.sqlite_backend import SqliteBackend
+
+        doc = tmp_path / "test.md"
+        doc.write_text("# Test\n\nContent that will be removed from disk afterwards.")
+        config = GnosisMcpConfig(database_url=str(tmp_path / "watch.db"), backend="sqlite")
+
+        await _process_changes(str(tmp_path), config, embed=False)
+        doc.unlink()
+        await _process_changes(str(tmp_path), config, embed=False, prune=True)
+
+        backend = SqliteBackend(config)
+        await backend.startup()
+        try:
+            paths = {d["file_path"] for d in await backend.list_docs()}
+        finally:
+            await backend.shutdown()
+        assert "test.md" not in paths

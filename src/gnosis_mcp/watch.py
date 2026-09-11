@@ -50,9 +50,19 @@ def detect_changes(
     return changed, deleted
 
 
-async def _process_changes(root: str, config: GnosisMcpConfig, embed: bool) -> int:
-    """Re-ingest changed files and optionally embed. Returns ingested count."""
-    from gnosis_mcp.ingest import ingest_path
+async def _process_changes(
+    root: str, config: GnosisMcpConfig, embed: bool, *, prune: bool = False
+) -> int:
+    """Re-ingest changed files, optionally prune deleted ones, optionally embed.
+
+    Args:
+        prune: When True (the watcher passes this whenever a tracked file
+            disappeared since the last scan), also remove DB docs whose source
+            file no longer exists on disk via `prune_stale`.
+
+    Returns ingested count.
+    """
+    from gnosis_mcp.ingest import ingest_path, prune_stale
 
     results = await ingest_path(config=config, root=root)
     ingested = sum(1 for r in results if r.action == "ingested")
@@ -60,6 +70,18 @@ async def _process_changes(root: str, config: GnosisMcpConfig, embed: bool) -> i
 
     if ingested:
         log.info("Watch: ingested %d files (%d unchanged)", ingested, unchanged)
+
+    if prune:
+        from gnosis_mcp.backend import create_backend
+
+        backend = create_backend(config)
+        await backend.startup()
+        try:
+            report = await prune_stale(backend, root, config=config)
+            if report["pruned"]:
+                log.info("Watch: pruned %d stale document(s)", len(report["pruned"]))
+        finally:
+            await backend.shutdown()
 
     if embed and ingested > 0:
         provider = config.embed_provider
@@ -133,7 +155,7 @@ def _watch_loop(
             log.info("Deleted: %s", ", ".join(p.name for p in deleted[:5]))
 
         try:
-            asyncio.run(_process_changes(root, config, embed))
+            asyncio.run(_process_changes(root, config, embed, prune=bool(deleted)))
         except Exception:
             log.exception("Watch: error processing changes")
 

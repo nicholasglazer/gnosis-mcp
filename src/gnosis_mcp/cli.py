@@ -668,6 +668,7 @@ def cmd_ingest(args: argparse.Namespace) -> None:
                 dry_run=getattr(args, "dry_run", False),
                 include_crawled=getattr(args, "include_crawled", False),
                 include_generated=getattr(args, "include_generated", False),
+                config=config,
             )
             if report["pruned"]:
                 verb = "Would prune" if report["dry_run"] else "Pruned"
@@ -796,6 +797,7 @@ def cmd_prune(args: argparse.Namespace) -> None:
                 dry_run=args.dry_run,
                 include_crawled=args.include_crawled,
                 include_generated=args.include_generated,
+                config=config,
             )
             if report["pruned"]:
                 verb = "Would prune" if report["dry_run"] else "Pruned"

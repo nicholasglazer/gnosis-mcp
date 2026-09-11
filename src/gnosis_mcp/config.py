@@ -139,6 +139,14 @@ class GnosisMcpConfig:
     fts5_content_weight: float = 1.0
     mmr_lambda: float = 1.0
 
+    # Paths (or path prefixes, root-relative, POSIX-separated) that `ingest`
+    # skips entirely — for files that exist on disk but shouldn't be searchable
+    # documentation (e.g. raw audit logs, generated full-text dumps). Applies
+    # to `ingest_path`, `diff_path` and `prune_stale`'s notion of "on disk", so
+    # an excluded file that was ingested before this was set gets pruned on the
+    # next `prune` run. Empty tuple (default) excludes nothing.
+    ingest_exclude: tuple[str, ...] = ()
+
     # Embedding provider (Tier 2 sidecar)
     embed_provider: str | None = None  # "openai", "ollama", "custom", "local"
     embed_model: str = "text-embedding-3-small"
@@ -322,6 +330,14 @@ class GnosisMcpConfig:
             except ValueError:
                 raise ValueError(f"GNOSIS_MCP_{key} must be a float, got: {val!r}") from None
 
+        def env_tuple(key: str, default: tuple[str, ...]) -> tuple[str, ...]:
+            # Distinct from env_int/env_float: an *explicitly set* empty string
+            # means "empty tuple", not "fall back to default".
+            val = os.environ.get(f"GNOSIS_MCP_{key}")
+            if val is None:
+                return default
+            return tuple(v.strip() for v in val.split(",") if v.strip())
+
         backend_raw = env("BACKEND", "auto")
 
         return cls(
@@ -364,6 +380,7 @@ class GnosisMcpConfig:
             fts5_title_weight=env_float("FTS5_TITLE_WEIGHT", 10.0),
             fts5_content_weight=env_float("FTS5_CONTENT_WEIGHT", 1.0),
             mmr_lambda=env_float("MMR_LAMBDA", 1.0),
+            ingest_exclude=env_tuple("INGEST_EXCLUDE", ()),
             embed_provider=env("EMBED_PROVIDER"),
             embed_model=env("EMBED_MODEL", "text-embedding-3-small"),
             embed_dim=env_int("EMBED_DIM", 384),

@@ -26,6 +26,22 @@ class TestFromEnv:
         assert cfg.database_url == "postgresql://localhost/fallback"
         assert cfg.backend == "postgres"
 
+    def test_ingest_exclude_defaults_empty(self, monkeypatch):
+        monkeypatch.delenv("GNOSIS_MCP_INGEST_EXCLUDE", raising=False)
+        assert GnosisMcpConfig.from_env().ingest_exclude == ()
+
+    def test_ingest_exclude_parses_csv(self, monkeypatch):
+        monkeypatch.setenv("GNOSIS_MCP_INGEST_EXCLUDE", ".internal/audit-logs/ , llms-full.txt")
+        assert GnosisMcpConfig.from_env().ingest_exclude == (
+            ".internal/audit-logs/",
+            "llms-full.txt",
+        )
+
+    def test_ingest_exclude_empty_string_is_empty_tuple(self, monkeypatch):
+        """An explicit empty string means "exclude nothing", not "use default"."""
+        monkeypatch.setenv("GNOSIS_MCP_INGEST_EXCLUDE", "")
+        assert GnosisMcpConfig.from_env().ingest_exclude == ()
+
     def test_gnosis_mcp_takes_precedence(self, monkeypatch):
         monkeypatch.setenv("GNOSIS_MCP_DATABASE_URL", "postgresql://localhost/gnosis")
         monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/other")

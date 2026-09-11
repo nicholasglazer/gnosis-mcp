@@ -690,6 +690,21 @@ class TestScanFiles:
         exts = {f.suffix for f in results}
         assert exts == {".md", ".txt", ".ipynb", ".toml", ".csv", ".json"}
 
+    def test_exclude_exact_file(self, tmp_path):
+        (tmp_path / "keep.md").write_text("# Keep")
+        (tmp_path / "llms-full.txt").write_text("generated dump")
+        results = scan_files(tmp_path, exclude=("llms-full.txt",))
+        assert [f.name for f in results] == ["keep.md"]
+
+    def test_exclude_directory_prefix(self, tmp_path):
+        logs = tmp_path / ".internal" / "audit-logs"
+        logs.mkdir(parents=True)
+        (logs / "2026-01-01-0000.md").write_text("# Log")
+        (tmp_path / ".internal" / "keep.md").write_text("# Keep")
+        (tmp_path / "top.md").write_text("# Top")
+        results = scan_files(tmp_path, exclude=(".internal/audit-logs/",))
+        assert {f.name for f in results} == {"keep.md", "top.md"}
+
 
 # ---------------------------------------------------------------------------
 # Converters
@@ -1019,6 +1034,20 @@ class TestIngestPath:
         results = await ingest_path(cfg, str(tmp_docs))
         ingested = [r for r in results if r.action == "ingested"]
         assert len(ingested) == 2
+
+    async def test_ingest_skips_excluded(self, tmp_docs):
+        logs = tmp_docs / ".internal" / "audit-logs"
+        logs.mkdir(parents=True)
+        (logs / "2026-01-01-0000.md").write_text(
+            "# Audit log\n\nOperational noise that must never reach the index."
+        )
+        cfg = GnosisMcpConfig(
+            database_url=":memory:",
+            backend="sqlite",
+            ingest_exclude=(".internal/audit-logs/",),
+        )
+        results = await ingest_path(cfg, str(tmp_docs))
+        assert all(".internal/audit-logs" not in r.path for r in results)
 
     async def test_reingest_unchanged(self, tmp_path):
         """Re-ingest should skip unchanged files."""

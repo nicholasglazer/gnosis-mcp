@@ -866,13 +866,29 @@ def _convert_pdf(raw_bytes: bytes, file_path: Path) -> str:
         return ""
 
 
-def scan_files(root: Path) -> list[Path]:
-    """Recursively find all supported files under root, sorted."""
+def scan_files(root: Path, exclude: tuple[str, ...] = ()) -> list[Path]:
+    """Recursively find all supported files under root, sorted.
+
+    Args:
+        exclude: Root-relative POSIX path prefixes (or exact paths) to skip.
+            A file is excluded when its path relative to ``root`` equals one of
+            these entries, or starts with one of them (so a trailing-slash
+            entry like ``".internal/audit-logs/"`` excludes a whole directory,
+            while a bare entry like ``"llms-full.txt"`` excludes one file).
+    """
     if root.is_file() and root.suffix.lower() in _SUPPORTED_EXTS:
         return [root]
     found: list[Path] = []
     for ext in _SUPPORTED_EXTS:
         found.extend(root.rglob(f"*{ext}"))
+    if exclude:
+        kept: list[Path] = []
+        for f in found:
+            rel = f.relative_to(root).as_posix()
+            if any(rel == e or rel.startswith(e) for e in exclude):
+                continue
+            kept.append(f)
+        found = kept
     return sorted(set(found))
 
 
@@ -892,6 +908,7 @@ async def prune_stale(
     dry_run: bool = False,
     include_crawled: bool = False,
     include_generated: bool = False,
+    config=None,
 ) -> dict:
     """Remove DB docs whose source file no longer exists on disk.
 
@@ -913,13 +930,20 @@ async def prune_stale(
             ingester (see ``GENERATED_PREFIXES``). Default False — they have no
             file on disk by construction, so pruning by root would always destroy
             them.
+        config: Optional ``GnosisMcpConfig``. When given, ``config.ingest_exclude``
+            is applied to the on-disk scan — a file that's on disk but excluded
+            from ingest is treated as "not on disk" here too, so it gets pruned
+            from the DB if it was ingested before the exclude was configured.
+            Pass this whenever ``root`` was (or will be) ingested with the same
+            config.
 
     Returns:
         ``{"pruned": list[str], "kept": int, "dry_run": bool}``
     """
     root_path = Path(root).resolve()
     base = root_path.parent if root_path.is_file() else root_path
-    on_disk = {str(f.relative_to(base)) for f in scan_files(root_path)}
+    exclude = config.ingest_exclude if config is not None else ()
+    on_disk = {str(f.relative_to(base)) for f in scan_files(root_path, exclude=exclude)}
 
     docs = await backend.list_docs()
     db_paths = [d["file_path"] for d in docs]
@@ -987,7 +1011,7 @@ async def ingest_path(
     if not root_path.exists():
         return [IngestResult(path=root, chunks=0, action="error", detail="Path does not exist")]
 
-    files = scan_files(root_path)
+    files = scan_files(root_path, exclude=config.ingest_exclude)
     if not files:
         return [
             IngestResult(path=root, chunks=0, action="skipped", detail="No supported files found")
@@ -1207,7 +1231,7 @@ async def diff_path(config, root: str) -> dict[str, list[str]]:
     if not root_path.exists():
         return {"new": [], "modified": [], "deleted": [], "unchanged": []}
 
-    files = scan_files(root_path)
+    files = scan_files(root_path, exclude=config.ingest_exclude)
     base = root_path.parent if root_path.is_file() else root_path
 
     from gnosis_mcp.backend import create_backend
