@@ -1066,7 +1066,7 @@ class PostgresBackend:
                     f"GROUP BY a.file_path, c.title, c.category "
                     f"ORDER BY access_count DESC "
                     f"LIMIT $3",
-                    days,
+                    str(days),
                     category,
                     limit,
                 )
@@ -1081,7 +1081,7 @@ class PostgresBackend:
                     f"GROUP BY a.file_path, c.title, c.category "
                     f"ORDER BY access_count DESC "
                     f"LIMIT $2",
-                    days,
+                    str(days),
                     limit,
                 )
             return [dict(row) for row in rows]
@@ -1093,7 +1093,7 @@ class PostgresBackend:
             status = await conn.execute(
                 f"DELETE FROM {cfg.schema}.search_access_log "
                 f"WHERE accessed_at < now() - ($1 || ' days')::interval",
-                days,
+                str(days),
             )
             return _row_count(status)
 
