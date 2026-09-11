@@ -341,6 +341,11 @@ async def _log_access(
     is true (default), we also look up each doc's full size so
     `tokens_baseline - tokens_returned` is a sensible proxy for what the
     caller saved by using search_docs instead of a full Read.
+
+    An empty `file_path` records a **miss** — a query that matched nothing. It
+    is the one access-log row that names what the corpus lacks, which is what
+    `gnosis-mcp usage` ranks; top-accessed queries skip it so a miss never
+    poses as a document.
     """
     if not ctx.config.access_log:
         return
@@ -569,6 +574,19 @@ async def search_docs(
                 "search_docs",
                 query,
                 tokens_returned=[_estimate_tokens(it.get("content_preview", "")) for it in top],
+            )
+        else:
+            # A miss is the most useful row this table can hold for whoever
+            # maintains the corpus: it is the index saying "nothing here", with
+            # the query that asked. Empty file_path is the marker; the baseline
+            # lookup is skipped because no document was served to compare to.
+            await _log_access(
+                ctx,
+                [""],
+                "search_docs",
+                query,
+                tokens_returned=[0],
+                measure_baseline=False,
             )
 
         return json.dumps(items, indent=2)

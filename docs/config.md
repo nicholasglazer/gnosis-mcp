@@ -372,6 +372,17 @@ When enabled, records which documents are retrieved via `search_docs`
 frequently-read documentation. Writes to `search_access_log` table; set to
 `false` to disable tracking entirely.
 
+Each row also carries the MCP client that made the call (from the session's
+`initialize` handshake) and the token counts that back [`savings`](cli.md#savings);
+[`usage`](cli.md#usage) reads all of it, including **misses** — a `search_docs`
+call that matched nothing is logged with an empty `file_path`, so a query the
+index could not answer is still a row.
+
+If the table predates those columns, `init-db` retrofits them (`ALTER TABLE …
+ADD COLUMN IF NOT EXISTS`) on the next run. Until it does, logging succeeds with
+no error while `client`/token attribution stays empty — silently. Re-running
+`init-db` after an upgrade is always safe: every statement is idempotent.
+
 ---
 
 ## Postgres-specific

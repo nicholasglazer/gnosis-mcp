@@ -957,7 +957,10 @@ class SqliteBackend:
         days: int = 30,
         category: str | None = None,
     ) -> list[dict[str, Any]]:
-        """Get most-accessed documents within a time window."""
+        """Get most-accessed documents within a time window.
+
+        Misses (`file_path = ''`) are excluded: they name no document.
+        """
         cutoff = f"-{days} days"
         if category:
             sql = (
@@ -967,6 +970,7 @@ class SqliteBackend:
                 "LEFT JOIN documentation_chunks c "
                 "  ON c.file_path = a.file_path AND c.chunk_index = 0 "
                 "WHERE a.accessed_at >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', ?) "
+                "  AND a.file_path <> '' "
                 "  AND c.category = ? "
                 "GROUP BY a.file_path "
                 "ORDER BY access_count DESC "
@@ -981,6 +985,7 @@ class SqliteBackend:
                 "LEFT JOIN documentation_chunks c "
                 "  ON c.file_path = a.file_path AND c.chunk_index = 0 "
                 "WHERE a.accessed_at >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', ?) "
+                "  AND a.file_path <> '' "
                 "GROUP BY a.file_path "
                 "ORDER BY access_count DESC "
                 "LIMIT ?"
@@ -1080,6 +1085,117 @@ class SqliteBackend:
             }
             for row in await cursor.fetchall()
         ]
+
+    async def usage_report(self, *, days: int = 30, limit: int = 10) -> dict[str, Any]:
+        """See `DocBackend.usage_report` protocol docstring."""
+        cutoff = f"-{days} days"
+        window = "accessed_at >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', ?)"
+
+        cursor = await self._db.execute(
+            f"SELECT COUNT(*) AS calls, "
+            f"       SUM(CASE WHEN file_path = '' THEN 1 ELSE 0 END) AS misses, "
+            f"       COUNT(DISTINCT CASE WHEN file_path <> '' THEN file_path END) AS docs, "
+            f"       MIN(accessed_at), MAX(accessed_at) "
+            f"FROM search_access_log WHERE {window}",
+            (cutoff,),
+        )
+        calls, misses, docs, first, last = await cursor.fetchone()
+
+        cursor = await self._db.execute(
+            f"SELECT tool, COUNT(*), "
+            f"       SUM(CASE WHEN file_path = '' THEN 1 ELSE 0 END) "
+            f"FROM search_access_log WHERE {window} "
+            f"GROUP BY tool ORDER BY 2 DESC, 1",
+            (cutoff,),
+        )
+        by_tool = [
+            {"tool": row[0], "calls": int(row[1]), "misses": int(row[2] or 0)}
+            for row in await cursor.fetchall()
+        ]
+
+        cursor = await self._db.execute(
+            f"SELECT a.file_path, c.title, c.category, COUNT(*) AS calls, "
+            f"       MAX(a.accessed_at) "
+            f"FROM search_access_log a "
+            f"LEFT JOIN documentation_chunks c "
+            f"  ON c.file_path = a.file_path AND c.chunk_index = 0 "
+            f"WHERE {window} AND a.file_path <> '' "
+            f"GROUP BY a.file_path "
+            f"ORDER BY 4 DESC, 1 LIMIT ?",
+            (cutoff, limit),
+        )
+        top_docs = [
+            {
+                "file_path": row[0],
+                "title": row[1],
+                "category": row[2],
+                "calls": int(row[3]),
+                "last_accessed": row[4],
+            }
+            for row in await cursor.fetchall()
+        ]
+
+        cursor = await self._db.execute(
+            f"SELECT query, COUNT(*), MAX(accessed_at) "
+            f"FROM search_access_log "
+            f"WHERE {window} AND file_path = '' AND query IS NOT NULL AND query <> '' "
+            f"GROUP BY 1 ORDER BY 2 DESC, 1 LIMIT ?",
+            (cutoff, limit),
+        )
+        top_misses = [
+            {"query": row[0], "calls": int(row[1]), "last_accessed": row[2]}
+            for row in await cursor.fetchall()
+        ]
+
+        # `never_accessed` is all-time, not window-scoped: a document read once
+        # six months ago is not "never needed", and the point of the number is
+        # the shelf nobody has ever touched.
+        rows = await self._db.execute_fetchall(
+            "SELECT COUNT(*) AS total, "
+            "       SUM(CASE WHEN a.file_path IS NULL THEN 1 ELSE 0 END) AS never "
+            "FROM (SELECT DISTINCT file_path AS fp FROM documentation_chunks) d "
+            "LEFT JOIN (SELECT DISTINCT file_path FROM search_access_log) a "
+            "  ON a.file_path = d.fp"
+        )
+        total_docs = int(rows[0][0]) if rows else 0
+        never_accessed = int(rows[0][1] or 0) if rows else 0
+
+        # Same defence as `client_usage`: a DB written before per-client
+        # attribution has no `client` column, and a report is more useful
+        # without the attribution than not at all.
+        by_client: list[dict[str, Any]] = []
+        if await self.has_column("search_access_log", "client"):
+            cursor = await self._db.execute(
+                f"SELECT COALESCE(client, '') AS client, COUNT(*), "
+                f"       MIN(accessed_at), MAX(accessed_at) "
+                f"FROM search_access_log WHERE {window} "
+                f"GROUP BY 1 ORDER BY 2 DESC",
+                (cutoff,),
+            )
+            by_client = [
+                {
+                    "client": row[0] or None,
+                    "calls": int(row[1]),
+                    "first_accessed": row[2],
+                    "last_accessed": row[3],
+                }
+                for row in await cursor.fetchall()
+            ]
+
+        return {
+            "days": days,
+            "calls": int(calls),
+            "misses": int(misses or 0),
+            "docs": int(docs or 0),
+            "never_accessed": never_accessed,
+            "total_docs": total_docs,
+            "first_accessed": first,
+            "last_accessed": last,
+            "by_tool": by_tool,
+            "by_client": by_client,
+            "top_docs": top_docs,
+            "top_misses": top_misses,
+        }
 
     async def get_graph_stats(
         self,

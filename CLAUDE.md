@@ -25,7 +25,7 @@ src/gnosis_mcp/
 ├── embed.py           # Embedding providers: openai/ollama/custom/local, batch backfill
 ├── local_embed.py     # Local ONNX embedding engine — stdlib urllib model download, CPU inference
 ├── clients.py         # MCP client registry: per-client config render, managed-block writes, `setup`/`doctor` wiring
-└── cli.py             # argparse CLI: serve, init-db, ingest, ingest-git, crawl, search, embed, stats, export, diff, check, setup, doctor, cleanup, fix-link-types
+└── cli.py             # argparse CLI: serve, init-db, ingest, prune, ingest-git, crawl, search, embed, stats, export, diff, check, setup, doctor, cleanup, fix-link-types, eval, savings, usage
 ```
 
 ## Backend Protocol
@@ -87,7 +87,7 @@ New file: `rest.py` — Starlette routes, own backend lifespan, CORS + auth midd
 - **Streamable HTTP transport**: `gnosis-mcp serve --transport streamable-http` exposes `/mcp` endpoint via uvicorn. Supports remote deployment. Configure with `--host` / `--port` or `GNOSIS_MCP_HOST` / `GNOSIS_MCP_PORT`
 - **SQL injection prevention**: All identifiers validated via regex in `GnosisMcpConfig.__post_init__()`
 - **Multi-table support**: PostgreSQL only — `GNOSIS_MCP_CHUNKS_TABLE` accepts comma-separated tables, queries use `UNION ALL`
-- **Write gating**: Write tools are withdrawn from `tools/list` when `cfg.writable` is false, *and* still check it on every call. A read-only client sees six tools, not nine that can only fail
+- **Write gating**: Write tools are withdrawn from `tools/list` when `cfg.writable` is false, _and_ still check it on every call. A read-only client sees six tools, not nine that can only fail
 - **Webhook notifications**: Fire-and-forget POST to `GNOSIS_MCP_WEBHOOK_URL` on write operations
 - **Custom search delegation**: Set `GNOSIS_MCP_SEARCH_FUNCTION` to use your own hybrid search (PostgreSQL only)
 - **Column overrides**: `GNOSIS_MCP_COL_*` are for connecting to existing tables with non-standard names
@@ -112,11 +112,12 @@ New file: `rest.py` — Starlette routes, own backend lifespan, CORS + auth midd
 - **Client wiring is a registry, not a branch**: `clients.py` holds one `Client` row per MCP client (config path, config key, entry shape, vendor `mcp add` command, always-loaded instruction file). `setup` and `doctor` read that table, so supporting a new client is a data change plus a test. Three strategies in order — the vendor's own CLI, then a marker-delimited managed block or a JSON merge, then a printed snippet — which is what makes the fallback universal rather than a list of clients someone remembered.
 - **`instructions` is not universal**: an MCP server may return an `instructions` field and Claude Code surfaces it, but `dsh-mcp-client` registers the tools and discards it. Where a client drops it, `setup` writes the equivalent rule into that client's always-loaded instruction file. That is why `Client.rules` is `None` for exactly the clients that do forward `instructions` — a second copy would bill the user twice for one paragraph.
 - **Usage evidence, not intent**: `doctor` reads `search_access_log` grouped by `client` (recorded from the session's `initialize` handshake). A config file proves someone meant to wire it up; a non-empty result proves an agent called it. Wired-but-never-called is a warning, and `--strict` turns it into an exit code for CI.
+- **A miss is a row, not an absence**: a `search_docs` that matches nothing is logged with an empty `file_path`. The index saying "nothing here" is the most useful thing the log can record for whoever maintains the corpus, and it cannot be confused with a served document — `usage` ranks misses, `get_top_accessed`/`get_context` skip them. `gnosis-mcp usage` is the reader: calls, misses, top/never-served docs, by tool and client.
 
 ## Testing
 
 ```bash
-pytest tests/               # Unit tests (844, no DB required)
+pytest tests/               # Unit tests (862, no DB required)
 gnosis-mcp check            # Integration check against live DB
 ```
 

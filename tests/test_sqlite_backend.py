@@ -233,6 +233,71 @@ class TestSqliteBackendLifecycle:
             }
         ]
 
+    async def test_usage_report_empty_window(self, backend):
+        """Nothing logged: zero calls, and every indexed doc is unread."""
+        await backend.upsert_doc("a.md", ["content a"], title="A", category="guides")
+        await backend.upsert_doc("b.md", ["content b"], title="B", category="guides")
+
+        report = await backend.usage_report(days=7)
+
+        assert report["calls"] == 0
+        assert report["misses"] == 0
+        assert report["docs"] == 0
+        assert report["by_tool"] == []
+        assert report["by_client"] == []
+        assert report["top_docs"] == []
+        assert report["top_misses"] == []
+        assert report["never_accessed"] == 2
+        assert report["total_docs"] == 2
+
+    async def test_usage_report_ranks_docs_clients_and_misses(self, backend):
+        """Served documents rank by calls; misses rank by query, separately."""
+        await backend.upsert_doc("a.md", ["content a"], title="A", category="guides")
+        await backend.upsert_doc("b.md", ["content b"], title="B", category="guides")
+        await backend.log_access(
+            "a.md", tool="search_docs", query="design", client="claude-code/2.1.0"
+        )
+        await backend.log_access("a.md", tool="get_doc", client="claude-code/2.1.0")
+        await backend.log_access("b.md", tool="search_docs", query="prune", client="other/1.0")
+        # Two clients asked the same question and got nothing.
+        await backend.log_access(
+            "", tool="search_docs", query="kotlin", client="claude-code/2.1.0"
+        )
+        await backend.log_access("", tool="search_docs", query="kotlin", client="other/1.0")
+
+        report = await backend.usage_report(days=7)
+
+        assert report["calls"] == 5
+        assert report["misses"] == 2
+        assert report["docs"] == 2
+        assert report["never_accessed"] == 0
+        assert report["total_docs"] == 2
+        assert (report["top_docs"][0]["file_path"], report["top_docs"][0]["calls"]) == ("a.md", 2)
+        assert report["top_docs"][0]["title"] == "A"
+        assert (report["top_misses"][0]["query"], report["top_misses"][0]["calls"]) == (
+            "kotlin",
+            2,
+        )
+        assert [(t["tool"], t["calls"], t["misses"]) for t in report["by_tool"]] == [
+            ("search_docs", 4, 2),
+            ("get_doc", 1, 0),
+        ]
+        assert [(c["client"], c["calls"]) for c in report["by_client"]] == [
+            ("claude-code/2.1.0", 3),
+            ("other/1.0", 2),
+        ]
+        assert report["first_accessed"] is not None
+
+    async def test_top_accessed_skips_misses(self, backend):
+        """A miss carries no document — it must not rank as one."""
+        await backend.upsert_doc("a.md", ["content a"], title="A", category="guides")
+        await backend.log_access("a.md", tool="search_docs")
+        await backend.log_access("", tool="search_docs", query="kotlin")
+
+        top = await backend.get_top_accessed(limit=10, days=7)
+
+        assert [row["file_path"] for row in top] == ["a.md"]
+
     async def test_client_usage_on_a_schema_without_the_column(self, tmp_path):
         """Pre-client schemas return no rows instead of raising into `doctor`."""
         import aiosqlite

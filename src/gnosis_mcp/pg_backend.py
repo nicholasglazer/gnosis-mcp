@@ -977,6 +977,128 @@ class PostgresBackend:
                 for row in rows
             ]
 
+    async def usage_report(self, *, days: int = 30, limit: int = 10) -> dict[str, Any]:
+        """See `DocBackend.usage_report` protocol docstring."""
+        cfg = self._cfg
+        qt = cfg.qualified_chunks_table
+        tbl = f"{cfg.schema}.search_access_log"
+        window = "accessed_at >= (NOW() - ($1 || ' days')::interval)"
+        async with await self._acquire() as conn:
+            row = await conn.fetchrow(
+                f"SELECT count(*) AS calls, "
+                f"       count(*) FILTER (WHERE file_path = '') AS misses, "
+                f"       count(DISTINCT NULLIF(file_path, '')) AS docs, "
+                f"       MIN(accessed_at) AS first, MAX(accessed_at) AS last "
+                f"FROM {tbl} WHERE {window}",
+                str(days),
+            )
+            tool_rows = await conn.fetch(
+                f"SELECT tool, count(*) AS calls, "
+                f"       count(*) FILTER (WHERE file_path = '') AS misses "
+                f"FROM {tbl} WHERE {window} "
+                f"GROUP BY tool ORDER BY 2 DESC, 1",
+                str(days),
+            )
+            doc_rows = await conn.fetch(
+                f"SELECT a.file_path, c.title, c.category, count(*) AS calls, "
+                f"       MAX(a.accessed_at) AS last_accessed "
+                f"FROM {tbl} a "
+                f"LEFT JOIN {qt} c ON c.file_path = a.file_path AND c.chunk_index = 0 "
+                f"WHERE {window} AND a.file_path <> '' "
+                f"GROUP BY a.file_path, c.title, c.category "
+                f"ORDER BY 4 DESC, 1 LIMIT $2",
+                str(days),
+                limit,
+            )
+            miss_rows = await conn.fetch(
+                f"SELECT query, count(*) AS calls, MAX(accessed_at) AS last_accessed "
+                f"FROM {tbl} "
+                f"WHERE {window} AND file_path = '' AND query IS NOT NULL AND query <> '' "
+                f"GROUP BY 1 ORDER BY 2 DESC, 1 LIMIT $2",
+                str(days),
+                limit,
+            )
+            # `never_accessed` is all-time, not window-scoped: a document read
+            # once six months ago is not "never needed", and the point of the
+            # number is the shelf nobody has ever touched.
+            coverage = await conn.fetchrow(
+                f"SELECT count(*) AS total, "
+                f"       count(*) FILTER (WHERE a.file_path IS NULL) AS never "
+                f"FROM (SELECT DISTINCT {cfg.col_file_path} AS fp FROM {qt}) d "
+                f"LEFT JOIN (SELECT DISTINCT file_path FROM {tbl}) a "
+                f"  ON a.file_path = d.fp"
+            )
+            # One probe for all three columns rather than the per-column EXISTS
+            # used by the writers: this method reads them together, and a
+            # pre-retrofit schema still has to produce a report.
+            cols = {
+                r["column_name"]
+                for r in await conn.fetch(
+                    "SELECT column_name FROM information_schema.columns"
+                    " WHERE table_schema = $1 AND table_name = 'search_access_log'",
+                    cfg.schema,
+                )
+            }
+            clients: list[dict[str, Any]] = []
+            if "client" in cols:
+                client_rows = await conn.fetch(
+                    f"SELECT COALESCE(client, '') AS client, count(*), "
+                    f"       MIN(accessed_at), MAX(accessed_at) "
+                    f"FROM {tbl} WHERE {window} "
+                    f"GROUP BY 1 ORDER BY 2 DESC",
+                    str(days),
+                )
+                clients = [
+                    {
+                        "client": r["client"] or None,
+                        "calls": int(r["count"]),
+                        "first_accessed": r["min"].isoformat() if r["min"] else None,
+                        "last_accessed": r["max"].isoformat() if r["max"] else None,
+                    }
+                    for r in client_rows
+                ]
+            return {
+                "days": days,
+                "calls": int(row["calls"]),
+                "misses": int(row["misses"]),
+                "docs": int(row["docs"] or 0),
+                "never_accessed": int(coverage["never"] or 0),
+                "total_docs": int(coverage["total"] or 0),
+                "first_accessed": row["first"].isoformat() if row["first"] else None,
+                "last_accessed": row["last"].isoformat() if row["last"] else None,
+                "by_tool": [
+                    {
+                        "tool": r["tool"],
+                        "calls": int(r["calls"]),
+                        "misses": int(r["misses"]),
+                    }
+                    for r in tool_rows
+                ],
+                "by_client": clients,
+                "top_docs": [
+                    {
+                        "file_path": r["file_path"],
+                        "title": r["title"],
+                        "category": r["category"],
+                        "calls": int(r["calls"]),
+                        "last_accessed": (
+                            r["last_accessed"].isoformat() if r["last_accessed"] else None
+                        ),
+                    }
+                    for r in doc_rows
+                ],
+                "top_misses": [
+                    {
+                        "query": r["query"],
+                        "calls": int(r["calls"]),
+                        "last_accessed": (
+                            r["last_accessed"].isoformat() if r["last_accessed"] else None
+                        ),
+                    }
+                    for r in miss_rows
+                ],
+            }
+
     async def log_access(
         self,
         file_path: str,
@@ -1050,7 +1172,10 @@ class PostgresBackend:
         days: int = 30,
         category: str | None = None,
     ) -> list[dict[str, Any]]:
-        """Get most-accessed documents within a time window."""
+        """Get most-accessed documents within a time window.
+
+        Misses (`file_path = ''`) are excluded: they name no document.
+        """
         cfg = self._cfg
         qt = cfg.qualified_chunks_table
         async with await self._acquire() as conn:
@@ -1062,6 +1187,7 @@ class PostgresBackend:
                     f"LEFT JOIN {qt} c "
                     f"  ON c.file_path = a.file_path AND c.chunk_index = 0 "
                     f"WHERE a.accessed_at >= now() - ($1 || ' days')::interval "
+                    f"  AND a.file_path <> '' "
                     f"  AND c.category = $2 "
                     f"GROUP BY a.file_path, c.title, c.category "
                     f"ORDER BY access_count DESC "
@@ -1078,6 +1204,7 @@ class PostgresBackend:
                     f"LEFT JOIN {qt} c "
                     f"  ON c.file_path = a.file_path AND c.chunk_index = 0 "
                     f"WHERE a.accessed_at >= now() - ($1 || ' days')::interval "
+                    f"  AND a.file_path <> '' "
                     f"GROUP BY a.file_path, c.title, c.category "
                     f"ORDER BY access_count DESC "
                     f"LIMIT $2",

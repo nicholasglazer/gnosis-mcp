@@ -63,11 +63,16 @@ CREATE INDEX IF NOT EXISTS idx_{links_table}_target
 -- Access log for tracking document usage patterns
 -- `client` names the MCP client that made the call (session `initialize`
 -- handshake); NULL for rows logged by callers with no client identity.
+-- `tokens_returned` / `tokens_baseline` feed the `gnosis-mcp savings` ledger.
+-- An empty `file_path` marks a miss — a query that matched nothing; see
+-- `usage_report`.
 CREATE TABLE IF NOT EXISTS {schema}.search_access_log (
     id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     file_path text NOT NULL,
     query text,
     tool text NOT NULL DEFAULT 'search_docs',
+    tokens_returned integer,
+    tokens_baseline integer,
     client text,
     accessed_at timestamptz DEFAULT now()
 );
@@ -76,6 +81,16 @@ CREATE INDEX IF NOT EXISTS idx_search_access_log_file_path
     ON {schema}.search_access_log (file_path);
 CREATE INDEX IF NOT EXISTS idx_search_access_log_accessed_at
     ON {schema}.search_access_log (accessed_at);
+
+-- Retrofit the columns onto a table that predates them. `CREATE TABLE IF NOT
+-- EXISTS` above is a no-op on an existing table, so without these a schema
+-- initialised by an older version keeps logging access with no error anywhere
+-- while `savings` reads zeros and per-client attribution silently disappears.
+-- Mirrors SqliteBackend._ensure_post_v0_12_columns; both statements are no-ops
+-- once the column exists.
+ALTER TABLE {schema}.search_access_log ADD COLUMN IF NOT EXISTS tokens_returned integer;
+ALTER TABLE {schema}.search_access_log ADD COLUMN IF NOT EXISTS tokens_baseline integer;
+ALTER TABLE {schema}.search_access_log ADD COLUMN IF NOT EXISTS client text;
 
 -- Basic keyword search function (no embeddings required)
 CREATE OR REPLACE FUNCTION {schema}.search_{chunks_table}(

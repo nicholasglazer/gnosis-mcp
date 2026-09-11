@@ -296,6 +296,21 @@ class TestSearchDocsTool:
         assert server_mod._search_stats["misses"] == 1  # only first was a miss
 
     @pytest.mark.asyncio
+    async def test_miss_is_logged_with_empty_path(self, writable_ctx):
+        """A search that matched nothing still writes an access-log row.
+
+        It is the only row that records demand the corpus could not satisfy:
+        the query is kept with an empty `file_path`, which `usage` ranks as a
+        miss and top-accessed skips.
+        """
+        await search_docs("nonexistent query xyz")
+
+        rows = await writable_ctx.backend._db.execute_fetchall(
+            "SELECT file_path, tool, query, tokens_returned FROM search_access_log"
+        )
+        assert [tuple(r) for r in rows] == [("", "search_docs", "nonexistent query xyz", 0)]
+
+    @pytest.mark.asyncio
     async def test_limit_respected(self, writable_ctx):
         for i in range(6):
             await writable_ctx.backend.upsert_doc(

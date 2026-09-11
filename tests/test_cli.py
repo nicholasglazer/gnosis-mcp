@@ -21,6 +21,7 @@ from gnosis_mcp.cli import (
     _is_missing_schema_error,
     _mask_url,
     _missing_schema_parts,
+    _plural,
     _require_schema,
     cmd_check,
     cmd_doctor,
@@ -30,6 +31,7 @@ from gnosis_mcp.cli import (
     cmd_serve,
     cmd_setup,
     cmd_stats,
+    cmd_usage,
     main,
 )
 from gnosis_mcp.config import GnosisMcpConfig
@@ -903,3 +905,68 @@ class TestCmdDoctor:
         payload = json.loads(capsys.readouterr().out)
         assert [row["client"] for row in payload["usage"]] == ["claude-code/2.1.0"]
         assert payload["server"]["command"][-1] == "serve"
+
+
+class TestCmdUsage:
+    def _args(self, **over):
+        base = {"days": 30, "limit": 10, "json": False}
+        base.update(over)
+        return argparse.Namespace(**base)
+
+    def _seed(self, db, rows) -> None:
+        import sqlite3
+
+        conn = sqlite3.connect(db)
+        conn.executemany(
+            "INSERT INTO search_access_log (file_path, tool, query, client, accessed_at) "
+            "VALUES (?, ?, ?, ?, datetime('now'))",
+            rows,
+        )
+        conn.commit()
+        conn.close()
+
+    def test_reports_docs_clients_and_misses(self, monkeypatch, tmp_path, capsys):
+        """The three answers a docs owner needs: used, users, unused-questions."""
+        db = tmp_path / "usage.db"
+        _use_sqlite_db(monkeypatch, db)
+        cmd_init_db(argparse.Namespace(dry_run=False))
+        self._seed(
+            db,
+            [
+                ("docs/a.md", "search_docs", "billing", "claude-code/2.1.0"),
+                ("docs/a.md", "get_doc", None, "claude-code/2.1.0"),
+                ("", "search_docs", "kotlin", "claude-code/2.1.0"),
+            ],
+        )
+        capsys.readouterr()
+
+        cmd_usage(self._args())
+
+        out = capsys.readouterr().out
+        assert "Gnosis usage" in out
+        assert "claude-code/2.1.0" in out
+        assert "docs/a.md" in out
+        assert "kotlin" in out
+        # A noun ending in "s" pluralizes with "es" — "1 misss" shipped once.
+        assert "1 miss" in out and "misss" not in out
+
+    def test_plural_handles_s_finals(self):
+        assert _plural(1, "call") == "1 call"
+        assert _plural(3, "call") == "3 calls"
+        assert _plural(1, "miss") == "1 miss"
+        assert _plural(2, "miss") == "2 misses"
+        assert _plural(1200, "call") == "1,200 calls"
+
+    def test_json_mode_carries_the_report(self, monkeypatch, tmp_path, capsys):
+        db = tmp_path / "usage-json.db"
+        _use_sqlite_db(monkeypatch, db)
+        cmd_init_db(argparse.Namespace(dry_run=False))
+        self._seed(db, [("", "search_docs", "kotlin", "claude-code/2.1.0")])
+        capsys.readouterr()
+
+        cmd_usage(self._args(json=True))
+
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["calls"] == 1
+        assert payload["misses"] == 1
+        assert payload["top_misses"][0]["query"] == "kotlin"

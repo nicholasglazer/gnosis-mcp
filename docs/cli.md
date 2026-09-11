@@ -16,26 +16,27 @@ vars (see [config.md](config.md)) — flags override env.
 
 ## Quick map
 
-| Command | Purpose |
-| ------- | ------- |
-| [`serve`](#serve) | Start the MCP server (stdio / HTTP). |
-| [`init-db`](#init-db) | Create tables, indexes, triggers. |
-| [`ingest`](#ingest) | Ingest local files (md / txt / ipynb / toml / csv / json / rst / pdf). |
-| [`prune`](#prune) | Delete chunks whose source file is gone. |
-| [`ingest-git`](#ingest-git) | Index a git repo's commit history. |
-| [`crawl`](#crawl) | Crawl a documentation website and ingest pages. |
-| [`search`](#search) | Run a search from the command line (sanity check). |
-| [`embed`](#embed) | Backfill embeddings for NULL rows. |
-| [`stats`](#stats) | Print doc / chunk / embedding / access counts. |
-| [`export`](#export) | Dump documents as JSON, markdown, or CSV. |
-| [`diff`](#diff) | Dry-run re-ingest: show what would change. |
-| [`check`](#check) | Verify DB connection, schema, and extensions. |
-| [`setup`](#setup) | Wire the server into the MCP clients on this machine. |
-| [`doctor`](#doctor) | Check the DB, the client wiring, and whether anything calls it. |
-| [`cleanup`](#cleanup) | Purge old access-log rows. |
-| [`fix-link-types`](#fix-link-types) | One-off migration for pre-0.10 git-history links. |
-| [`eval`](#eval) | Retrieval-quality harness (Hit@K, MRR, Precision@K). |
-| [`savings`](#savings) | Token-savings ledger from the access log. |
+| Command                             | Purpose                                                                |
+| ----------------------------------- | ---------------------------------------------------------------------- |
+| [`serve`](#serve)                   | Start the MCP server (stdio / HTTP).                                   |
+| [`init-db`](#init-db)               | Create tables, indexes, triggers.                                      |
+| [`ingest`](#ingest)                 | Ingest local files (md / txt / ipynb / toml / csv / json / rst / pdf). |
+| [`prune`](#prune)                   | Delete chunks whose source file is gone.                               |
+| [`ingest-git`](#ingest-git)         | Index a git repo's commit history.                                     |
+| [`crawl`](#crawl)                   | Crawl a documentation website and ingest pages.                        |
+| [`search`](#search)                 | Run a search from the command line (sanity check).                     |
+| [`embed`](#embed)                   | Backfill embeddings for NULL rows.                                     |
+| [`stats`](#stats)                   | Print doc / chunk / embedding / access counts.                         |
+| [`export`](#export)                 | Dump documents as JSON, markdown, or CSV.                              |
+| [`diff`](#diff)                     | Dry-run re-ingest: show what would change.                             |
+| [`check`](#check)                   | Verify DB connection, schema, and extensions.                          |
+| [`setup`](#setup)                   | Wire the server into the MCP clients on this machine.                  |
+| [`doctor`](#doctor)                 | Check the DB, the client wiring, and whether anything calls it.        |
+| [`cleanup`](#cleanup)               | Purge old access-log rows.                                             |
+| [`fix-link-types`](#fix-link-types) | One-off migration for pre-0.10 git-history links.                      |
+| [`eval`](#eval)                     | Retrieval-quality harness (Hit@K, MRR, Precision@K).                   |
+| [`savings`](#savings)               | Token-savings ledger from the access log.                              |
+| [`usage`](#usage)                   | What was asked, what was served, and what was missed.                  |
 
 ---
 
@@ -51,16 +52,16 @@ gnosis-mcp serve [--transport {stdio,streamable-http,sse}]
                  [--rest]
 ```
 
-| Flag | Description |
-| ---- | ----------- |
-| `--transport` | `stdio` (default, for editor clients) or `streamable-http` (serve over HTTP). |
-| `--host` | HTTP bind (default `127.0.0.1`; env `GNOSIS_MCP_HOST`). |
-| `--port` | HTTP port (default `8000`; env `GNOSIS_MCP_PORT`). |
-| `--ingest` | Ingest this path before starting. |
-| `--watch` | Watch path for changes, auto-re-ingest (implies `--ingest`). Uses mtime polling with debounce. |
-| `--search-limit-max` | Cap on the result `limit` an MCP client may request (default `20`; env `GNOSIS_MCP_SEARCH_LIMIT_MAX`). |
+| Flag                      | Description                                                                                            |
+| ------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `--transport`             | `stdio` (default, for editor clients) or `streamable-http` (serve over HTTP).                          |
+| `--host`                  | HTTP bind (default `127.0.0.1`; env `GNOSIS_MCP_HOST`).                                                |
+| `--port`                  | HTTP port (default `8000`; env `GNOSIS_MCP_PORT`).                                                     |
+| `--ingest`                | Ingest this path before starting.                                                                      |
+| `--watch`                 | Watch path for changes, auto-re-ingest (implies `--ingest`). Uses mtime polling with debounce.         |
+| `--search-limit-max`      | Cap on the result `limit` an MCP client may request (default `20`; env `GNOSIS_MCP_SEARCH_LIMIT_MAX`). |
 | `--content-preview-chars` | Snippet length, in characters, in tool output (default `200`; env `GNOSIS_MCP_CONTENT_PREVIEW_CHARS`). |
-| `--rest` | Enable the REST API on the same HTTP port. See [rest-api.md](rest-api.md). |
+| `--rest`                  | Enable the REST API on the same HTTP port. See [rest-api.md](rest-api.md).                             |
 
 Both tuning flags are applied to the server's environment before startup, so the
 MCP tools, the REST routes, and the watcher all read the same values.
@@ -109,33 +110,34 @@ gnosis-mcp ingest PATH
     [--prune] [--wipe] [--include-crawled] [--include-generated]
 ```
 
-| Flag | Description |
-| ---- | ----------- |
-| `PATH` | File or directory to ingest. |
-| `--dry-run` | Show what would happen, write nothing. |
-| `--force` | Re-ingest every file even if content hash matches. |
-| `--embed` | Generate embeddings for new/changed chunks (requires an embed provider). |
-| `--prune` | After ingest, delete chunks whose source file is gone. |
-| `--wipe` | Delete every document first (full reset — the nuclear option). |
-| `--include-crawled` | When pruning, also consider crawled URLs. Default is to leave them alone. |
+| Flag                  | Description                                                                                                                                                                   |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PATH`                | File or directory to ingest.                                                                                                                                                  |
+| `--dry-run`           | Show what would happen, write nothing.                                                                                                                                        |
+| `--force`             | Re-ingest every file even if content hash matches.                                                                                                                            |
+| `--embed`             | Generate embeddings for new/changed chunks (requires an embed provider).                                                                                                      |
+| `--prune`             | After ingest, delete chunks whose source file is gone.                                                                                                                        |
+| `--wipe`              | Delete every document first (full reset — the nuclear option).                                                                                                                |
+| `--include-crawled`   | When pruning, also consider crawled URLs. Default is to leave them alone.                                                                                                     |
 | `--include-generated` | When pruning, also consider generated documents such as git history. Default is to leave them alone — they have no file on disk, so pruning by root would always delete them. |
 
 **Supported formats**
 
-| Extension | Enabled by |
-| --------- | ---------- |
-| `.md` | core |
-| `.txt` | core |
-| `.ipynb` | core (code + markdown cells joined) |
-| `.toml` | core |
-| `.csv` | core |
-| `.json` | core |
-| `.rst` | `pip install gnosis-mcp[rst]` |
-| `.pdf` | `pip install gnosis-mcp[pdf]` |
+| Extension | Enabled by                          |
+| --------- | ----------------------------------- |
+| `.md`     | core                                |
+| `.txt`    | core                                |
+| `.ipynb`  | core (code + markdown cells joined) |
+| `.toml`   | core                                |
+| `.csv`    | core                                |
+| `.json`   | core                                |
+| `.rst`    | `pip install gnosis-mcp[rst]`       |
+| `.pdf`    | `pip install gnosis-mcp[pdf]`       |
 
 **Frontmatter**
 
 Ingest extracts YAML frontmatter:
+
 - `title:` — override first-H1 heuristic
 - `category:`, `audience:`, `tags:` — metadata
 - `relates_to:` — inline or list form, emits `related` edges
@@ -175,13 +177,13 @@ gnosis-mcp ingest-git REPO
     [--dry-run] [--force] [--embed]
 ```
 
-| Flag | Description |
-| ---- | ----------- |
-| `--since`, `--until` | Date windows. `6m` / `2w` / `2025-01-01` all work. |
-| `--author` | Filter by author name or email substring. |
-| `--max-commits` | Max commits per file, most recent first. Default `10`. |
-| `--include`, `--exclude` | Glob filters on the file set. |
-| `--merges` | Include merge commits (excluded by default). Takes no value. |
+| Flag                     | Description                                                  |
+| ------------------------ | ------------------------------------------------------------ |
+| `--since`, `--until`     | Date windows. `6m` / `2w` / `2025-01-01` all work.           |
+| `--author`               | Filter by author name or email substring.                    |
+| `--max-commits`          | Max commits per file, most recent first. Default `10`.       |
+| `--include`, `--exclude` | Glob filters on the file set.                                |
+| `--merges`               | Include merge commits (excluded by default). Takes no value. |
 
 ---
 
@@ -198,13 +200,13 @@ gnosis-mcp crawl URL
     [--dry-run] [--force] [--embed]
 ```
 
-| Flag | Description |
-| ---- | ----------- |
-| `--sitemap` | Discover URLs via `sitemap.xml`. Best for large doc sites. |
-| `--depth` | BFS link-crawl depth when `--sitemap` is off. Default `1`; ignored with `--sitemap`. |
-| `--include` / `--exclude` | Path glob filters. |
-| `--max-urls` | Maximum number of URLs to crawl. Default `5000`. |
-| `--force` | Ignore the ETag / Last-Modified / hash cache. |
+| Flag                      | Description                                                                          |
+| ------------------------- | ------------------------------------------------------------------------------------ |
+| `--sitemap`               | Discover URLs via `sitemap.xml`. Best for large doc sites.                           |
+| `--depth`                 | BFS link-crawl depth when `--sitemap` is off. Default `1`; ignored with `--sitemap`. |
+| `--include` / `--exclude` | Path glob filters.                                                                   |
+| `--max-urls`              | Maximum number of URLs to crawl. Default `5000`.                                     |
+| `--force`                 | Ignore the ETag / Last-Modified / hash cache.                                        |
 
 **Caching.** A JSON sidecar at `~/.local/share/gnosis-mcp/crawl-cache.json`
 stores ETag and hash metadata so subsequent crawls can skip unchanged pages
@@ -223,11 +225,11 @@ Quick retrieval sanity check from the shell.
 gnosis-mcp search "your query" [-n 10] [-c guides] [--embed]
 ```
 
-| Flag | Description |
-| ---- | ----------- |
-| `-n`, `--limit` | Max results (default `5`). |
-| `-c`, `--category` | Filter by category. |
-| `--embed` | Auto-embed the query for hybrid search (needs an embed provider). |
+| Flag               | Description                                                       |
+| ------------------ | ----------------------------------------------------------------- |
+| `-n`, `--limit`    | Max results (default `5`).                                        |
+| `-c`, `--category` | Filter by category.                                               |
+| `--embed`          | Auto-embed the query for hybrid search (needs an embed provider). |
 
 ---
 
@@ -283,6 +285,7 @@ gnosis-mcp diff PATH
 ## `check`
 
 Verify that:
+
 1. The database is reachable.
 2. All required tables / extensions are present.
 3. FTS5 (SQLite) or tsvector (Postgres) is functional.
@@ -303,7 +306,7 @@ gnosis-mcp check
 ## `setup`
 
 Wire the server into the MCP clients installed on this machine, using the command
-path that is correct *here*.
+path that is correct _here_.
 
 ```bash
 gnosis-mcp setup [--write] [--client NAME]... [--no-cli]
@@ -344,7 +347,7 @@ client, its config path, and its instruction file.
 
 ## `doctor`
 
-Answer "is it installed, *and is it actually being used?*" in one pass.
+Answer "is it installed, _and is it actually being used?_" in one pass.
 
 ```bash
 gnosis-mcp doctor [--days N] [--strict] [--no-verify] [--dsh-profile NAME] [--json]
@@ -410,7 +413,7 @@ Retrieval-quality smoke test. Reports Hit@K, MRR, and Precision@K (`K = 5`).
 gnosis-mcp eval [--json]
 ```
 
-**Read this before trusting the numbers.** `eval` does *not* query your
+**Read this before trusting the numbers.** `eval` does _not_ query your
 corpus. It builds a fixed fixture — the hardcoded `SAMPLE_DOCS` /
 `SAMPLE_GIT_HISTORY_DOCS` lists plus `tests/eval/cases.json` — in a
 temporary SQLite database, and ignores `GNOSIS_MCP_DATABASE_URL` entirely.
@@ -465,6 +468,42 @@ scripting.
 The ledger is written by `search_docs` (its top three hits) and `get_doc`. Turn it
 off with `GNOSIS_MCP_ACCESS_LOG=false`, and purge it with
 [`cleanup`](#cleanup).
+
+---
+
+## `usage`
+
+```bash
+gnosis-mcp usage [--days N] [--limit N] [--json]
+```
+
+Who consulted this corpus, what they were served, and what they asked that it
+could not answer — over the last `--days` (default 30), ranking the top `--limit`
+(default 10) documents and misses.
+
+| Section        | What it tells you                                             |
+| -------------- | ------------------------------------------------------------- |
+| Calls / Misses | Volume, and the share of queries that matched nothing.        |
+| Docs served    | Distinct documents returned in the window.                    |
+| Never accessed | Indexed documents no query has ever surfaced, vs. the total.  |
+| By tool        | `search_docs` vs `get_doc` — how agents actually read.        |
+| By client      | Which MCP clients made the calls (see below).                 |
+| Top documents  | Most-served paths — the corpus's real centre of gravity.      |
+| Misses         | Queries logged with no hits: the index saying "nothing here". |
+
+A **miss** is a `search_docs` call that matched nothing. It is recorded with an
+empty `file_path` so it can never be mistaken for a served document; `usage`
+ranks misses while [`get_context`](tools.md) and everything else that reads the
+ledger as document usage skip them.
+
+**By client** names the MCP client from the session's `initialize` handshake
+(e.g. `claude-code/2.1.263`). Rows logged before the `client` column existed, or
+by callers that send no client info, show up as unattributed — `usage` prints a
+note rather than guessing.
+
+The report reads the same access log as [`savings`](#savings): both need
+`GNOSIS_MCP_ACCESS_LOG` on (the default), and windowed data is only as old as the
+last [`cleanup`](#cleanup). `--json` emits the whole report for scripting.
 
 ---
 

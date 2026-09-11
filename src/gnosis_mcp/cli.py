@@ -1279,6 +1279,109 @@ def cmd_savings(args: argparse.Namespace) -> None:
     asyncio.run(_run())
 
 
+def _short_ts(value: str) -> str:
+    """Trim an ISO timestamp to minute precision for terminal output."""
+    return str(value).replace("T", " ")[:16]
+
+
+def _plural(count: int, word: str) -> str:
+    """`3 calls`, `1 call`, `2 misses` — a count and its noun, for aligned columns."""
+    if count == 1:
+        return f"{count:,} {word}"
+    return f"{count:,} {word}{'es' if word.endswith('s') else 's'}"
+
+
+def cmd_usage(args: argparse.Namespace) -> None:
+    """Report who calls gnosis, for what, and where it comes up empty.
+
+    The access ledger answers the questions a documentation index is judged
+    on: is anything actually reading these docs, which ones earn their keep,
+    and which questions do callers ask that the corpus cannot answer. Misses —
+    a search that returned nothing, logged with an empty `file_path` — are the
+    demand signal, and `never_accessed` is the supply nobody has needed yet.
+    Both are worth acting on; a page written for neither is a guess.
+    """
+    from gnosis_mcp.backend import create_backend
+    from gnosis_mcp.config import GnosisMcpConfig
+
+    config = GnosisMcpConfig.from_env()
+
+    async def _run() -> dict:
+        backend = create_backend(config)
+        await backend.startup()
+        try:
+            return await backend.usage_report(days=args.days, limit=args.limit)
+        finally:
+            await backend.shutdown()
+
+    report = asyncio.run(_run())
+
+    if args.json:
+        sys.stdout.write(json.dumps(report, indent=2))
+        sys.stdout.write("\n")
+        return
+
+    window = f"last {args.days} day{'s' if args.days != 1 else ''}"
+    calls = report["calls"]
+    misses = report["misses"]
+    miss_note = f"   ({misses / calls:.0%} of calls matched nothing)" if calls else ""
+    sys.stdout.write(f"\n  Gnosis usage — {window}\n")
+    sys.stdout.write("  " + "=" * 48 + "\n")
+    sys.stdout.write(f"  Calls:          {calls:>10,}\n")
+    sys.stdout.write(f"  Misses:         {misses:>10,}{miss_note}\n")
+    sys.stdout.write(f"  Docs served:    {report['docs']:>10,}\n")
+    sys.stdout.write(
+        f"  Never accessed: {report['never_accessed']:>10,}"
+        f"   of {report['total_docs']:,} documents\n"
+    )
+    if report["first_accessed"]:
+        sys.stdout.write(
+            f"  Window: {_short_ts(report['first_accessed'])}"
+            f" → {_short_ts(report['last_accessed'])}\n"
+        )
+    sys.stdout.write("  " + "=" * 48 + "\n")
+
+    if report["by_tool"]:
+        sys.stdout.write("\n  By tool:\n")
+        for entry in report["by_tool"]:
+            tail = f"   {_plural(entry['misses'], 'miss')}" if entry["misses"] else ""
+            sys.stdout.write(
+                f"    {entry['tool']:<22}{_plural(entry['calls'], 'call'):>12}{tail}\n"
+            )
+
+    if report["by_client"]:
+        sys.stdout.write("\n  By client:\n")
+        for entry in report["by_client"]:
+            name = entry["client"] or "(unattributed)"
+            last = _short_ts(entry["last_accessed"]) if entry["last_accessed"] else ""
+            sys.stdout.write(
+                f"    {name:<24}{_plural(entry['calls'], 'call'):>12}   last {last}\n"
+            )
+    elif calls:
+        sys.stdout.write(
+            "\n  By client: nothing attributed. The table predates per-client\n"
+            "  attribution — `gnosis-mcp init-db` retrofits the column, and\n"
+            "  older rows stay anonymous by design.\n"
+        )
+
+    if report["top_docs"]:
+        sys.stdout.write("\n  Top documents:\n")
+        for entry in report["top_docs"]:
+            sys.stdout.write(f"    {entry['calls']:>6,}  {entry['file_path']}\n")
+
+    if report["top_misses"]:
+        sys.stdout.write("\n  Misses — asked, nothing matched:\n")
+        for entry in report["top_misses"]:
+            query = str(entry["query"])
+            if len(query) > 72:
+                query = query[:69] + "..."
+            sys.stdout.write(f"    {entry['calls']:>6,}  {query}\n")
+
+    sys.stdout.write("\n")
+    if calls == 0:
+        sys.stdout.write("  (no logged calls in window — is GNOSIS_MCP_ACCESS_LOG enabled?)\n\n")
+
+
 def cmd_eval(args: argparse.Namespace) -> None:
     """Run the bundled retrieval-quality eval harness and print metrics.
 
@@ -1826,6 +1929,16 @@ def main() -> None:
     p_savings.add_argument("--days", type=int, default=30, help="Look back N days (default: 30)")
     p_savings.add_argument("--json", action="store_true", help="Emit JSON only")
 
+    p_usage = sub.add_parser(
+        "usage",
+        help="Who calls gnosis, what they read, and which queries found nothing",
+    )
+    p_usage.add_argument("--days", type=int, default=30, help="Look back N days (default: 30)")
+    p_usage.add_argument(
+        "--limit", type=int, default=10, help="Rows in each ranked list (default: 10)"
+    )
+    p_usage.add_argument("--json", action="store_true", help="Emit JSON only")
+
     args = parser.parse_args()
     if not args.command:
         parser.print_help()
@@ -1850,6 +1963,7 @@ def main() -> None:
         "eval": cmd_eval,
         "prune": cmd_prune,
         "savings": cmd_savings,
+        "usage": cmd_usage,
     }
     # Handlers return None everywhere except `check`, which reports health via
     # its return value. sys.exit (not a bare `return`) is what carries that

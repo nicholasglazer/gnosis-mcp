@@ -230,6 +230,25 @@ class DocBackend(Protocol):
         """
         ...
 
+    async def usage_report(self, *, days: int = 30, limit: int = 10) -> dict[str, Any]:
+        """What gnosis was asked, what it served, and where it came up empty.
+
+        One pass over the access ledger for the window, for whoever maintains
+        the corpus: `calls`, `misses` (queries that matched nothing, logged
+        with an empty `file_path`), `docs` (distinct documents served),
+        `never_accessed` (indexed documents with no access row at all, over
+        all time rather than the window), `total_docs` (the denominator for
+        that), `first_accessed` / `last_accessed`,
+        `by_tool` (list of {tool, calls, misses}), `by_client` (same shape as
+        `client_usage`), `top_docs` ({file_path, title, category, calls,
+        last_accessed}) and `top_misses` ({query, calls, last_accessed}).
+
+        Misses are the actionable half: they name questions the corpus cannot
+        answer, so a gap gets filled from demand instead of guesswork.
+        `never_accessed` is the mirror — documentation nobody has ever read.
+        """
+        ...
+
     async def get_top_accessed(
         self,
         *,
@@ -238,6 +257,9 @@ class DocBackend(Protocol):
         category: str | None = None,
     ) -> list[dict[str, Any]]:
         """Get most-accessed documents within a time window.
+
+        Misses (empty `file_path`) are excluded — they surfaced no document,
+        and must not rank as one.
 
         Returns list of {file_path, title, category, access_count, last_accessed}.
         """

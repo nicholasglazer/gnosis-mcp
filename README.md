@@ -88,6 +88,8 @@ $ gnosis-mcp savings --days 7
 
 Typical compression runs 10–60× depending on corpus coverage and query specificity — verify on yours. `access_log` is on by default; `GNOSIS_MCP_ACCESS_LOG=false` opts out.
 
+The same ledger answers the other question — **what is this corpus being asked, and where does it come up empty** — with `gnosis-mcp usage` (v0.17.4+): calls, the queries that matched nothing, which documents are served most, which have never been served, and which clients are doing the asking.
+
 **Reproducible.** `gnosis-mcp eval` runs a bundled retrieval-quality harness locally in one second — but it ingests nine hardcoded sample documents into a temporary database and answers ten bundled queries, so it returns the same numbers for every corpus and is a smoke test, not a measurement of your docs. To score your own corpus, run `python tests/bench/bench_real_corpus.py --corpus <docs-root> --golden <golden.jsonl>` (the numbers above come from `tests/bench/golden-knowledge.jsonl`). `tests/bench/*.py` reproduce every number. Methodology: [`docs/benchmarks.md`](https://github.com/nicholasglazer/gnosis-mcp/blob/main/docs/benchmarks.md).
 
 **Rerankers stay off by default.** The bundled MS-MARCO cross-encoder drops nDCG@10 by 27 points on dev-docs and adds 400× latency; BGE-reranker-v2-m3 drops it 31 points at 2400×. Test on your corpus before enabling — full write-up: [bench-experiments-2026-04-18](https://github.com/nicholasglazer/gnosis-mcp/blob/main/docs/bench-experiments-2026-04-18.md).
@@ -205,25 +207,25 @@ Also in `docs/`: [REST API](https://github.com/nicholasglazer/gnosis-mcp/blob/ma
 
 Gnosis MCP exposes nine tools and three resources over [MCP](https://modelcontextprotocol.io/). Your AI agent calls these automatically when it needs information from your docs:
 
-| Tool | What it does | Mode |
-|------|-------------|------|
-| `search_docs` | Search by keyword or hybrid semantic+keyword | Read |
-| `get_doc` | Retrieve a full document by path | Read |
-| `get_related` | Find linked/related documents (multi-hop, relation type filtering) | Read |
-| `search_git_history` | Search indexed git commit history | Read |
-| `get_context` | Usage-weighted context summary | Read |
-| `get_graph_stats` | Knowledge graph topology: orphans, hubs, relation distribution | Read |
-| `upsert_doc` | Create or replace a document | Write |
-| `delete_doc` | Remove a document and its chunks | Write |
-| `update_metadata` | Change title, category, tags | Write |
+| Tool                 | What it does                                                       | Mode  |
+| -------------------- | ------------------------------------------------------------------ | ----- |
+| `search_docs`        | Search by keyword or hybrid semantic+keyword                       | Read  |
+| `get_doc`            | Retrieve a full document by path                                   | Read  |
+| `get_related`        | Find linked/related documents (multi-hop, relation type filtering) | Read  |
+| `search_git_history` | Search indexed git commit history                                  | Read  |
+| `get_context`        | Usage-weighted context summary                                     | Read  |
+| `get_graph_stats`    | Knowledge graph topology: orphans, hubs, relation distribution     | Read  |
+| `upsert_doc`         | Create or replace a document                                       | Write |
+| `delete_doc`         | Remove a document and its chunks                                   | Write |
+| `update_metadata`    | Change title, category, tags                                       | Write |
 
 The six read tools are always advertised. The three write tools require `GNOSIS_MCP_WRITABLE=true` — without it they are withdrawn from `tools/list` entirely, so a read-only client is never handed a tool it cannot call.
 
-| Resource URI | Returns |
-|-----|---------|
-| `gnosis://docs` | All documents — path, title, category, chunk count |
-| `gnosis://docs/{path}` | Full document content |
-| `gnosis://categories` | Categories with document counts |
+| Resource URI           | Returns                                            |
+| ---------------------- | -------------------------------------------------- |
+| `gnosis://docs`        | All documents — path, title, category, chunk count |
+| `gnosis://docs/{path}` | Full document content                              |
+| `gnosis://categories`  | Categories with document counts                    |
 
 With embeddings configured, `search_docs` fuses keyword and semantic results with Reciprocal Rank Fusion and returns a `highlight` field carrying the matched terms in `<mark>` tags — that is what keeps a lookup at a few hundred tokens instead of a full file. `get_context` is the session-start tool: it ranks documents by how often they are actually retrieved, unless `GNOSIS_MCP_ACCESS_LOG=false` turns tracking off.
 
@@ -233,12 +235,12 @@ Full reference — every parameter, return shape, error, and the graph relation 
 
 Nothing required for SQLite — zero config works. Override via `GNOSIS_MCP_*` env vars. The four most-asked:
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `GNOSIS_MCP_DATABASE_URL` | SQLite auto | PostgreSQL URL (backend auto-detects) or SQLite file path |
-| `GNOSIS_MCP_WRITABLE` | `false` | Enable `upsert_doc` / `delete_doc` / `update_metadata` |
-| `GNOSIS_MCP_EMBED_PROVIDER` | unset | `local` turns on hybrid search (needs `[embeddings]` extra); or `openai` / `ollama` / `custom` |
-| `GNOSIS_MCP_API_KEY` | unset | Optional Bearer auth for every REST endpoint except `/health` |
+| Variable                    | Default     | Description                                                                                    |
+| --------------------------- | ----------- | ---------------------------------------------------------------------------------------------- |
+| `GNOSIS_MCP_DATABASE_URL`   | SQLite auto | PostgreSQL URL (backend auto-detects) or SQLite file path                                      |
+| `GNOSIS_MCP_WRITABLE`       | `false`     | Enable `upsert_doc` / `delete_doc` / `update_metadata`                                         |
+| `GNOSIS_MCP_EMBED_PROVIDER` | unset       | `local` turns on hybrid search (needs `[embeddings]` extra); or `openai` / `ollama` / `custom` |
+| `GNOSIS_MCP_API_KEY`        | unset       | Optional Bearer auth for every REST endpoint except `/health`                                  |
 
 The remaining 45 — chunking, search limits, RRF, reranking, crawl, webhooks, column overrides, logging — are documented in **[`docs/config.md`](https://github.com/nicholasglazer/gnosis-mcp/blob/main/docs/config.md)**.
 
@@ -262,11 +264,11 @@ Remote providers work the same way via `gnosis-mcp embed --provider openai` (nee
 
 ## AI-Friendly Docs
 
-| File | Purpose |
-|------|---------|
-| [`llms.txt`](https://github.com/nicholasglazer/gnosis-mcp/blob/main/llms.txt) | Quick overview — what it does, tools, config |
-| [`llms-full.txt`](https://github.com/nicholasglazer/gnosis-mcp/blob/main/llms-full.txt) | Complete reference in one file |
-| [`llms-install.md`](https://github.com/nicholasglazer/gnosis-mcp/blob/main/llms-install.md) | Step-by-step installation guide |
+| File                                                                                        | Purpose                                      |
+| ------------------------------------------------------------------------------------------- | -------------------------------------------- |
+| [`llms.txt`](https://github.com/nicholasglazer/gnosis-mcp/blob/main/llms.txt)               | Quick overview — what it does, tools, config |
+| [`llms-full.txt`](https://github.com/nicholasglazer/gnosis-mcp/blob/main/llms-full.txt)     | Complete reference in one file               |
+| [`llms-install.md`](https://github.com/nicholasglazer/gnosis-mcp/blob/main/llms-install.md) | Step-by-step installation guide              |
 
 ## Development
 
@@ -275,7 +277,7 @@ git clone https://github.com/nicholasglazer/gnosis-mcp.git
 cd gnosis-mcp
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
-pytest                    # 844 tests, no database needed
+pytest                    # 862 tests, no database needed
 ruff check src/ tests/
 ```
 

@@ -87,7 +87,7 @@ Start here:
   the API your LLM sees.
 - [**CLI**](cli.md) — every subcommand (`serve`, `ingest`, `crawl`,
   `ingest-git`, `embed`, `search`, `stats`, `export`, `diff`, `check`,
-  `cleanup`, `prune`, `fix-link-types`, `eval`, `savings`, `init-db`).
+  `cleanup`, `prune`, `fix-link-types`, `eval`, `savings`, `usage`, `init-db`).
 - [**Configuration**](config.md) — every `GNOSIS_MCP_*` environment
   variable, grouped by what it controls.
 - [**REST API**](rest-api.md) — optional HTTP/JSON mirror on the same port.
@@ -106,13 +106,13 @@ Start here:
 
 gnosis-mcp has two first-class backends, both maintained in-tree:
 
-| | SQLite | PostgreSQL |
-| --- | --- | --- |
-| Install | core | `[postgres]` extra |
-| Good for | dev, laptop-scale ≤ 100 k chunks | production, concurrent writers, multi-GB corpora |
-| Keyword search | FTS5 + BM25, porter tokenizer | tsvector + GIN |
-| Vector search | `sqlite-vec` + HNSW | `pgvector` + HNSW |
-| Hybrid | Reciprocal Rank Fusion | Reciprocal Rank Fusion |
+|                | SQLite                           | PostgreSQL                                       |
+| -------------- | -------------------------------- | ------------------------------------------------ |
+| Install        | core                             | `[postgres]` extra                               |
+| Good for       | dev, laptop-scale ≤ 100 k chunks | production, concurrent writers, multi-GB corpora |
+| Keyword search | FTS5 + BM25, porter tokenizer    | tsvector + GIN                                   |
+| Vector search  | `sqlite-vec` + HNSW              | `pgvector` + HNSW                                |
+| Hybrid         | Reciprocal Rank Fusion           | Reciprocal Rank Fusion                           |
 
 Both implement the same `DocBackend` Protocol. Tool API is identical; the
 SQL underneath differs.

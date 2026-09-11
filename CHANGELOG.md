@@ -12,6 +12,38 @@ Versioning follows [Semantic Versioning](https://semver.org/) (pre-1.0).
 ### Fixed
 ### Security
 
+## [0.17.4] - 2026-09-11
+
+### Added
+
+- **`gnosis-mcp usage`** — what this corpus was asked, what it served, and what
+  it could not answer, over a window (`--days`, default 30): calls, misses,
+  documents served, indexed documents no query has ever surfaced, and the split
+  by tool, by client, and per document. `--json` emits the whole report.
+- **A missed search is now a logged row.** When `search_docs` matches nothing it
+  is recorded with an empty `file_path` — the index saying "nothing here", with
+  the query that asked. `usage` ranks misses; every reader of the ledger that
+  treats rows as documents (`get_top_accessed`, `get_context`) skips them.
+
+### Changed
+
+### Fixed
+
+- **Postgres access logs silently lacked client and token attribution.**
+  `search_access_log` was created without `tokens_returned`, `tokens_baseline`
+  or `client`, and `CREATE TABLE IF NOT EXISTS` cannot add a column to a table
+  that already exists — so on any Postgres install the ledger kept logging
+  without them, `savings` reported zeros, and `doctor`'s per-client evidence
+  could never fill in. The DDL now carries the columns and `init-db` retrofits
+  them onto an existing table (`ADD COLUMN IF NOT EXISTS`), mirroring what
+  SQLite already did.
+- `scripts/update-arch-sums.sh` now polls for the PyPI sdist instead of fetching
+  once. On 0.17.3 the single fetch 404'd against a file CDN that was still
+  replicating, the release job failed, and the Arch sha pull request was never
+  opened.
+
+### Security
+
 ## [0.17.3] - 2026-09-11
 
 Files that live on disk but shouldn't be searchable can now be excluded at

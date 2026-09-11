@@ -44,13 +44,24 @@ echo "fetching $URL"
 TMP=$(mktemp -d)
 trap "rm -rf $TMP" EXIT
 
-if ! curl -fsSL -o "$TMP/sdist.tar.gz" "$URL"; then
-  echo "" >&2
-  echo "ERROR: could not fetch $URL" >&2
-  echo "  · Did publish.yml finish? Check https://pypi.org/project/gnosis-mcp/#files" >&2
-  echo "  · Does pypi list $VER? (may take ~60s after workflow completes)" >&2
-  exit 3
-fi
+# The file CDN can lag PyPI's index by seconds — on 0.17.3 this single fetch
+# 404'd, the workflow job failed, and the Arch sha PR was never opened. Poll
+# instead of fetching once.
+TRIES="${ARCH_SUMS_FETCH_TRIES:-8}"
+for ((i = 1; i <= TRIES; i++)); do
+  if curl -fsSL -o "$TMP/sdist.tar.gz" "$URL"; then
+    break
+  fi
+  if (( i == TRIES )); then
+    echo "" >&2
+    echo "ERROR: could not fetch $URL ($TRIES attempts)" >&2
+    echo "  · Did publish.yml finish? Check https://pypi.org/project/gnosis-mcp/#files" >&2
+    echo "  · Does pypi list $VER? (may take ~60s after workflow completes)" >&2
+    exit 3
+  fi
+  echo "  · attempt $i/$TRIES failed — CDN may still be replicating; retrying in 10s" >&2
+  sleep 10
+done
 
 NEW_SHA=$(sha256sum "$TMP/sdist.tar.gz" | cut -d' ' -f1)
 echo "sha256: $NEW_SHA"

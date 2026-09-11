@@ -108,3 +108,18 @@ class TestGetInitSql:
         assert "search_access_log" in sql
         assert "client text" in sql
         assert "idx_search_access_log_file_path" in sql
+
+    def test_access_log_columns_are_retrofitted(self):
+        """`CREATE TABLE IF NOT EXISTS` cannot add a column to a table that
+        already exists, so the DDL also carries the ALTERs that do — otherwise
+        an older schema keeps logging without `client`/tokens, silently, while
+        `savings` reports zeros.
+        """
+        cfg = GnosisMcpConfig(database_url="postgresql://localhost/db", schema="internal")
+        sql = get_init_sql(cfg)
+        assert "tokens_returned integer" in sql
+        assert "tokens_baseline integer" in sql
+        for column in ("tokens_returned", "tokens_baseline", "client"):
+            assert (
+                f"ALTER TABLE internal.search_access_log ADD COLUMN IF NOT EXISTS {column}" in sql
+            )
