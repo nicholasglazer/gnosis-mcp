@@ -15,7 +15,7 @@ optdepends=('python-asyncpg: PostgreSQL backend'
             'python-trafilatura: web crawling')
 makedepends=('python-build' 'python-installer' 'python-hatchling')
 source=("$pkgname-$pkgver.tar.gz::https://files.pythonhosted.org/packages/source/g/gnosis-mcp/gnosis_mcp-$pkgver.tar.gz")
-sha256sums=('cccde673656ba71a9cd868363870a7b56cac07fcfac52ea79cd9c035ddc73258')
+sha256sums=('93efc0c7330b672add6026e5fb85c13ada4235f85109afd6e0d6114a9b45fdb4')
 
 build() {
     cd "gnosis_mcp-$pkgver"
