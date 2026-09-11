@@ -516,6 +516,37 @@ def _split_section_by_subheadings(
         ]
 
     chunks = []
+
+    # Text above the first sub-heading — the parent heading itself and any
+    # intro prose — was previously dropped: the loop below starts at
+    # matches[0], so that region became no chunk at all. The same region was
+    # dropped at the document level until it got a preamble chunk (see
+    # chunk_by_headings); this mirrors that fix one level down. A heading-only
+    # head is still worth a chunk — it is what makes the section title
+    # searchable.
+    head = content[: matches[0].start()].strip()
+    if head:
+        if len(head) <= max_size:
+            chunks.append(
+                {
+                    "title": parent_title,
+                    "content": head,
+                    "section_path": f"{doc_title} > {parent_title}",
+                }
+            )
+        else:
+            parts = _split_paragraphs_safe(head, max_size)
+            for j, p in enumerate(parts):
+                if not p.strip():
+                    continue
+                chunks.append(
+                    {
+                        "title": parent_title if j == 0 else f"{parent_title} (cont.)",
+                        "content": p,
+                        "section_path": f"{doc_title} > {parent_title}",
+                    }
+                )
+
     for i, match in enumerate(matches):
         title = match.group(1).strip()
         start = match.start()

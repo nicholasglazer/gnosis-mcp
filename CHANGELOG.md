@@ -12,6 +12,29 @@ Versioning follows [Semantic Versioning](https://semver.org/) (pre-1.0).
 ### Fixed
 ### Security
 
+## [0.17.5] - 2026-09-11
+
+### Added
+
+### Changed
+
+### Fixed
+
+- **A section's own heading was not indexed once the section grew past the
+  chunk size.** `_split_section_by_subheadings` began its chunks at the first
+  sub-heading, so `content[:first_match]` — the parent heading and every
+  paragraph introducing the sub-sections — became no chunk at all. The effect
+  was invisible in the obvious check: the corpus still answered questions about
+  the section's _contents_, yet a search phrased as the section's own name
+  returned nothing, because no chunk contained that heading. It took a document
+  written, ingested, embedded, and still unfindable by any phrasing to surface
+  it. Measured old-vs-new chunking of the knowledge root: **141 of 245 ingested
+  files, 1035 chunks** of heading and intro prose restored. The fix mirrors the
+  document-level preamble chunk one level down, at every sub-heading level, and
+  is covered by `test_h2_head_and_intro_before_first_h3_are_retained`.
+
+### Security
+
 ## [0.17.4] - 2026-09-11
 
 ### Added

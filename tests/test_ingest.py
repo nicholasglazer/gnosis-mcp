@@ -510,6 +510,28 @@ class TestChunkByHeadings:
         header = contextual_header("guides/alpha.md", preamble["title"])
         assert header == "Document: guides/alpha.md | Section: Alpha Guide\n\n"
 
+    def test_h2_head_and_intro_before_first_h3_are_retained(self):
+        """An oversized section keeps its heading and intro above the first H3.
+
+        Regression: _split_section_by_subheadings sliced from each H3 match, so
+        content[:matches[0].start()] — the parent heading and the prose that
+        introduces the sub-sections — became no chunk at all. Mirrors
+        test_h1_and_intro_before_first_h2_become_preamble_chunk, one level down.
+        """
+        h3a = "### Sub A\n\n" + "A " * 100
+        h3b = "### Sub B\n\n" + "B " * 100
+        md = (
+            "# Doc\n\n## Big Section\n\n"
+            "Intro with the unique phrase omega-four.\n\n"
+            f"{h3a}\n\n{h3b}"
+        )
+        chunks = chunk_by_headings(md, "test.md", max_chunk_size=300)
+        head_chunk = next(c for c in chunks if "omega-four" in c["content"])
+        assert head_chunk["title"] == "Big Section"
+        assert "## Big Section" in head_chunk["content"]
+        # The sub-sections still become their own chunks.
+        assert any("Sub A" in c["title"] for c in chunks)
+
     def test_no_headings_at_all(self):
         """A document with no headings stays one chunk, title from the filename."""
         md = "Plain prose with no headings at all, still fully searchable content."
