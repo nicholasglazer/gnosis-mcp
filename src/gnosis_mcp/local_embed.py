@@ -150,10 +150,14 @@ class LocalEmbedder:
         model_id: str = _DEFAULT_MODEL,
         cache_dir: Path | None = None,
         dim: int = _DEFAULT_DIM,
+        pooling: str = "mean",
     ) -> None:
+        if pooling not in ("mean", "cls"):
+            raise ValueError(f"pooling must be 'mean' or 'cls', got {pooling!r}")
         self._model_id = model_id
         self._cache_dir = cache_dir or _get_cache_dir()
         self._dim = dim
+        self._pooling = pooling
         self._tokenizer = None
         self._session = None
         self._input_names: list[str] = []
@@ -181,7 +185,12 @@ class LocalEmbedder:
             str(onnx_path), sess_options=opts, providers=["CPUExecutionProvider"]
         )
         self._input_names = [inp.name for inp in self._session.get_inputs()]
-        log.info("Local embedder loaded: model=%s dim=%d", self._model_id, self._dim)
+        log.info(
+            "Local embedder loaded: model=%s dim=%d pooling=%s",
+            self._model_id,
+            self._dim,
+            self._pooling,
+        )
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         """Embed a batch of texts. Returns list of float vectors."""
@@ -213,11 +222,17 @@ class LocalEmbedder:
         outputs = self._session.run(None, feed)
         token_embeddings = outputs[0]
 
-        # Mean pooling with attention mask
-        mask_expanded = attention_mask[:, :, np.newaxis].astype(np.float32)
-        summed = (token_embeddings * mask_expanded).sum(axis=1)
-        counts = mask_expanded.sum(axis=1).clip(min=1e-9)
-        pooled = summed / counts
+        if self._pooling == "cls":
+            # First-token pooling: BGE dense models (bge-m3, bge-base/large) are
+            # trained on the [CLS] vector; mean pooling them keeps top-1 mostly
+            # right but flattens the rest of the ranking.
+            pooled = token_embeddings[:, 0, :]
+        else:
+            # Mean pooling with attention mask
+            mask_expanded = attention_mask[:, :, np.newaxis].astype(np.float32)
+            summed = (token_embeddings * mask_expanded).sum(axis=1)
+            counts = mask_expanded.sum(axis=1).clip(min=1e-9)
+            pooled = summed / counts
 
         # L2 normalization
         norms = np.linalg.norm(pooled, axis=1, keepdims=True).clip(min=1e-12)
@@ -237,15 +252,18 @@ class LocalEmbedder:
         return self._dim
 
 
-def get_embedder(model: str | None = None, dim: int | None = None) -> LocalEmbedder:
+def get_embedder(
+    model: str | None = None, dim: int | None = None, pooling: str | None = None
+) -> LocalEmbedder:
     """Get or create the module-level singleton embedder."""
     global _embedder, _embedder_model
 
     model = model or _DEFAULT_MODEL
     dim = dim or _DEFAULT_DIM
+    pooling = pooling or "mean"
 
-    if _embedder is None or _embedder_model != model:
-        _embedder = LocalEmbedder(model_id=model, dim=dim)
-        _embedder_model = model
+    if _embedder is None or _embedder_model != (model, pooling):
+        _embedder = LocalEmbedder(model_id=model, dim=dim, pooling=pooling)
+        _embedder_model = (model, pooling)
 
     return _embedder

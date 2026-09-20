@@ -477,7 +477,11 @@ async def search_docs(
             from gnosis_mcp.embed import embed_texts
 
             vectors = embed_texts(
-                [query], provider="local", model=cfg.embed_model, dim=cfg.embed_dim
+                [query],
+                provider="local",
+                model=cfg.embed_model,
+                dim=cfg.embed_dim,
+                pooling=cfg.embed_pooling,
             )
             query_embedding = vectors[0] if vectors else None
         except ImportError:
@@ -529,6 +533,7 @@ async def search_docs(
                     provider="local",
                     model=cfg.embed_model,
                     dim=cfg.embed_dim,
+                    pooling=cfg.embed_pooling,
                 )
                 results = _apply_mmr(results, query_embedding, doc_vecs, cfg.mmr_lambda)
             except Exception as exc:
@@ -820,7 +825,11 @@ async def get_context(
                     from gnosis_mcp.embed import embed_texts
 
                     vectors = embed_texts(
-                        [topic], provider="local", model=cfg.embed_model, dim=cfg.embed_dim
+                        [topic],
+                        provider="local",
+                        model=cfg.embed_model,
+                        dim=cfg.embed_dim,
+                        pooling=cfg.embed_pooling,
                     )
                     query_embedding = vectors[0] if vectors else None
                 except ImportError:

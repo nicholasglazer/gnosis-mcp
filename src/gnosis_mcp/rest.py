@@ -270,7 +270,13 @@ async def search(request: Request) -> JSONResponse:
         try:
             from gnosis_mcp.embed import embed_texts
 
-            vectors = embed_texts([q], provider="local", model=cfg.embed_model, dim=cfg.embed_dim)
+            vectors = embed_texts(
+                [q],
+                provider="local",
+                model=cfg.embed_model,
+                dim=cfg.embed_dim,
+                pooling=cfg.embed_pooling,
+            )
             query_embedding = vectors[0] if vectors else None
         except ImportError:
             pass
@@ -406,7 +412,11 @@ async def get_context(request: Request) -> JSONResponse:
                     from gnosis_mcp.embed import embed_texts
 
                     vectors = embed_texts(
-                        [topic], provider="local", model=cfg.embed_model, dim=cfg.embed_dim
+                        [topic],
+                        provider="local",
+                        model=cfg.embed_model,
+                        dim=cfg.embed_dim,
+                        pooling=cfg.embed_pooling,
                     )
                     query_embedding = vectors[0] if vectors else None
                 except ImportError:
@@ -560,6 +570,7 @@ async def embed(request: Request) -> JSONResponse:
             api_key=cfg.embed_api_key,
             url=cfg.embed_url,
             dim=cfg.embed_dim,
+            pooling=cfg.embed_pooling,
         )
     except Exception as exc:
         log.warning("embed REST failed: %s", exc)

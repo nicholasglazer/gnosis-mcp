@@ -751,6 +751,7 @@ def cmd_ingest(args: argparse.Namespace) -> None:
                 url=config.embed_url,
                 batch_size=config.embed_batch_size,
                 dim=config.embed_dim,
+                pooling=config.embed_pooling,
             )
             log.info(
                 "Embedded: %d/%d chunks (%d errors)",
@@ -950,6 +951,7 @@ def cmd_embed(args: argparse.Namespace) -> None:
             batch_size=batch_size,
             dry_run=args.dry_run,
             dim=dim,
+            pooling=config.embed_pooling,
         )
 
         if args.dry_run:

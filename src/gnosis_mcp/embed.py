@@ -110,6 +110,7 @@ def embed_texts(
     api_key: str | None = None,
     url: str | None = None,
     dim: int | None = None,
+    pooling: str | None = None,
 ) -> list[list[float]]:
     """Embed a batch of texts using the specified provider.
 
@@ -120,6 +121,7 @@ def embed_texts(
         api_key: API key (required for openai, optional for others).
         url: Custom endpoint URL (overrides provider default).
         dim: Embedding dimension (used by local provider for Matryoshka truncation).
+        pooling: Local provider only: "mean" (default) or "cls".
 
     Returns:
         List of embedding vectors, one per input text.
@@ -130,7 +132,7 @@ def embed_texts(
     if provider == "local":
         from gnosis_mcp.local_embed import get_embedder
 
-        embedder = get_embedder(model=model, dim=dim)
+        embedder = get_embedder(model=model, dim=dim, **({"pooling": pooling} if pooling else {}))
         return embedder.embed(texts)
 
     endpoint = get_provider_url(provider, url)
@@ -159,6 +161,7 @@ async def embed_pending(
     batch_size: int = 50,
     dry_run: bool = False,
     dim: int | None = None,
+    pooling: str | None = None,
 ) -> EmbedResult:
     """Find chunks with NULL embeddings and backfill them.
 
@@ -201,7 +204,15 @@ async def embed_pending(
             ]
 
             try:
-                vectors = embed_texts(texts, provider, model, api_key, url, dim=dim)
+                vectors = embed_texts(
+                    texts,
+                    provider,
+                    model,
+                    api_key,
+                    url,
+                    dim=dim,
+                    **({"pooling": pooling} if pooling else {}),
+                )
             except Exception:
                 log.exception("Embedding batch failed (ids %d-%d)", ids[0], ids[-1])
                 errors += len(ids)

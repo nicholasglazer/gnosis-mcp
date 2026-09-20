@@ -29,6 +29,7 @@ docker run -d \
   -e GNOSIS_MCP_EMBED_PROVIDER=local \
   -e GNOSIS_MCP_EMBED_MODEL=intfloat/multilingual-e5-large \
   -e GNOSIS_MCP_EMBED_DIM=1024 \
+  -e GNOSIS_MCP_EMBED_POOLING=mean \
   -e GNOSIS_MCP_API_KEY="$(openssl rand -hex 32)" \
   -v gnosis-data:/data \
   -v hf-cache:/root/.cache/huggingface \
@@ -125,3 +126,10 @@ For one-time bulk ingest of 20k chunks with `multilingual-e5-large`: roughly 10-
 - No multi-model-in-one-process routing — one model per gnosis-mcp instance.
 
 If you need any of these for a real deployment, file an issue at <https://github.com/nicholasglazer/gnosis-mcp/issues> and tell us what your traffic shape looks like.
+
+## Pooling (v0.17.6+)
+
+`GNOSIS_MCP_EMBED_POOLING` selects how token vectors become one sentence vector for the local
+provider: `mean` (default; e5, MiniLM, mdbr-leaf) or `cls` (first token; BGE dense models such as
+`BAAI/bge-m3` are trained on it and lose ranking quality under mean pooling — top-1 mostly
+survives, the rest of the ranking flattens). Pick the mode the model card specifies.

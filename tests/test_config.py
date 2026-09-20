@@ -544,3 +544,15 @@ class TestEmbedConfig:
         assert cfg.embed_api_key == "sk-xyz"
         assert cfg.embed_url == "https://custom.openai.com/v1/embeddings"
         assert cfg.embed_batch_size == 100
+
+
+def test_embed_pooling_env_and_validation(monkeypatch):
+    from gnosis_mcp.config import GnosisMcpConfig
+
+    monkeypatch.setenv("GNOSIS_MCP_EMBED_POOLING", "cls")
+    assert GnosisMcpConfig.from_env().embed_pooling == "cls"
+    monkeypatch.setenv("GNOSIS_MCP_EMBED_POOLING", "max")
+    import pytest
+
+    with pytest.raises(ValueError):
+        GnosisMcpConfig.from_env()

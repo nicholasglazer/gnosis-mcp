@@ -232,3 +232,51 @@ class TestDownloadModel:
 
         model_dir, _ = _download_model("org/sub/model", tmp_path)
         assert model_dir.name == "org--sub--model"
+
+
+class TestPooling:
+    def test_cls_pooling_takes_the_first_token(self, tmp_path):
+        from unittest.mock import MagicMock
+
+        import numpy as np
+
+        from gnosis_mcp.local_embed import LocalEmbedder
+
+        embedder = LocalEmbedder(model_id="x/y", cache_dir=tmp_path, dim=4, pooling="cls")
+        enc = MagicMock()
+        enc.ids = [1, 2, 3]
+        enc.attention_mask = [1, 1, 1]
+        tok = MagicMock()
+        tok.encode_batch.return_value = [enc]
+        embedder._tokenizer = tok
+        sess = MagicMock()
+        i1 = MagicMock()
+        i1.name = "input_ids"
+        i2 = MagicMock()
+        i2.name = "attention_mask"
+        sess.get_inputs.return_value = [i1, i2]
+        token_embeddings = np.array(
+            [[[4.0, 0.0, 0.0, 0.0], [0.0, 4.0, 0.0, 0.0], [0.0, 0.0, 4.0, 0.0]]], dtype=np.float32
+        )
+        sess.run.return_value = [token_embeddings]
+        embedder._session = sess
+        embedder._input_names = ["input_ids", "attention_mask"]
+        vec = embedder.embed(["hi"])[0]
+        assert vec == [1.0, 0.0, 0.0, 0.0]  # first token, normalised; mean would be [.577]*3
+
+    def test_rejects_unknown_pooling(self, tmp_path):
+        import pytest
+
+        from gnosis_mcp.local_embed import LocalEmbedder
+
+        with pytest.raises(ValueError):
+            LocalEmbedder(model_id="x/y", cache_dir=tmp_path, pooling="max")
+
+    def test_get_embedder_is_keyed_by_pooling(self, monkeypatch):
+        from gnosis_mcp import local_embed
+
+        monkeypatch.setattr(local_embed, "_embedder", None)
+        monkeypatch.setattr(local_embed, "_embedder_model", None)
+        a = local_embed.get_embedder(model="x/y", dim=4, pooling="mean")
+        b = local_embed.get_embedder(model="x/y", dim=4, pooling="cls")
+        assert a is not b and b._pooling == "cls"

@@ -15,6 +15,7 @@ _IDENT_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)*$")
 _VALID_LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
 _VALID_TRANSPORTS = ("stdio", "sse", "streamable-http")
 _VALID_EMBED_PROVIDERS = ("openai", "ollama", "custom", "local")
+_VALID_EMBED_POOLING = ("mean", "cls")
 _VALID_BACKENDS = ("auto", "sqlite", "postgres")
 
 
@@ -156,6 +157,11 @@ class GnosisMcpConfig:
     embed_api_key: str | None = None
     embed_url: str | None = None  # custom endpoint or ollama override
     embed_batch_size: int = 50
+    # Local provider only: how token vectors become one sentence vector.
+    # "mean" (masked mean, the default; e5 / MiniLM / leaf) or "cls" (first
+    # token; bge-m3 and the other BGE dense models are trained for it and lose
+    # ranking quality under mean pooling).
+    embed_pooling: str = "mean"
 
     # REST API (disabled by default)
     rest: bool = False
@@ -254,6 +260,11 @@ class GnosisMcpConfig:
         if self.log_level not in _VALID_LOG_LEVELS:
             raise ValueError(
                 f"GNOSIS_MCP_LOG_LEVEL must be one of {_VALID_LOG_LEVELS}, got {self.log_level!r}"
+            )
+        if self.embed_pooling not in _VALID_EMBED_POOLING:
+            raise ValueError(
+                f"GNOSIS_MCP_EMBED_POOLING must be one of {_VALID_EMBED_POOLING}, "
+                f"got {self.embed_pooling!r}"
             )
         if self.embed_provider is not None and self.embed_provider not in _VALID_EMBED_PROVIDERS:
             raise ValueError(
@@ -387,6 +398,7 @@ class GnosisMcpConfig:
             embed_api_key=env("EMBED_API_KEY"),
             embed_url=env("EMBED_URL"),
             embed_batch_size=env_int("EMBED_BATCH_SIZE", 50),
+            embed_pooling=env("EMBED_POOLING", "mean"),
             rest=env("REST", "").lower() in ("1", "true", "yes"),
             access_log=env("ACCESS_LOG", "true").lower() in ("1", "true", "yes"),
             cors_origins=env("CORS_ORIGINS"),
