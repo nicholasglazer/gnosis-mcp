@@ -162,6 +162,13 @@ class GnosisMcpConfig:
     # token; bge-m3 and the other BGE dense models are trained for it and lose
     # ranking quality under mean pooling).
     embed_pooling: str = "mean"
+    # Local provider only: max seconds a single embed_texts() call may run
+    # off-loop before search_docs/get_context give up on it and degrade to
+    # keyword-only search. Guards against onnxruntime stalling indefinitely
+    # under host memory pressure (cgroup memory.high reclaim can block a
+    # thread forever when the host is out of swap) instead of hanging every
+    # concurrent MCP session behind it.
+    embed_timeout: int = 15
 
     # REST API (disabled by default)
     rest: bool = False
@@ -253,6 +260,8 @@ class GnosisMcpConfig:
             raise ValueError(
                 f"GNOSIS_MCP_WEBHOOK_TIMEOUT must be >= 1, got {self.webhook_timeout}"
             )
+        if self.embed_timeout < 1:
+            raise ValueError(f"GNOSIS_MCP_EMBED_TIMEOUT must be >= 1, got {self.embed_timeout}")
         if self.transport not in _VALID_TRANSPORTS:
             raise ValueError(
                 f"GNOSIS_MCP_TRANSPORT must be one of {_VALID_TRANSPORTS}, got {self.transport!r}"
@@ -399,6 +408,7 @@ class GnosisMcpConfig:
             embed_url=env("EMBED_URL"),
             embed_batch_size=env_int("EMBED_BATCH_SIZE", 50),
             embed_pooling=env("EMBED_POOLING", "mean"),
+            embed_timeout=env_int("EMBED_TIMEOUT", 15),
             rest=env("REST", "").lower() in ("1", "true", "yes"),
             access_log=env("ACCESS_LOG", "true").lower() in ("1", "true", "yes"),
             cors_origins=env("CORS_ORIGINS"),

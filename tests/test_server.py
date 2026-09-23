@@ -342,6 +342,74 @@ class TestSearchDocsTool:
         # Results come back regardless; no crash.
         assert isinstance(data, list)
 
+    @pytest.mark.asyncio
+    async def test_local_embed_does_not_block_event_loop(self, writable_ctx, monkeypatch):
+        """A slow local embed call must not stall other concurrent coroutines.
+
+        Regression for a hang where `embed_texts(provider="local", ...)` ran
+        synchronously on the event loop: one slow/stuck embed blocked every
+        other in-flight MCP request (even a bare `initialize` from another
+        session) behind it. `_embed_local` now offloads the call via
+        `asyncio.to_thread`, so a coroutine scheduled concurrently must be
+        able to finish its own short sleep well before the slow embed call
+        returns, instead of being starved until the blocking call is done.
+        """
+        import asyncio
+        import time
+
+        import gnosis_mcp.embed as embed_mod
+
+        object.__setattr__(writable_ctx.config, "embed_provider", "local")
+
+        def _slow_embed(texts, **_kwargs):
+            time.sleep(0.3)  # simulates a stuck/slow onnxruntime call
+            return [[0.1] * 384 for _ in texts]
+
+        monkeypatch.setattr(embed_mod, "embed_texts", _slow_embed)
+
+        loop = asyncio.get_event_loop()
+        other_done_at = None
+
+        async def _other_work():
+            nonlocal other_done_at
+            await asyncio.sleep(0.05)
+            other_done_at = loop.time()
+
+        other = asyncio.create_task(_other_work())
+        await search_docs("anything", limit=1)
+        search_done_at = loop.time()
+        await other
+
+        assert other_done_at is not None
+        assert other_done_at < search_done_at - 0.1, (
+            "a concurrent coroutine was starved while the local embed ran — "
+            "the embed call is blocking the event loop again"
+        )
+
+    @pytest.mark.asyncio
+    async def test_local_embed_timeout_degrades_to_keyword_search(self, writable_ctx, monkeypatch):
+        """A stuck local embed times out and search_docs still returns results."""
+        import time
+
+        import gnosis_mcp.embed as embed_mod
+
+        object.__setattr__(writable_ctx.config, "embed_provider", "local")
+        object.__setattr__(writable_ctx.config, "embed_timeout", 1)
+        await writable_ctx.backend.upsert_doc(
+            "a.md", ["Alpha content about search"], title="A", category="g"
+        )
+
+        def _stuck_embed(texts, **_kwargs):
+            time.sleep(1.5)  # longer than embed_timeout, short enough to keep the test fast
+            return [[0.1, 0.2, 0.3] for _ in texts]
+
+        monkeypatch.setattr(embed_mod, "embed_texts", _stuck_embed)
+
+        result = await search_docs("search", limit=2)
+        data = json.loads(result)
+        assert isinstance(data, list)
+        assert any("a.md" in r.get("file_path", "") for r in data)
+
 
 # ---------------------------------------------------------------------------
 # MCP Tool tests — get_doc
