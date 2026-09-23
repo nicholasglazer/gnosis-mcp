@@ -25,6 +25,7 @@ src/gnosis_mcp/
 ├── embed.py           # Embedding providers: openai/ollama/custom/local, batch backfill
 ├── local_embed.py     # Local ONNX embedding engine — stdlib urllib model download, CPU inference
 ├── clients.py         # MCP client registry: per-client config render, managed-block writes, `setup`/`doctor` wiring
+├── blocking.py        # Offloads CPU-bound local ONNX inference (embed + rerank) off the event loop: bounded semaphore, optional timeout
 └── cli.py             # argparse CLI: serve, init-db, ingest, prune, ingest-git, crawl, search, embed, stats, export, diff, check, setup, doctor, cleanup, fix-link-types, eval, savings, usage
 ```
 

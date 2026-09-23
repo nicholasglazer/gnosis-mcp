@@ -1,4 +1,8 @@
 """Configuration via GNOSIS_MCP_* environment variables."""
+# file-size: justified -- one frozen dataclass (every GNOSIS_MCP_* field, its
+# env parsing, and its __post_init__ validation) is one concern; splitting the
+# dataclass from its own validation/env-loading would scatter a single
+# config contract across files.
 
 from __future__ import annotations
 

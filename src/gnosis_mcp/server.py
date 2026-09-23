@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import ipaddress
 import json
 import logging
@@ -16,48 +15,12 @@ from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.exceptions import ToolError
 
 from gnosis_mcp import __version__
+from gnosis_mcp.blocking import embed_local, run_bounded
 from gnosis_mcp.db import AppContext, app_lifespan
 
 __all__ = ["mcp"]
 
 log = logging.getLogger("gnosis_mcp")
-
-# Bounds concurrent CPU-bound local ONNX inference (embedding + reranking).
-# Each ONNX session already fans out across multiple intra-op threads (see
-# rerank.py), so letting an unbounded number of concurrent MCP calls each spin
-# up their own inference run risks thread/memory blowup under load — exactly
-# the kind of pressure that starves the whole process, not just the caller.
-_LOCAL_INFERENCE_SEMAPHORE = asyncio.Semaphore(2)
-
-
-async def _embed_local(texts: list[str], cfg) -> list[list[float]]:
-    """Run local ONNX embedding off the event loop, bounded and time-boxed.
-
-    `embed_texts(provider="local", ...)` runs onnxruntime inference, which is
-    CPU/memory-bound. It used to be called directly on the event loop, which
-    blocks *every* other in-flight MCP request — including a bare
-    `initialize` from a different session — for the duration of the call.
-    `asyncio.to_thread` moves it off the loop (matching how `rerank()` is
-    already dispatched below); the semaphore caps concurrent inference runs;
-    the timeout turns a stuck call into the same "fall back to keyword
-    search" degrade path callers already use for a failed embed, instead of
-    an indefinite hang.
-    """
-    from gnosis_mcp.embed import embed_texts
-
-    async with _LOCAL_INFERENCE_SEMAPHORE:
-        return await asyncio.wait_for(
-            asyncio.to_thread(
-                embed_texts,
-                texts,
-                provider="local",
-                model=cfg.embed_model,
-                dim=cfg.embed_dim,
-                pooling=cfg.embed_pooling,
-            ),
-            timeout=cfg.embed_timeout,
-        )
-
 
 # Write tools are absent from `tools/list` unless writes are enabled: a client
 # should never be handed a tool whose only possible outcome is an error.
@@ -512,7 +475,7 @@ async def search_docs(
     # search_docs tool raise instead of returning useful FTS results.
     if query_embedding is None and cfg.embed_provider == "local":
         try:
-            vectors = await _embed_local([query], cfg)
+            vectors = await embed_local([query], cfg)
             query_embedding = vectors[0] if vectors else None
         except ImportError:
             pass  # [embeddings] not installed
@@ -542,10 +505,9 @@ async def search_docs(
                 # Bounded by the same semaphore as local embedding — both are
                 # CPU-bound ONNX inference and compete for the same threads.
                 rerank_top = max(limit, cfg.rerank_pool) if cfg.collapse_by_doc else limit
-                async with _LOCAL_INFERENCE_SEMAPHORE:
-                    results = await asyncio.to_thread(
-                        reranker.rerank, query, results, text_key="content", top_k=rerank_top
-                    )
+                results = await run_bounded(
+                    reranker.rerank, query, results, text_key="content", top_k=rerank_top
+                )
             except ImportError:
                 log.warning(
                     "Rerank requested but [reranking] extra not installed — returning unranked"
@@ -558,7 +520,7 @@ async def search_docs(
         # enforces the hard one-per-file_path cap on the diversified output).
         if 0.0 < cfg.mmr_lambda < 1.0 and query_embedding is not None and len(results) > 1:
             try:
-                doc_vecs = await _embed_local([r.get("content", "") for r in results], cfg)
+                doc_vecs = await embed_local([r.get("content", "") for r in results], cfg)
                 results = _apply_mmr(results, query_embedding, doc_vecs, cfg.mmr_lambda)
             except Exception as exc:
                 # Fail-soft: bad embedder, network blip, dim mismatch — keep
@@ -846,7 +808,7 @@ async def get_context(
             query_embedding = None
             if cfg.embed_provider == "local":
                 try:
-                    vectors = await _embed_local([topic], cfg)
+                    vectors = await embed_local([topic], cfg)
                     query_embedding = vectors[0] if vectors else None
                 except ImportError:
                     pass  # [embeddings] not installed
