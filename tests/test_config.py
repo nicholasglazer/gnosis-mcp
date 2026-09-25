@@ -556,3 +556,26 @@ def test_embed_pooling_env_and_validation(monkeypatch):
 
     with pytest.raises(ValueError):
         GnosisMcpConfig.from_env()
+
+
+class TestSearchExcludePrefixes:
+    """Default prefix set that keeps commit messages out of `search_docs`."""
+
+    def test_default_excludes_git_history(self, monkeypatch):
+        monkeypatch.delenv("GNOSIS_MCP_SEARCH_EXCLUDE_PREFIXES", raising=False)
+        cfg = GnosisMcpConfig.from_env()
+        assert cfg.search_exclude_prefixes == ("git-history/",)
+
+    def test_custom_prefixes(self, monkeypatch):
+        monkeypatch.setenv(
+            "GNOSIS_MCP_SEARCH_EXCLUDE_PREFIXES", "git-history/, .internal/audit-logs/"
+        )
+        cfg = GnosisMcpConfig.from_env()
+        assert cfg.search_exclude_prefixes == ("git-history/", ".internal/audit-logs/")
+
+    def test_empty_string_disables_exclusion(self, monkeypatch):
+        # Set-but-empty means "exclude nothing" rather than "use the default" —
+        # the escape hatch for a caller that wants the unfiltered list back.
+        monkeypatch.setenv("GNOSIS_MCP_SEARCH_EXCLUDE_PREFIXES", "")
+        cfg = GnosisMcpConfig.from_env()
+        assert cfg.search_exclude_prefixes == ()

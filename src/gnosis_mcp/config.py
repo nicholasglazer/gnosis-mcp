@@ -152,6 +152,22 @@ class GnosisMcpConfig:
     # next `prune` run. Empty tuple (default) excludes nothing.
     ingest_exclude: tuple[str, ...] = ()
 
+    # Root-relative prefixes `search_docs` drops from its results when no
+    # `category` is given, so the curated corpus is not buried under commit
+    # messages. Read-time, not ingest-time, and deliberately so: the index of a
+    # working repo already holds thousands of git-history pseudo-docs, and
+    # `ingest_exclude` cannot retroactively remove what is there — it only stops
+    # the next run adding more (and prunes on the next `prune`). This filter
+    # works on the index as it stands today.
+    #
+    # `search_git_history` and an explicit `category=` both still reach commits,
+    # so nothing becomes unreachable; only the default does.
+    #
+    # Distinct from `ingest_exclude` on purpose — the two answer different
+    # questions ("what should be indexed" vs "what should a search show") and a
+    # repo may legitimately want the commits indexed but not ranked.
+    search_exclude_prefixes: tuple[str, ...] = ("git-history/",)
+
     # Embedding provider (Tier 2 sidecar)
     embed_provider: str | None = None  # "openai", "ollama", "custom", "local"
     embed_model: str = "text-embedding-3-small"
@@ -405,6 +421,11 @@ class GnosisMcpConfig:
             fts5_content_weight=env_float("FTS5_CONTENT_WEIGHT", 1.0),
             mmr_lambda=env_float("MMR_LAMBDA", 1.0),
             ingest_exclude=env_tuple("INGEST_EXCLUDE", ()),
+            # An explicitly empty GNOSIS_MCP_SEARCH_EXCLUDE_PREFIXES means
+            # "exclude nothing" — `env_tuple` treats a set-but-empty value as an
+            # empty tuple rather than falling back to the default, which is
+            # exactly the escape hatch a caller wanting the old behaviour needs.
+            search_exclude_prefixes=env_tuple("SEARCH_EXCLUDE_PREFIXES", ("git-history/",)),
             embed_provider=env("EMBED_PROVIDER"),
             embed_model=env("EMBED_MODEL", "text-embedding-3-small"),
             embed_dim=env_int("EMBED_DIM", 384),

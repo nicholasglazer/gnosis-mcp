@@ -411,6 +411,92 @@ class TestSearchDocsTool:
         assert any("a.md" in r.get("file_path", "") for r in data)
 
 
+class TestSearchDocsNoiseExclusion:
+    """`search_docs` drops git-history/ by default (GNOSIS_MCP_SEARCH_EXCLUDE_PREFIXES)
+    so commit messages cannot bury the curated corpus — while leaving them
+    reachable by the two routes that exist to ask for them."""
+
+    @pytest.mark.asyncio
+    async def test_excludes_git_history_by_default(self, writable_ctx):
+        await writable_ctx.backend.upsert_doc(
+            "git-history/abc.md",
+            ["Widget frobnication commit message about the frobnicator"],
+            title="Git history for abc",
+            category="git-history",
+        )
+        await writable_ctx.backend.upsert_doc(
+            "curated/guide.md",
+            ["Widget frobnication guide explaining the frobnicator"],
+            title="Frobnicator guide",
+            category="guides",
+        )
+
+        result = await search_docs("frobnication")
+        paths = {d["file_path"] for d in json.loads(result)}
+        assert "curated/guide.md" in paths
+        assert "git-history/abc.md" not in paths
+
+    @pytest.mark.asyncio
+    async def test_explicit_category_still_reaches_git_history(self, writable_ctx):
+        await writable_ctx.backend.upsert_doc(
+            "git-history/abc.md",
+            ["Widget frobnication commit message about the frobnicator"],
+            title="Git history for abc",
+            category="git-history",
+        )
+
+        result = await search_docs("frobnication", category="git-history")
+        paths = {d["file_path"] for d in json.loads(result)}
+        assert "git-history/abc.md" in paths
+
+    @pytest.mark.asyncio
+    async def test_search_git_history_tool_still_finds_it(self, writable_ctx):
+        await writable_ctx.backend.upsert_doc(
+            "git-history/abc.md",
+            ["Widget frobnication commit message about the frobnicator"],
+            title="Git history for abc",
+            category="git-history",
+        )
+
+        data = json.loads(await search_git_history("frobnication"))
+        assert len(data) >= 1
+        assert data[0]["file_path"] == "git-history/abc.md"
+
+    @pytest.mark.asyncio
+    async def test_empty_prefixes_restore_the_old_behaviour(self, tmp_path, monkeypatch):
+        # The filter is config-driven, so emptying it must return the unfiltered
+        # list — that is the escape hatch's whole purpose. The config is a frozen
+        # dataclass, so this builds its own rather than editing the fixture's.
+        config = GnosisMcpConfig(
+            database_url=str(tmp_path / "no_exclude.db"),
+            backend="sqlite",
+            writable=True,
+            search_exclude_prefixes=(),
+        )
+        backend = SqliteBackend(config)
+        await backend.startup()
+        await backend.init_schema()
+        ctx = AppContext(backend=backend, config=config)
+
+        async def _mock_get_ctx():
+            return ctx
+
+        monkeypatch.setattr(server_mod, "_get_ctx", _mock_get_ctx)
+        try:
+            await backend.upsert_doc(
+                "git-history/abc.md",
+                ["Widget frobnication commit message about the frobnicator"],
+                title="Git history for abc",
+                category="git-history",
+            )
+
+            result = await search_docs("frobnication")
+            paths = {d["file_path"] for d in json.loads(result)}
+            assert "git-history/abc.md" in paths
+        finally:
+            await backend.shutdown()
+
+
 # ---------------------------------------------------------------------------
 # MCP Tool tests — get_doc
 # ---------------------------------------------------------------------------

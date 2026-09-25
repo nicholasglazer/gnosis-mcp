@@ -431,9 +431,15 @@ async def search_docs(
 ) -> str:
     """Search documentation using keyword or hybrid semantic+keyword search.
 
+    Commit messages are excluded by default (`GNOSIS_MCP_SEARCH_EXCLUDE_PREFIXES`,
+    default `git-history/`) so they cannot bury the curated corpus. Use
+    `search_git_history`, or pass `category=`, to reach them.
+
     Args:
         query: Search query text.
         category: Optional category filter (e.g. "guides", "architecture", "ops").
+            Passing one disables the default exclusion and searches that
+            category only.
         limit: Maximum results (default 5, server-configurable upper bound).
         query_embedding: Optional pre-computed embedding vector for hybrid search.
             When provided, combines keyword (tsvector) and semantic (cosine) scoring.
@@ -462,6 +468,17 @@ async def search_docs(
     # only diversifies what it's given, so we fetch extra candidates to pick
     # from. Overlap with collapse-by-doc's bump is fine (we take the max).
     if 0.0 < cfg.mmr_lambda < 1.0:
+        fetch_limit = max(fetch_limit, limit * 5)
+    # The search-exclude filter below runs on the result list rather than in
+    # SQL, so it needs headroom for the same reason those two do — and more of
+    # it, because it removes an entire category rather than duplicate rows. On
+    # the index this was written against, 85% of docs were git-history
+    # pseudo-docs and they took the top-3 in 3 of 4 probe queries; a
+    # limit-sized fetch would come back nearly empty once they were dropped.
+    #
+    # Still bounded by search_limit_max below, so this raises the floor on what
+    # is fetched, never the ceiling.
+    if category is None and cfg.search_exclude_prefixes:
         fetch_limit = max(fetch_limit, limit * 5)
     fetch_limit = max(1, min(max(cfg.search_limit_max, cfg.rerank_pool), fetch_limit))
 
@@ -493,6 +510,23 @@ async def search_docs(
             limit=fetch_limit,
             query_embedding=query_embedding,
         )
+
+        # Read-time exclusion — see `config.search_exclude_prefixes` for why this
+        # is a filter here and not an ingest setting. Placed before rerank and
+        # collapse on purpose: both reorder and trim what they are handed, so
+        # dropping excluded paths first means their budget is spent on
+        # candidates the caller can actually be given.
+        #
+        # Only when no `category` was asked for. An explicit category is a
+        # request to look somewhere specific, and answering it with results from
+        # elsewhere would be worse than noisy — so `category="git-history"`
+        # reaches commits, as does `search_git_history`.
+        if category is None and cfg.search_exclude_prefixes:
+            results = [
+                r
+                for r in results
+                if not str(r.get("file_path", "")).startswith(cfg.search_exclude_prefixes)
+            ]
 
         if use_rerank and results:
             try:
