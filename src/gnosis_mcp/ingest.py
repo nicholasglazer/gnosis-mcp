@@ -20,6 +20,7 @@ import hashlib
 import io
 import json
 import logging
+import posixpath
 import re
 import tomllib
 from dataclasses import dataclass
@@ -348,10 +349,14 @@ def extract_typed_relations(markdown: str) -> list[tuple[str, str]]:
     return results
 
 
-def extract_content_links(markdown: str) -> list[str]:
+def extract_content_links(markdown: str, source_path: str | None = None) -> list[str]:
     """Extract markdown links ``[text](path.md)`` and ``[[wikilinks]]`` from body content.
 
-    Only extracts links to local files (skips URLs, globs).
+    Only extracts links to local files (skips URLs, globs). A ``#anchor`` or a
+    ``"title"`` after the path is dropped. With ``source_path`` (the linking
+    document's own path), markdown links are resolved against its directory the
+    way a renderer would, so ``../arch/x.md`` from ``guides/a.md`` becomes
+    ``arch/x.md``; links that resolve above the root are skipped.
     Returns deduplicated list of path strings.
     """
     if markdown.startswith("---"):
@@ -361,9 +366,16 @@ def extract_content_links(markdown: str) -> list[str]:
         body = markdown
 
     paths: list[str] = []
-    # Standard markdown links: [text](path.md) or [text](../path.md)
-    for m in re.finditer(r"\[.*?\]\(([^)]+\.md)\)", body):
-        paths.append(m.group(1))
+    # Standard markdown links: [text](path.md), [text](../path.md#anchor),
+    # [text](path.md "Title")
+    base_dir = posixpath.dirname(source_path) if source_path else None
+    for m in re.finditer(r"\[.*?\]\(([^)#]+?\.md)(?:#[^)\s]*)?(?:\s+[\"'][^)]*[\"'])?\)", body):
+        target = m.group(1).strip()
+        if base_dir is not None and not target.startswith(("/", "http")):
+            target = posixpath.normpath(posixpath.join(base_dir, target))
+            if target == ".." or target.startswith("../"):
+                continue
+        paths.append(target)
     # Wikilinks: [[path]] or [[path.md]]
     for m in re.finditer(r"\[\[([^\]|]+)\]\]", body):
         paths.append(m.group(1))
@@ -1232,7 +1244,7 @@ async def ingest_path(
                         )
 
             # Extract content links from body (markdown links and wikilinks)
-            content_links = extract_content_links(md_text)
+            content_links = extract_content_links(md_text, source_path=Path(rel).as_posix())
             if content_links:
                 try:
                     cl_inserted = await backend.insert_links(

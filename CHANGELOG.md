@@ -10,6 +10,16 @@ Versioning follows [Semantic Versioning](https://semver.org/) (pre-1.0).
 ### Added
 ### Changed
 ### Fixed
+
+- **Body links were stored as written, so many never joined a document.**
+  `[x](../arch/overview.md)` in `guides/install.md` was stored as
+  `../arch/overview.md` instead of `arch/overview.md`, and links with a
+  `#anchor` or a `"title"` were not extracted at all. `get_related` missed
+  those neighbours, returned paths `get_doc` could not open, and
+  `get_graph_stats` listed linked documents as orphans. Markdown links are now
+  resolved against the linking document's directory, with the anchor and title
+  dropped; wikilinks are unchanged.
+
 ### Security
 
 ## [0.17.5] - 2026-09-11
