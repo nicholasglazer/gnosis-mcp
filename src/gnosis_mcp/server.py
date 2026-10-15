@@ -421,7 +421,7 @@ async def list_categories() -> str:
 # ---------------------------------------------------------------------------
 
 
-@mcp.tool()
+@mcp.tool(meta={"anthropic/alwaysLoad": True})
 async def search_docs(
     query: str,
     category: str | None = None,
@@ -628,7 +628,7 @@ async def search_docs(
         )
 
 
-@mcp.tool()
+@mcp.tool(meta={"anthropic/alwaysLoad": True})
 async def get_doc(path: str, max_length: int | None = None) -> str:
     """Get full document content by file path. Reassembles all chunks in order.
 
