@@ -1354,3 +1354,64 @@ class TestExtractContentLinks:
         md = "No links here."
         result = extract_content_links(md)
         assert result == []
+
+    def test_anchor_and_title_kept(self):
+        md = 'See [run](setup.md#run) and [install](install.md "Install guide").'
+        result = extract_content_links(md)
+        assert result == ["setup.md", "install.md"]
+
+    def test_resolved_against_source_dir(self):
+        md = "See [arch](../arch/overview.md), [setup](setup.md) and [[notes/todo.md]]."
+        result = extract_content_links(md, source_path="guides/install.md")
+        # Markdown links resolve like a renderer would; wikilinks are unchanged.
+        assert result == ["arch/overview.md", "guides/setup.md", "notes/todo.md"]
+
+    def test_link_above_root_dropped(self):
+        md = "See [outside](../../elsewhere.md)."
+        result = extract_content_links(md, source_path="guides/install.md")
+        assert result == []
+
+
+class TestContentLinksIngest:
+    async def test_relative_links_stored_as_document_paths(self, tmp_path):
+        """Body links are stored as the root-relative paths documents use."""
+        db = str(tmp_path / "test.db")
+        docs_dir = tmp_path / "docs"
+        (docs_dir / "guides").mkdir(parents=True)
+        (docs_dir / "arch").mkdir()
+        body = "This paragraph is long enough to be kept as a chunk of the document.\n"
+        (docs_dir / "guides" / "install.md").write_text(
+            "# Install\n\n"
+            + body
+            + "See [architecture](../arch/overview.md) and [setup](setup.md#run).\n"
+        )
+        (docs_dir / "guides" / "setup.md").write_text("# Setup\n\n" + body)
+        (docs_dir / "arch" / "overview.md").write_text(
+            "# Overview\n\n" + body + 'Read [install](../guides/install.md "Install").\n'
+        )
+
+        cfg = GnosisMcpConfig(database_url=db, backend="sqlite")
+        await ingest_path(cfg, str(docs_dir))
+
+        from gnosis_mcp.backend import create_backend
+
+        backend = create_backend(cfg)
+        await backend.startup()
+        try:
+            rows = await backend._db.execute_fetchall(
+                "SELECT source_path, target_path FROM documentation_links "
+                "WHERE relation_type = 'content_link'"
+            )
+            related = await backend.get_related("arch/overview.md")
+        finally:
+            await backend.shutdown()
+
+        assert {(r[0], r[1]) for r in rows} == {
+            ("guides/install.md", "arch/overview.md"),
+            ("guides/install.md", "guides/setup.md"),
+            ("arch/overview.md", "guides/install.md"),
+        }
+        assert {(r["related_path"], r["direction"]) for r in related} == {
+            ("guides/install.md", "incoming"),
+            ("guides/install.md", "outgoing"),
+        }
